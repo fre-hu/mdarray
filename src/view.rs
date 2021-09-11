@@ -5,24 +5,24 @@ use crate::index::{DimIndex, IndexMap, ViewIndex};
 use crate::iterator::{Iter, IterMut};
 use crate::layout::{Layout, StridedLayout};
 use crate::order::{ColumnMajor, Order, RowMajor};
-use crate::sub_array::{SubArray, SubArrayMut};
+use crate::sub_grid::{SubGrid, SubGridMut};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr::{self, NonNull};
 use std::slice;
 
-/// Multidimensional view into an array with static rank and element order.
+/// Multidimensional array view with static rank and element order.
 #[repr(transparent)]
 pub struct ViewBase<T, L: Layout<N, O>, const N: usize, O: Order> {
     _marker: PhantomData<(T, L, O)>,
     _slice: [()],
 }
 
-/// Multidimensional view with static rank and element order, and dynamic shape and strides.
+/// Strided multidimensional array view with static rank and element order, and dynamic shape.
 pub type StridedView<T, const N: usize, const M: usize, O> =
     ViewBase<T, StridedLayout<N, M, O>, N, O>;
 
-/// Dense multidimensional view with static rank and element order, and dynamic shape.
+/// Dense multidimensional array view with static rank and element order, and dynamic shape.
 pub type DenseView<T, const N: usize, O> = StridedView<T, N, 0, O>;
 
 impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
@@ -40,12 +40,12 @@ impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
         data as *const T
     }
 
-    /// Creates a view from a raw pointer and an array layout.
+    /// Creates an array view from a raw pointer and an array layout.
     pub unsafe fn from_raw_parts(data: *const T, layout: &L) -> &Self {
         &*(ptr::from_raw_parts(data.cast(), layout as *const L as usize) as *const Self)
     }
 
-    /// Creates a mutable view from a raw pointer and an array layout.
+    /// Creates a mutable array view from a raw pointer and an array layout.
     pub unsafe fn from_raw_parts_mut(data: *mut T, layout: &L) -> &mut Self {
         &mut *(ptr::from_raw_parts_mut(data.cast(), layout as *const L as usize) as *mut Self)
     }
@@ -115,7 +115,7 @@ impl<T, const N: usize, O: Order> DenseView<T, N, O> {
 macro_rules! impl_view {
     ($name:tt, $type:tt, $as_ptr:tt, $n:tt, $m:tt, ($($v:tt),+), ($($x:tt),+), $d:meta) => {
         impl<T> StridedView<T, $n, $m, ColumnMajor> {
-            /// Returns a subarray with the specified view of the array.
+            /// Returns a subarray with the specified array view.
             ///
             /// The layout must be concrete (i.e. have no generic parameters) to compute the
             /// resulting layout. Note that variants that differ by return types are hidden.
@@ -240,71 +240,71 @@ macro_rules! impl_view {
     };
 }
 
-impl_view!(view, SubArray, as_ptr, 1, 0, (x), (X), doc());
-impl_view!(view, SubArray, as_ptr, 1, 1, (x), (X), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 1, 0, (x), (X), doc());
+impl_view!(view, SubGrid, as_ptr, 1, 1, (x), (X), doc(hidden));
 
-impl_view!(view, SubArray, as_ptr, 2, 0, (x, y), (X, Y), doc());
-impl_view!(view, SubArray, as_ptr, 2, 1, (x, y), (X, Y), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 2, 2, (x, y), (X, Y), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 2, 0, (x, y), (X, Y), doc());
+impl_view!(view, SubGrid, as_ptr, 2, 1, (x, y), (X, Y), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 2, 2, (x, y), (X, Y), doc(hidden));
 
-impl_view!(view, SubArray, as_ptr, 3, 0, (x, y, z), (X, Y, Z), doc());
-impl_view!(view, SubArray, as_ptr, 3, 1, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 3, 2, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 3, 3, (x, y, z), (X, Y, Z), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 3, 0, (x, y, z), (X, Y, Z), doc());
+impl_view!(view, SubGrid, as_ptr, 3, 1, (x, y, z), (X, Y, Z), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 3, 2, (x, y, z), (X, Y, Z), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 3, 3, (x, y, z), (X, Y, Z), doc(hidden));
 
-impl_view!(view, SubArray, as_ptr, 4, 0, (x, y, z, w), (X, Y, Z, W), doc());
-impl_view!(view, SubArray, as_ptr, 4, 1, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 4, 2, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 4, 3, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 4, 4, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 4, 0, (x, y, z, w), (X, Y, Z, W), doc());
+impl_view!(view, SubGrid, as_ptr, 4, 1, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 4, 2, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 4, 3, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 4, 4, (x, y, z, w), (X, Y, Z, W), doc(hidden));
 
-impl_view!(view, SubArray, as_ptr, 5, 0, (x, y, z, w, u), (X, Y, Z, W, U), doc());
-impl_view!(view, SubArray, as_ptr, 5, 1, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 5, 2, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 5, 3, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 5, 4, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 5, 5, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 5, 0, (x, y, z, w, u), (X, Y, Z, W, U), doc());
+impl_view!(view, SubGrid, as_ptr, 5, 1, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 5, 2, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 5, 3, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 5, 4, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 5, 5, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
 
-impl_view!(view, SubArray, as_ptr, 6, 0, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc());
-impl_view!(view, SubArray, as_ptr, 6, 1, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 6, 2, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubArray, as_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 6, 0, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc());
+impl_view!(view, SubGrid, as_ptr, 6, 1, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 6, 2, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view, SubGrid, as_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
 
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 1, 0, (x), (X), doc());
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 1, 1, (x), (X), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 1, 0, (x), (X), doc());
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 1, 1, (x), (X), doc(hidden));
 
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 2, 0, (x, y), (X, Y), doc());
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 2, 1, (x, y), (X, Y), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 2, 2, (x, y), (X, Y), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 2, 0, (x, y), (X, Y), doc());
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 2, 1, (x, y), (X, Y), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 2, 2, (x, y), (X, Y), doc(hidden));
 
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 3, 0, (x, y, z), (X, Y, Z), doc());
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 3, 1, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 3, 2, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 3, 3, (x, y, z), (X, Y, Z), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 0, (x, y, z), (X, Y, Z), doc());
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 1, (x, y, z), (X, Y, Z), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 2, (x, y, z), (X, Y, Z), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 3, (x, y, z), (X, Y, Z), doc(hidden));
 
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 4, 0, (x, y, z, w), (X, Y, Z, W), doc());
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 4, 1, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 4, 2, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 4, 3, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 4, 4, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 0, (x, y, z, w), (X, Y, Z, W), doc());
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 1, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 2, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 3, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 4, (x, y, z, w), (X, Y, Z, W), doc(hidden));
 
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 5, 0, (x, y, z, w, u), (X, Y, Z, W, U), doc());
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 5, 1, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 5, 2, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 5, 3, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 5, 4, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 5, 5, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 0, (x, y, z, w, u), (X, Y, Z, W, U), doc());
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 1, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 2, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 3, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 4, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 5, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
 
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 0, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc());
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 1, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 2, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubArrayMut, as_mut_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 0, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc());
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 1, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 2, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
 
 impl<T, const N: usize, O: Order> Deref for DenseView<T, N, O> {
     type Target = [T];

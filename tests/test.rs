@@ -16,8 +16,8 @@ fn to_vec<'a, T: 'a + Clone, I: Iterator<Item = &'a T>>(i: I) -> Vec<T> {
 
 #[test]
 fn test_mdarray() {
-    let mut a = Array::default();
-    let mut c = CArray::with_capacity_in(60, a.allocator().clone());
+    let mut a = Grid::default();
+    let mut c = CGrid::with_capacity_in(60, a.allocator().clone());
 
     a.resize([3, 4, 5], 0);
     c.resize([3, 4, 5], 0);
@@ -27,6 +27,9 @@ fn test_mdarray() {
     assert_eq!(a.size(1), 4);
     assert_eq!(a.stride(2), 12);
     assert_eq!(a.strides(), &[]);
+
+    assert!(a.as_ptr() as usize % 64 == 0);
+    assert!(c.as_ptr() as usize % 64 == 0);
 
     for i in 0..3 {
         for j in 0..4 {
@@ -75,7 +78,7 @@ fn test_mdarray() {
 
     assert_eq!(to_vec(s.iter()), to_vec(t.iter()));
 
-    let u = SArray2::<usize, 3, 4>::new(5);
+    let u = SGrid2::<usize, 3, 4>::new(5);
     let v = u.clone();
 
     assert_eq!(to_vec(u.iter()), to_vec(v.iter()));

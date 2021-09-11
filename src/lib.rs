@@ -32,43 +32,43 @@ Note that this crate requires nightly Rust toolchain.
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
-mod array;
 mod dimension;
+mod grid;
 mod index;
 mod iterator;
 mod layout;
 mod order;
 mod raw_vec;
-mod sub_array;
+mod sub_grid;
 mod view;
 
-pub use array::{ArrayBase, DenseArray, StaticArray};
 pub use dimension::{Dim1, Dim2};
+pub use grid::{DenseGrid, GridBase, StaticGrid};
 pub use order::{ColumnMajor, Order, RowMajor};
 pub use view::{DenseView, StridedView, ViewBase};
 
 use std::alloc::Global;
 
-/// Dense multidimensional view with column-major element order.
+/// Dense multidimensional array view with column-major element order.
 pub type View<T, const N: usize> = DenseView<T, N, ColumnMajor>;
 
-/// Dense multidimensional view with row-major element order.
+/// Dense multidimensional array view with row-major element order.
 pub type CView<T, const N: usize> = DenseView<T, N, RowMajor>;
 
 /// Dense multidimensional array with column-major element order.
-pub type Array<T, const N: usize, A = Global> = DenseArray<T, N, ColumnMajor, A>;
+pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, N, ColumnMajor, A>;
 
 /// Dense multidimensional array with row-major element order.
-pub type CArray<T, const N: usize, A = Global> = DenseArray<T, N, RowMajor, A>;
+pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, N, RowMajor, A>;
 
 /// Static 1-dimensional array with column-major element order.
-pub type SArray1<T, const X: usize> = StaticArray<T, Dim1<X>, 1, ColumnMajor>;
+pub type SGrid1<T, const X: usize> = StaticGrid<T, Dim1<X>, 1, ColumnMajor>;
 
 /// Static 1-dimensional array with row-major element order.
-pub type SCArray1<T, const X: usize> = StaticArray<T, Dim1<X>, 1, RowMajor>;
+pub type SCGrid1<T, const X: usize> = StaticGrid<T, Dim1<X>, 1, RowMajor>;
 
 /// Static 2-dimensional array with column-major element order.
-pub type SArray2<T, const X: usize, const Y: usize> = StaticArray<T, Dim2<X, Y>, 2, ColumnMajor>;
+pub type SGrid2<T, const X: usize, const Y: usize> = StaticGrid<T, Dim2<X, Y>, 2, ColumnMajor>;
 
 /// Static 2-dimensional array with row-major element order.
-pub type SCArray2<T, const X: usize, const Y: usize> = StaticArray<T, Dim2<X, Y>, 2, RowMajor>;
+pub type SCGrid2<T, const X: usize, const Y: usize> = StaticGrid<T, Dim2<X, Y>, 2, RowMajor>;

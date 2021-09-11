@@ -10,7 +10,7 @@ use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::{cmp, mem, ptr};
 
 /// Multidimensional array with static rank and element order.
-pub struct ArrayBase<T, B: Buffer<T, N, O>, const N: usize, O: Order> {
+pub struct GridBase<T, B: Buffer<T, N, O>, const N: usize, O: Order> {
     buffer: B,
     _marker: PhantomData<(T, O)>,
 }
@@ -37,12 +37,12 @@ where
 }
 
 /// Dense multidimensional array with static rank and element order, and dynamic shape.
-pub type DenseArray<T, const N: usize, O, A = Global> = ArrayBase<T, DenseBuffer<T, N, O, A>, N, O>;
+pub type DenseGrid<T, const N: usize, O, A = Global> = GridBase<T, DenseBuffer<T, N, O, A>, N, O>;
 
 /// Dense multidimensional array with static rank, shape and element order.
-pub type StaticArray<T, D, const N: usize, O> = ArrayBase<T, StaticBuffer<T, D, N, O>, N, O>;
+pub type StaticGrid<T, D, const N: usize, O> = GridBase<T, StaticBuffer<T, D, N, O>, N, O>;
 
-impl<T, const N: usize, O: Order> DenseArray<T, N, O, Global> {
+impl<T, const N: usize, O: Order> DenseGrid<T, N, O, Global> {
     /// Creates a new, empty array.
     pub fn new() -> Self {
         Self::new_in(Global)
@@ -54,7 +54,7 @@ impl<T, const N: usize, O: Order> DenseArray<T, N, O, Global> {
     }
 }
 
-impl<T, const N: usize, O: Order, A: Allocator> DenseArray<T, N, O, A> {
+impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
     /// Returns a reference to the underlying allocator.
     pub fn allocator(&self) -> &A {
         self.buffer.vec.allocator()
@@ -92,7 +92,7 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseArray<T, N, O, A> {
     }
 
     /// Returns a reshaped array, which must not change the array length.
-    pub fn reshape<const M: usize>(self, shape: [usize; M]) -> DenseArray<T, M, O, A> {
+    pub fn reshape<const M: usize>(self, shape: [usize; M]) -> DenseGrid<T, M, O, A> {
         let len = shape
             .iter()
             .fold(1usize, |acc, &x| acc.checked_mul(x).unwrap());
@@ -101,7 +101,7 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseArray<T, N, O, A> {
 
         let me = mem::ManuallyDrop::new(self);
 
-        DenseArray {
+        DenseGrid {
             buffer: DenseBuffer {
                 vec: unsafe { ptr::read(&me.buffer.vec) },
                 layout: DenseLayout::new(shape, [0; 0]),
@@ -140,7 +140,7 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseArray<T, N, O, A> {
     }
 }
 
-impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseArray<T, N, O, A> {
+impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
     /// Resizes the array in-place to the given shape.
     pub fn resize(&mut self, shape: [usize; N], value: T) {
         assert!(self.len() == 0); // TODO: Fix generic resize
@@ -163,7 +163,7 @@ impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseArray<T, N, O, A> {
     }
 }
 
-impl<T: Copy, D: Dimension<N>, const N: usize, O: Order> StaticArray<T, D, N, O>
+impl<T: Copy, D: Dimension<N>, const N: usize, O: Order> StaticGrid<T, D, N, O>
 where
     [(); D::LEN]: ,
 {
@@ -223,7 +223,7 @@ where
     }
 }
 
-impl<T, B: Buffer<T, N, O> + Clone, const N: usize, O: Order> Clone for ArrayBase<T, B, N, O> {
+impl<T, B: Buffer<T, N, O> + Clone, const N: usize, O: Order> Clone for GridBase<T, B, N, O> {
     fn clone(&self) -> Self {
         Self {
             buffer: self.buffer.clone(),
@@ -263,14 +263,14 @@ where
     }
 }
 
-impl<T, const N: usize, O: Order> Default for DenseArray<T, N, O, Global> {
+impl<T, const N: usize, O: Order> Default for DenseGrid<T, N, O, Global> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl<T: Copy + Default, D: Dimension<N>, const N: usize, O: Order> Default
-    for StaticArray<T, D, N, O>
+    for StaticGrid<T, D, N, O>
 where
     [(); D::LEN]: ,
 {
@@ -285,7 +285,7 @@ where
     }
 }
 
-impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Deref for ArrayBase<T, B, N, O> {
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Deref for GridBase<T, B, N, O> {
     type Target = ViewBase<T, B::Layout, N, O>;
 
     fn deref(&self) -> &Self::Target {
@@ -293,7 +293,7 @@ impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Deref for ArrayBase<T, B, 
     }
 }
 
-impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> DerefMut for ArrayBase<T, B, N, O> {
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> DerefMut for GridBase<T, B, N, O> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { ViewBase::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.buffer.layout()) }
     }
@@ -310,7 +310,7 @@ impl<T, const N: usize, O: Order, A: Allocator> Drop for DenseBuffer<T, N, O, A>
 }
 
 impl<I: ViewIndex<T, N, M, O>, T, B, const N: usize, const M: usize, O: Order> Index<I>
-    for ArrayBase<T, B, N, O>
+    for GridBase<T, B, N, O>
 where
     B: Buffer<T, N, O, Layout = StridedLayout<N, M, O>>,
 {
@@ -322,7 +322,7 @@ where
 }
 
 impl<I: ViewIndex<T, N, M, O>, T, B, const N: usize, const M: usize, O: Order> IndexMut<I>
-    for ArrayBase<T, B, N, O>
+    for GridBase<T, B, N, O>
 where
     B: Buffer<T, N, O, Layout = StridedLayout<N, M, O>>,
 {

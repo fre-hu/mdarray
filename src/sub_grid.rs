@@ -6,19 +6,19 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr::NonNull;
 
-pub struct SubArray<'a, T, const N: usize, const M: usize, O: Order> {
+pub struct SubGrid<'a, T, const N: usize, const M: usize, O: Order> {
     ptr: NonNull<T>,
     layout: StridedLayout<N, M, O>,
     _marker: PhantomData<&'a T>,
 }
 
-pub struct SubArrayMut<'a, T, const N: usize, const M: usize, O: Order> {
+pub struct SubGridMut<'a, T, const N: usize, const M: usize, O: Order> {
     ptr: NonNull<T>,
     layout: StridedLayout<N, M, O>,
     _marker: PhantomData<&'a mut T>,
 }
 
-impl<'a, T, const N: usize, const M: usize, O: Order> SubArray<'a, T, N, M, O> {
+impl<'a, T, const N: usize, const M: usize, O: Order> SubGrid<'a, T, N, M, O> {
     pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
         Self {
             ptr,
@@ -28,7 +28,7 @@ impl<'a, T, const N: usize, const M: usize, O: Order> SubArray<'a, T, N, M, O> {
     }
 }
 
-impl<'a, T, const N: usize, const M: usize, O: Order> SubArrayMut<'a, T, N, M, O> {
+impl<'a, T, const N: usize, const M: usize, O: Order> SubGridMut<'a, T, N, M, O> {
     pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
         Self {
             ptr,
@@ -38,7 +38,7 @@ impl<'a, T, const N: usize, const M: usize, O: Order> SubArrayMut<'a, T, N, M, O
     }
 }
 
-impl<'a, T, const N: usize, const M: usize, O: Order> Deref for SubArray<'a, T, N, M, O> {
+impl<'a, T, const N: usize, const M: usize, O: Order> Deref for SubGrid<'a, T, N, M, O> {
     type Target = StridedView<T, N, M, O>;
 
     fn deref(&self) -> &Self::Target {
@@ -46,7 +46,7 @@ impl<'a, T, const N: usize, const M: usize, O: Order> Deref for SubArray<'a, T, 
     }
 }
 
-impl<'a, T, const N: usize, const M: usize, O: Order> Deref for SubArrayMut<'a, T, N, M, O> {
+impl<'a, T, const N: usize, const M: usize, O: Order> Deref for SubGridMut<'a, T, N, M, O> {
     type Target = StridedView<T, N, M, O>;
 
     fn deref(&self) -> &Self::Target {
@@ -54,14 +54,14 @@ impl<'a, T, const N: usize, const M: usize, O: Order> Deref for SubArrayMut<'a, 
     }
 }
 
-impl<'a, T, const N: usize, const M: usize, O: Order> DerefMut for SubArrayMut<'a, T, N, M, O> {
+impl<'a, T, const N: usize, const M: usize, O: Order> DerefMut for SubGridMut<'a, T, N, M, O> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { StridedView::from_raw_parts_mut(self.ptr.as_ptr(), &self.layout) }
     }
 }
 
 impl<'a, I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> Index<I>
-    for SubArray<'a, T, N, M, O>
+    for SubGrid<'a, T, N, M, O>
 {
     type Output = I::Output;
 
@@ -71,7 +71,7 @@ impl<'a, I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> 
 }
 
 impl<'a, I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> Index<I>
-    for SubArrayMut<'a, T, N, M, O>
+    for SubGridMut<'a, T, N, M, O>
 {
     type Output = I::Output;
 
@@ -81,7 +81,7 @@ impl<'a, I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> 
 }
 
 impl<'a, I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> IndexMut<I>
-    for SubArrayMut<'a, T, N, M, O>
+    for SubGridMut<'a, T, N, M, O>
 {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(&mut **self)
