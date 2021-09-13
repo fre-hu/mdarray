@@ -28,9 +28,6 @@ fn test_mdarray() {
     assert_eq!(a.stride(2), 12);
     assert_eq!(a.strides(), &[]);
 
-    assert!(a.as_ptr() as usize % 64 == 0);
-    assert!(c.as_ptr() as usize % 64 == 0);
-
     for i in 0..3 {
         for j in 0..4 {
             for k in 0..5 {

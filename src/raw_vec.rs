@@ -3,12 +3,19 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::{cmp, mem};
 
-const MIN_ALIGN: usize = 64; // Maximum SIMD vector size
+// Maximum SIMD vector size
+const MIN_ALIGN: usize = if cfg!(target_feature = "avx512f") {
+    64
+} else if cfg!(target_feature = "avx") {
+    32
+} else {
+    16
+};
 
 pub struct RawVec<T, A: Allocator> {
     ptr: NonNull<T>,
-    alloc: A,
     capacity: usize,
+    alloc: A,
     _marker: PhantomData<T>,
 }
 
@@ -48,8 +55,8 @@ impl<T, A: Allocator> RawVec<T, A> {
     pub fn new_in(alloc: A) -> Self {
         Self {
             ptr: NonNull::dangling(),
-            alloc,
             capacity: 0,
+            alloc,
             _marker: PhantomData,
         }
     }
@@ -87,8 +94,8 @@ impl<T, A: Allocator> RawVec<T, A> {
 
         Self {
             ptr: ptr.cast(),
-            alloc,
             capacity: ptr.len() / mem::size_of::<T>(),
+            alloc,
             _marker: PhantomData,
         }
     }
