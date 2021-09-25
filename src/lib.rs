@@ -28,6 +28,7 @@ Note that this crate requires nightly Rust toolchain.
 #![feature(custom_inner_attributes)]
 #![feature(generic_const_exprs)]
 #![feature(ptr_metadata)]
+#![feature(slice_index_methods)]
 #![feature(slice_ptr_len)]
 #![feature(slice_range)]
 #![warn(missing_docs)]

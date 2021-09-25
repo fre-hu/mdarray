@@ -7,6 +7,7 @@ use crate::layout::{Layout, StridedLayout};
 use crate::order::{ColumnMajor, Order, RowMajor};
 use crate::sub_grid::{SubGrid, SubGridMut};
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr::{self, NonNull};
 use std::slice;
@@ -42,12 +43,24 @@ impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
 
     /// Creates an array view from a raw pointer and an array layout.
     pub unsafe fn from_raw_parts(data: *const T, layout: &L) -> &Self {
-        &*(ptr::from_raw_parts(data.cast(), layout as *const L as usize) as *const Self)
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        if mem::size_of::<L>() == mem::size_of::<usize>() {
+            &*(ptr::from_raw_parts(data.cast(), mem::transmute_copy(layout)) as *const Self)
+        } else {
+            &*(ptr::from_raw_parts(data.cast(), layout as *const L as usize) as *const Self)
+        }
     }
 
     /// Creates a mutable array view from a raw pointer and an array layout.
     pub unsafe fn from_raw_parts_mut(data: *mut T, layout: &L) -> &mut Self {
-        &mut *(ptr::from_raw_parts_mut(data.cast(), layout as *const L as usize) as *mut Self)
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        if mem::size_of::<L>() == mem::size_of::<usize>() {
+            &mut *(ptr::from_raw_parts_mut(data.cast(), mem::transmute_copy(layout)) as *mut Self)
+        } else {
+            &mut *(ptr::from_raw_parts_mut(data.cast(), layout as *const L as usize) as *mut Self)
+        }
     }
 
     /// Returns true if the array contains no elements.
@@ -56,10 +69,14 @@ impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
     }
 
     /// Returns the array layout.
-    pub fn layout(&self) -> &L {
+    pub fn layout(&self) -> L {
         let (_, layout) = (self as *const Self).to_raw_parts();
 
-        unsafe { &*(layout as *const L) }
+        if mem::size_of::<L>() == mem::size_of::<usize>() {
+            unsafe { mem::transmute_copy(&layout) }
+        } else {
+            unsafe { *(layout as *const L) }
+        }
     }
 
     /// Returns the number of elements in the array.
@@ -68,13 +85,13 @@ impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
     }
 
     /// Returns the shape of the array.
-    pub fn shape(&self) -> &[usize; N] {
+    pub fn shape(&self) -> [usize; N] {
         self.layout().shape()
     }
 
     /// Returns the number of elements in the specified dimension.
     pub fn size(&self, dim: usize) -> usize {
-        self.layout().shape()[dim]
+        self.layout().size(dim)
     }
 }
 
@@ -95,7 +112,7 @@ impl<T, const N: usize, const M: usize, O: Order> StridedView<T, N, M, O> {
     }
 
     /// Returns the distance between elements in each dimension.
-    pub fn strides(&self) -> &[isize; M] {
+    pub fn strides(&self) -> [isize; M] {
         self.layout().strides()
     }
 }
@@ -143,7 +160,7 @@ macro_rules! impl_view {
                     &mut dims,
                     &mut shape,
                     &mut start,
-                    self.shape(),
+                    &self.shape(),
                     0,
                 );
 
@@ -203,7 +220,7 @@ macro_rules! impl_view {
                     &mut dims,
                     &mut shape,
                     &mut start,
-                    self.shape(),
+                    &self.shape(),
                     0,
                 );
 
@@ -305,6 +322,22 @@ impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z,
 impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
 impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
 impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+
+impl<T, O: Order> AsMut<DenseView<T, 1, O>> for [T] {
+    fn as_mut(&mut self) -> &mut DenseView<T, 1, O> {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        unsafe { &mut *ptr::from_raw_parts_mut(self.as_mut_ptr().cast(), self.len()) }
+    }
+}
+
+impl<T, O: Order> AsRef<DenseView<T, 1, O>> for [T] {
+    fn as_ref(&self) -> &DenseView<T, 1, O> {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        unsafe { &*ptr::from_raw_parts(self.as_ptr().cast(), self.len()) }
+    }
+}
 
 impl<T, const N: usize, O: Order> Deref for DenseView<T, N, O> {
     type Target = [T];

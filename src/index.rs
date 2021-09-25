@@ -3,7 +3,6 @@
 use crate::order::{ColumnMajor, Order, RowMajor};
 use crate::view::{DenseView, StridedView};
 use std::ops::{Bound, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
-use std::ops::{Index, IndexMut};
 use std::slice::{self, SliceIndex};
 
 pub enum DimInfo {
@@ -201,27 +200,38 @@ impl_index_map!(6, (X, Y, Z, W, U), (Y, Z, W, U, V), V, (1, 2, 3, 4, 5));
 macro_rules! impl_view_index {
     ($type:ty) => {
         impl<T, const N: usize, O: Order> ViewIndex<T, N, 0, O> for $type {
-            type Output = <$type as SliceIndex<[T]>>::Output;
+            type Output = DenseView<T, 1, O>;
 
             fn index(self, view: &DenseView<T, N, O>) -> &Self::Output {
-                (**view).index(self)
+                <Self as SliceIndex<[T]>>::index(self, view).as_ref()
             }
 
             fn index_mut(self, view: &mut DenseView<T, N, O>) -> &mut Self::Output {
-                (**view).index_mut(self)
+                <Self as SliceIndex<[T]>>::index_mut(self, view).as_mut()
             }
         }
     };
 }
 
 impl_view_index!((Bound<usize>, Bound<usize>));
-impl_view_index!(usize);
 impl_view_index!(Range<usize>);
 impl_view_index!(RangeFrom<usize>);
 impl_view_index!(RangeInclusive<usize>);
 impl_view_index!(RangeFull);
 impl_view_index!(RangeTo<usize>);
 impl_view_index!(RangeToInclusive<usize>);
+
+impl<T, const N: usize, O: Order> ViewIndex<T, N, 0, O> for usize {
+    type Output = T;
+
+    fn index(self, view: &StridedView<T, N, 0, O>) -> &Self::Output {
+        <Self as SliceIndex<[T]>>::index(self, view)
+    }
+
+    fn index_mut(self, view: &mut StridedView<T, N, 0, O>) -> &mut Self::Output {
+        <Self as SliceIndex<[T]>>::index_mut(self, view)
+    }
+}
 
 impl<T, const N: usize, const M: usize, O: Order> ViewIndex<T, N, M, O> for [usize; N] {
     type Output = T;

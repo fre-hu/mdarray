@@ -7,7 +7,7 @@ use std::marker::PhantomData;
 macro_rules! impl_iter {
     ($name:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
         pub struct $name<'a, T, const N: usize, const M: usize, O: Order> {
-            layout: &'a StridedLayout<N, M, O>,
+            layout: StridedLayout<N, M, O>,
             start: *$raw_mut T,
             end: *$raw_mut T,
             indices: [usize; M],

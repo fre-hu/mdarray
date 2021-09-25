@@ -1,10 +1,12 @@
 use crate::order::Order;
 use std::marker::PhantomData;
 
-pub trait Layout<const N: usize, O: Order> {
-    fn shape(&self) -> &[usize; N];
+pub trait Layout<const N: usize, O: Order>: Copy {
+    fn shape(&self) -> [usize; N];
+    fn size(&self, dim: usize) -> usize;
 }
 
+#[derive(Clone, Copy)]
 pub struct StridedLayout<const N: usize, const M: usize, O: Order> {
     shape: [usize; N],
     strides: [isize; M],
@@ -37,8 +39,8 @@ impl<const N: usize, const M: usize, O: Order> StridedLayout<N, M, O> {
         )
     }
 
-    pub fn strides(&self) -> &[isize; M] {
-        &self.strides
+    pub fn strides(&self) -> [isize; M] {
+        self.strides
     }
 }
 
@@ -50,7 +52,11 @@ impl<const N: usize, const M: usize, O: Order> StridedLayout<N, M, O> {
 }
 
 impl<const N: usize, const M: usize, O: Order> Layout<N, O> for StridedLayout<N, M, O> {
-    fn shape(&self) -> &[usize; N] {
-        &self.shape
+    fn shape(&self) -> [usize; N] {
+        self.shape
+    }
+
+    fn size(&self, dim: usize) -> usize {
+        self.shape[dim]
     }
 }

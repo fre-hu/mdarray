@@ -4,6 +4,7 @@
 #![feature(custom_inner_attributes)]
 #![feature(generic_const_exprs)]
 #![feature(ptr_metadata)]
+#![feature(slice_index_methods)]
 #![feature(slice_ptr_len)]
 #![feature(slice_range)]
 #![warn(missing_docs)]
@@ -23,10 +24,10 @@ fn test_mdarray() {
     c.resize([3, 4, 5], 0);
 
     assert_eq!(a.len(), 60);
-    assert_eq!(a.shape(), &[3, 4, 5]);
+    assert_eq!(a.shape(), [3, 4, 5]);
     assert_eq!(a.size(1), 4);
     assert_eq!(a.stride(2), 12);
-    assert_eq!(a.strides(), &[]);
+    assert_eq!(a.strides(), []);
 
     for i in 0..3 {
         for j in 0..4 {
@@ -47,11 +48,11 @@ fn test_mdarray() {
     let mut r = a.reshape([5, 4, 3]);
     let mut s = c.reshape([5, 4, 3]);
 
-    assert_eq!(r.view(1.., 1.., 1..).shape(), &[4, 3, 2]);
-    assert_eq!(s.view(1.., 1.., 1..).shape(), &[4, 3, 2]);
+    assert_eq!(r.view(1.., 1.., 1..).shape(), [4, 3, 2]);
+    assert_eq!(s.view(1.., 1.., 1..).shape(), [4, 3, 2]);
 
-    assert_eq!(r.view(1.., 1.., 1..).strides(), &[5, 20]);
-    assert_eq!(s.view(1.., 1.., 1..).strides(), &[12, 3]);
+    assert_eq!(r.view(1.., 1.., 1..).strides(), [5, 20]);
+    assert_eq!(s.view(1.., 1.., 1..).strides(), [12, 3]);
 
     assert_eq!(to_vec(r.view(1.., 1.., 1..).view(2, 1, 0).iter()), &[1032]);
     assert_eq!(to_vec(s.view(1.., 1.., 1..).view(2, 1, 0).iter()), &[1203]);
