@@ -45,8 +45,14 @@ fn test_mdarray() {
     assert_eq!(to_vec(a.view(1.., ..2, 4).iter()), [1104, 1204, 1114, 1214]);
     assert_eq!(to_vec(c.view(1.., ..2, 4).iter()), [1104, 1114, 1204, 1214]);
 
-    let mut r = a.reshape([5, 4, 3]);
-    let mut s = c.reshape([5, 4, 3]);
+    let mut r = a.clone().reshape([5, 4, 3]);
+    let mut s = c.clone().reshape([5, 4, 3]);
+
+    a.resize([4, 4, 4], 9999);
+    c.resize([4, 4, 4], 9999);
+
+    assert_eq!(a.iter().sum::<usize>(), 213576);
+    assert_eq!(c.iter().sum::<usize>(), 213576);
 
     assert_eq!(r.view(1.., 1.., 1..).shape(), [4, 3, 2]);
     assert_eq!(s.view(1.., 1.., 1..).shape(), [4, 3, 2]);

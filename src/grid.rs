@@ -143,8 +143,6 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
 impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
     /// Resizes the array in-place to the given shape.
     pub fn resize(&mut self, shape: [usize; N], value: T) {
-        assert!(self.len() == 0); // TODO: Fix generic resize
-
         let len = shape
             .iter()
             .fold(1usize, |acc, &x| acc.checked_mul(x).unwrap());
@@ -153,9 +151,82 @@ impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
             self.buffer.vec.grow(len);
         }
 
-        for i in 0..len {
-            unsafe {
-                ptr::write(self.buffer.vec.as_mut_ptr().add(i), value.clone());
+        let ptr = self.as_mut_ptr();
+
+        if len == 0 {
+            for i in 0..self.len() {
+                unsafe {
+                    ptr::read(ptr.add(i));
+                }
+            }
+        } else if self.is_empty() {
+            for i in 0..len {
+                unsafe {
+                    ptr::write(ptr.add(i), value.clone());
+                }
+            }
+        } else {
+            let mut min_shape = self.shape();
+
+            let mut count = 1;
+            let mut stride = self.len();
+
+            // Shrink dimensions that are too large
+            for i in 0..N {
+                let dim = O::select(N - 1 - i, i);
+
+                stride /= self.size(dim);
+
+                if self.size(dim) > shape[dim] {
+                    let old_stride = stride * self.size(dim);
+                    let new_stride = stride * shape[dim];
+
+                    unsafe {
+                        for j in new_stride..old_stride {
+                            ptr::read(ptr.add(j));
+                        }
+
+                        for j in 1..count {
+                            ptr::copy(ptr.add(j * old_stride), ptr.add(j * new_stride), new_stride);
+
+                            for k in new_stride..old_stride {
+                                ptr::read(ptr.add(j * old_stride + k));
+                            }
+                        }
+                    }
+
+                    min_shape[dim] = shape[dim];
+                }
+
+                count *= min_shape[dim];
+            }
+
+            // Expand dimensions that are too small
+            for i in 0..N {
+                let dim = O::select(i, N - 1 - i);
+
+                count /= min_shape[dim];
+
+                if shape[dim] > min_shape[dim] {
+                    let old_stride = stride * min_shape[dim];
+                    let new_stride = stride * shape[dim];
+
+                    unsafe {
+                        for j in (1..count).rev() {
+                            ptr::copy(ptr.add(j * old_stride), ptr.add(j * new_stride), old_stride);
+
+                            for k in old_stride..new_stride {
+                                ptr::write(ptr.add(j * new_stride + k), value.clone());
+                            }
+                        }
+
+                        for j in old_stride..new_stride {
+                            ptr::write(ptr.add(j), value.clone());
+                        }
+                    }
+                }
+
+                stride *= shape[dim];
             }
         }
 
