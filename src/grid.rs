@@ -1,39 +1,19 @@
+use crate::buffer::Buffer;
+use crate::buffer::{DenseBuffer, StaticBuffer, SubBuffer, SubBufferMut};
 use crate::dimension::Dimension;
-use crate::index::ViewIndex;
-use crate::layout::{DenseLayout, Layout, StridedLayout};
+use crate::layout::StridedLayout;
 use crate::order::Order;
-use crate::raw_vec::RawVec;
 use crate::view::ViewBase;
 use std::alloc::{Allocator, Global};
 use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::{cmp, mem, ptr};
+use std::ops::{Deref, DerefMut};
+use std::ptr::NonNull;
+use std::{cmp, mem};
 
 /// Multidimensional array with static rank and element order.
 pub struct GridBase<T, B: Buffer<T, N, O>, const N: usize, O: Order> {
     buffer: B,
     _marker: PhantomData<(T, O)>,
-}
-
-pub trait Buffer<T, const N: usize, O: Order> {
-    type Layout: Layout<N, O>;
-
-    fn as_mut_ptr(&mut self) -> *mut T;
-    fn as_ptr(&self) -> *const T;
-    fn layout(&self) -> &Self::Layout;
-}
-
-pub struct DenseBuffer<T, const N: usize, O: Order, A: Allocator> {
-    vec: RawVec<T, A>,
-    layout: DenseLayout<N, O>,
-}
-
-pub struct StaticBuffer<T, D: Dimension<N>, const N: usize, O: Order>
-where
-    [T; D::LEN]: ,
-{
-    array: [T; D::LEN],
-    _marker: PhantomData<(D, O)>,
 }
 
 /// Dense multidimensional array with static rank and element order, and dynamic shape.
@@ -42,7 +22,120 @@ pub type DenseGrid<T, const N: usize, O, A = Global> = GridBase<T, DenseBuffer<T
 /// Dense multidimensional array with static rank, shape and element order.
 pub type StaticGrid<T, D, const N: usize, O> = GridBase<T, StaticBuffer<T, D, N, O>, N, O>;
 
+pub type SubGrid<'a, T, const N: usize, const M: usize, O> =
+    GridBase<T, SubBuffer<'a, T, N, M, O>, N, O>;
+
+pub type SubGridMut<'a, T, const N: usize, const M: usize, O> =
+    GridBase<T, SubBufferMut<'a, T, N, M, O>, N, O>;
+
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> GridBase<T, B, N, O> {
+    /// Returns a mutable array view of the entire array.
+    pub fn as_mut_view(&mut self) -> &mut ViewBase<T, B::Layout, N, O> {
+        unsafe { ViewBase::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.buffer.layout()) }
+    }
+
+    /// Returns an array view of the entire array.
+    pub fn as_view(&self) -> &ViewBase<T, B::Layout, N, O> {
+        unsafe { ViewBase::from_raw_parts(self.buffer.as_ptr(), self.buffer.layout()) }
+    }
+}
+
+impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
+    /// Returns a reference to the underlying allocator.
+    pub fn allocator(&self) -> &A {
+        self.buffer.allocator()
+    }
+
+    /// Returns the number of elements the array can hold without reallocating.
+    pub fn capacity(&self) -> usize {
+        self.buffer.capacity()
+    }
+
+    /// Clears the array, removing all values.
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+    }
+
+    /// Creates an array from raw components of another array with the specified allocator.
+    pub unsafe fn from_raw_parts_in(
+        ptr: *mut T,
+        shape: [usize; N],
+        capacity: usize,
+        alloc: A,
+    ) -> Self {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        Self {
+            buffer: DenseBuffer::from_raw_parts_in(ptr, shape, capacity, alloc),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Decomposes an array into its raw components including the allocator.
+    pub fn into_raw_parts_with_alloc(self) -> (*mut T, [usize; N], usize, A) {
+        let Self { buffer, .. } = self;
+
+        buffer.into_raw_parts_with_alloc()
+    }
+
+    /// Creates a new, empty array with the specified allocator.
+    pub fn new_in(alloc: A) -> Self {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        Self {
+            buffer: DenseBuffer::new_in(alloc),
+            _marker: PhantomData,
+        }
+    }
+
+    /// Returns a reshaped array, which must not change the array length.
+    pub fn reshape<const M: usize>(self, shape: [usize; M]) -> DenseGrid<T, M, O, A> {
+        let len = shape.iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+
+        assert_eq!(len, self.len());
+
+        let (ptr, _, capacity, alloc) = self.into_raw_parts_with_alloc();
+
+        DenseGrid {
+            buffer: unsafe { DenseBuffer::from_raw_parts_in(ptr, shape, capacity, alloc) },
+            _marker: PhantomData,
+        }
+    }
+
+    /// Shrinks the capacity of the array with a lower bound.
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        self.buffer.shrink_to(cmp::max(min_capacity, self.len()));
+    }
+
+    /// Shrinks the capacity of the array as much as possible.
+    pub fn shrink_to_fit(&mut self) {
+        self.buffer.shrink_to(self.len());
+    }
+
+    /// Creates a new, empty array with the specified capacity and allocator.
+    pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        Self {
+            buffer: DenseBuffer::with_capacity_in(capacity, alloc),
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<T, const N: usize, O: Order> DenseGrid<T, N, O, Global> {
+    /// Creates an array from raw components of another array.
+    pub unsafe fn from_raw_parts(ptr: *mut T, shape: [usize; N], capacity: usize) -> Self {
+        Self::from_raw_parts_in(ptr, shape, capacity, Global)
+    }
+
+    /// Decomposes an array into its raw components.
+    pub fn into_raw_parts(self) -> (*mut T, [usize; N], usize) {
+        let (ptr, shape, capacity, _) = self.into_raw_parts_with_alloc();
+
+        (ptr, shape, capacity)
+    }
+
     /// Creates a new, empty array.
     pub fn new() -> Self {
         Self::new_in(Global)
@@ -54,183 +147,10 @@ impl<T, const N: usize, O: Order> DenseGrid<T, N, O, Global> {
     }
 }
 
-impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
-    /// Returns a reference to the underlying allocator.
-    pub fn allocator(&self) -> &A {
-        self.buffer.vec.allocator()
-    }
-
-    /// Returns the number of elements the array can hold without reallocating.
-    pub fn capacity(&self) -> usize {
-        self.buffer.vec.capacity()
-    }
-
-    /// Clears the array, removing all values.
-    pub fn clear(&mut self) {
-        let len = self.len();
-
-        self.buffer.layout.resize([0; N], [0; 0]);
-
-        for i in 0..len {
-            unsafe {
-                ptr::read(self.buffer.vec.as_ptr().add(i));
-            }
-        }
-    }
-
-    /// Creates a new, empty array with the specified allocator.
-    pub fn new_in(alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        Self {
-            buffer: DenseBuffer {
-                vec: RawVec::new_in(alloc),
-                layout: DenseLayout::new([0; N], [0; 0]),
-            },
-            _marker: PhantomData,
-        }
-    }
-
-    /// Returns a reshaped array, which must not change the array length.
-    pub fn reshape<const M: usize>(self, shape: [usize; M]) -> DenseGrid<T, M, O, A> {
-        let len = shape
-            .iter()
-            .fold(1usize, |acc, &x| acc.checked_mul(x).unwrap());
-
-        assert_eq!(len, self.len());
-
-        let me = mem::ManuallyDrop::new(self);
-
-        DenseGrid {
-            buffer: DenseBuffer {
-                vec: unsafe { ptr::read(&me.buffer.vec) },
-                layout: DenseLayout::new(shape, [0; 0]),
-            },
-            _marker: PhantomData,
-        }
-    }
-
-    /// Shrinks the capacity of the array with a lower bound.
-    pub fn shrink_to(&mut self, min_capacity: usize) {
-        let capacity = cmp::max(min_capacity, self.len());
-
-        if capacity < self.capacity() {
-            self.buffer.vec.shrink(capacity);
-        }
-    }
-
-    /// Shrinks the capacity of the array as much as possible.
-    pub fn shrink_to_fit(&mut self) {
-        if self.len() < self.capacity() {
-            self.buffer.vec.shrink(self.len());
-        }
-    }
-
-    /// Creates a new, empty array with the specified capacity and allocator.
-    pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        Self {
-            buffer: DenseBuffer {
-                vec: RawVec::with_capacity_in(capacity, alloc),
-                layout: DenseLayout::new([0; N], [0; 0]),
-            },
-            _marker: PhantomData,
-        }
-    }
-}
-
 impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
     /// Resizes the array in-place to the given shape.
     pub fn resize(&mut self, shape: [usize; N], value: T) {
-        let len = shape
-            .iter()
-            .fold(1usize, |acc, &x| acc.checked_mul(x).unwrap());
-
-        if len > self.capacity() {
-            self.buffer.vec.grow(len);
-        }
-
-        let ptr = self.as_mut_ptr();
-
-        if len == 0 {
-            for i in 0..self.len() {
-                unsafe {
-                    ptr::read(ptr.add(i));
-                }
-            }
-        } else if self.is_empty() {
-            for i in 0..len {
-                unsafe {
-                    ptr::write(ptr.add(i), value.clone());
-                }
-            }
-        } else {
-            let mut min_shape = self.shape();
-
-            let mut count = 1;
-            let mut stride = self.len();
-
-            // Shrink dimensions that are too large
-            for i in 0..N {
-                let dim = O::select(N - 1 - i, i);
-
-                stride /= self.size(dim);
-
-                if self.size(dim) > shape[dim] {
-                    let old_stride = stride * self.size(dim);
-                    let new_stride = stride * shape[dim];
-
-                    unsafe {
-                        for j in new_stride..old_stride {
-                            ptr::read(ptr.add(j));
-                        }
-
-                        for j in 1..count {
-                            ptr::copy(ptr.add(j * old_stride), ptr.add(j * new_stride), new_stride);
-
-                            for k in new_stride..old_stride {
-                                ptr::read(ptr.add(j * old_stride + k));
-                            }
-                        }
-                    }
-
-                    min_shape[dim] = shape[dim];
-                }
-
-                count *= min_shape[dim];
-            }
-
-            // Expand dimensions that are too small
-            for i in 0..N {
-                let dim = O::select(i, N - 1 - i);
-
-                count /= min_shape[dim];
-
-                if shape[dim] > min_shape[dim] {
-                    let old_stride = stride * min_shape[dim];
-                    let new_stride = stride * shape[dim];
-
-                    unsafe {
-                        for j in (1..count).rev() {
-                            ptr::copy(ptr.add(j * old_stride), ptr.add(j * new_stride), old_stride);
-
-                            for k in old_stride..new_stride {
-                                ptr::write(ptr.add(j * new_stride + k), value.clone());
-                            }
-                        }
-
-                        for j in old_stride..new_stride {
-                            ptr::write(ptr.add(j), value.clone());
-                        }
-                    }
-                }
-
-                stride *= shape[dim];
-            }
-        }
-
-        self.buffer.layout.resize(shape, [0; 0]);
+        self.buffer.resize(shape, value);
     }
 }
 
@@ -243,54 +163,33 @@ where
         assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
         Self {
-            buffer: StaticBuffer {
-                array: [value; D::LEN],
-                _marker: PhantomData,
-            },
+            buffer: StaticBuffer::new(value), // TODO: Change to [value; D::LEN]
             _marker: PhantomData,
         }
     }
 }
 
-impl<T, D: Dimension<N>, const N: usize, O: Order> StaticBuffer<T, D, N, O>
-where
-    [T; D::LEN]: ,
-{
-    const LAYOUT: DenseLayout<N, O> = DenseLayout::new(D::SHAPE, [0; 0]);
-}
+impl<'a, T, const N: usize, const M: usize, O: Order> SubGrid<'a, T, N, M, O> {
+    /// Creates a subarray from the specified pointer and layout.
+    pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
-impl<T, const N: usize, O: Order, A: Allocator> Buffer<T, N, O> for DenseBuffer<T, N, O, A> {
-    type Layout = DenseLayout<N, O>;
-
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.vec.as_mut_ptr()
-    }
-
-    fn as_ptr(&self) -> *const T {
-        self.vec.as_ptr()
-    }
-
-    fn layout(&self) -> &DenseLayout<N, O> {
-        &self.layout
+        Self {
+            buffer: SubBuffer::new(ptr, layout),
+            _marker: PhantomData,
+        }
     }
 }
 
-impl<T, const N: usize, O: Order, D: Dimension<N>> Buffer<T, N, O> for StaticBuffer<T, D, N, O>
-where
-    [(); D::LEN]: ,
-{
-    type Layout = DenseLayout<N, O>;
+impl<'a, T, const N: usize, const M: usize, O: Order> SubGridMut<'a, T, N, M, O> {
+    /// Creates a mutable subarray from the specified pointer and layout.
+    pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.array.as_mut_ptr()
-    }
-
-    fn as_ptr(&self) -> *const T {
-        self.array.as_ptr()
-    }
-
-    fn layout(&self) -> &DenseLayout<N, O> {
-        &Self::LAYOUT
+        Self {
+            buffer: SubBufferMut::new(ptr, layout),
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -298,37 +197,6 @@ impl<T, B: Buffer<T, N, O> + Clone, const N: usize, O: Order> Clone for GridBase
     fn clone(&self) -> Self {
         Self {
             buffer: self.buffer.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T: Clone, const N: usize, O: Order, A: Allocator + Clone> Clone for DenseBuffer<T, N, O, A> {
-    fn clone(&self) -> Self {
-        let len = self.layout.shape().iter().product();
-
-        let mut vec = RawVec::<T, A>::with_capacity_in(len, self.vec.allocator().clone());
-
-        for i in 0..len {
-            unsafe {
-                ptr::write(vec.as_mut_ptr().add(i), (*self.vec.as_ptr().add(i)).clone());
-            }
-        }
-
-        Self {
-            vec,
-            layout: DenseLayout::new(self.layout.shape().clone(), [0; 0]),
-        }
-    }
-}
-
-impl<T: Clone, const N: usize, O: Order, D: Dimension<N>> Clone for StaticBuffer<T, D, N, O>
-where
-    [(); D::LEN]: ,
-{
-    fn clone(&self) -> Self {
-        Self {
-            array: self.array.clone(),
             _marker: PhantomData,
         }
     }
@@ -346,13 +214,7 @@ where
     [(); D::LEN]: ,
 {
     fn default() -> Self {
-        Self {
-            buffer: StaticBuffer {
-                array: [T::default(); D::LEN], // TODO: Change to Default::default()
-                _marker: PhantomData,
-            },
-            _marker: PhantomData,
-        }
+        Self::new(Default::default()) // TODO: Change to array and remove T: Copy
     }
 }
 
@@ -360,44 +222,12 @@ impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Deref for GridBase<T, B, N
     type Target = ViewBase<T, B::Layout, N, O>;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { ViewBase::from_raw_parts(self.buffer.as_ptr(), self.buffer.layout()) }
+        self.as_view()
     }
 }
 
 impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> DerefMut for GridBase<T, B, N, O> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { ViewBase::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.buffer.layout()) }
-    }
-}
-
-impl<T, const N: usize, O: Order, A: Allocator> Drop for DenseBuffer<T, N, O, A> {
-    fn drop(&mut self) {
-        for i in 0..self.layout.shape().iter().product() {
-            unsafe {
-                ptr::read(self.vec.as_ptr().add(i));
-            }
-        }
-    }
-}
-
-impl<I: ViewIndex<T, N, M, O>, T, B, const N: usize, const M: usize, O: Order> Index<I>
-    for GridBase<T, B, N, O>
-where
-    B: Buffer<T, N, O, Layout = StridedLayout<N, M, O>>,
-{
-    type Output = I::Output;
-
-    fn index(&self, index: I) -> &I::Output {
-        index.index(&**self)
-    }
-}
-
-impl<I: ViewIndex<T, N, M, O>, T, B, const N: usize, const M: usize, O: Order> IndexMut<I>
-    for GridBase<T, B, N, O>
-where
-    B: Buffer<T, N, O, Layout = StridedLayout<N, M, O>>,
-{
-    fn index_mut(&mut self, index: I) -> &mut I::Output {
-        index.index_mut(&mut **self)
+        self.as_mut_view()
     }
 }

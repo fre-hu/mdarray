@@ -4,18 +4,27 @@ use crate::view::StridedView;
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
 
-macro_rules! impl_iter {
-    ($name:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
-        pub struct $name<'a, T, const N: usize, const M: usize, O: Order> {
-            layout: StridedLayout<N, M, O>,
-            start: *$raw_mut T,
-            end: *$raw_mut T,
-            indices: [usize; M],
-            inner_size: usize,
-            _marker: PhantomData<&'a $($mut)? T>,
-        }
+pub struct Iter<'a, T, const N: usize, const M: usize, O: Order> {
+    layout: StridedLayout<N, M, O>,
+    start: *const T,
+    end: *const T,
+    indices: [usize; M],
+    inner_size: usize,
+    _marker: PhantomData<&'a T>,
+}
 
-        impl<'a, T, const N: usize, const M: usize, O: Order> $name<'a, T, N, M, O> {
+pub struct IterMut<'a, T, const N: usize, const M: usize, O: Order> {
+    layout: StridedLayout<N, M, O>,
+    start: *mut T,
+    end: *mut T,
+    indices: [usize; M],
+    inner_size: usize,
+    _marker: PhantomData<&'a mut T>,
+}
+
+macro_rules! impl_iter {
+    ($type:ty, $as_ptr:tt, {$($mut:tt)?}) => {
+        impl<'a, T, const N: usize, const M: usize, O: Order> $type {
             pub fn new(view: &'a $($mut)? StridedView<T, N, M, O>) -> Self {
                 let inner_size = O::select(
                     view.shape()[..N - M].iter().product(),
@@ -47,17 +56,10 @@ macro_rules! impl_iter {
             }
         }
 
-        impl<'a, T, const N: usize, const M: usize, O: Order> ExactSizeIterator
-            for $name<'a, T, N, M, O>
-        {
-        }
+        impl<'a, T, const N: usize, const M: usize, O: Order> ExactSizeIterator for $type {}
+        impl<'a, T, const N: usize, const M: usize, O: Order> FusedIterator for $type {}
 
-        impl<'a, T, const N: usize, const M: usize, O: Order> FusedIterator
-            for $name<'a, T, N, M, O>
-        {
-        }
-
-        impl<'a, T, const N: usize, const M: usize, O: Order> Iterator for $name<'a, T, N, M, O> {
+        impl<'a, T, const N: usize, const M: usize, O: Order> Iterator for $type {
             type Item = &'a $($mut)? T;
 
             #[inline(always)]
@@ -65,9 +67,9 @@ macro_rules! impl_iter {
                 if self.start == self.end {
                     None
                 } else {
-                    unsafe {
-                        let current = self.start;
+                    let current = self.start;
 
+                    unsafe {
                         self.start = self.start.offset(1);
 
                         if M > 0 && (M == N || self.start == self.end) {
@@ -128,5 +130,5 @@ macro_rules! impl_iter {
     };
 }
 
-impl_iter!(Iter, as_ptr, const, {});
-impl_iter!(IterMut, as_mut_ptr, mut, {mut});
+impl_iter!(Iter<'a, T, N, M, O>, as_ptr, {});
+impl_iter!(IterMut<'a, T, N, M, O>, as_mut_ptr, {mut});

@@ -24,8 +24,25 @@ impl<T, A: Allocator> RawVec<T, A> {
         &self.alloc
     }
 
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr()
+    }
+
     pub fn capacity(&self) -> usize {
         self.capacity
+    }
+
+    pub unsafe fn from_raw_parts_in(ptr: *mut T, capacity: usize, alloc: A) -> Self {
+        Self {
+            ptr: NonNull::new_unchecked(ptr),
+            capacity,
+            alloc,
+            _marker: PhantomData,
+        }
     }
 
     pub fn grow(&mut self, capacity: usize) {
@@ -59,14 +76,6 @@ impl<T, A: Allocator> RawVec<T, A> {
             alloc,
             _marker: PhantomData,
         }
-    }
-
-    pub fn as_mut_ptr(&mut self) -> *mut T {
-        self.ptr.as_ptr()
-    }
-
-    pub fn as_ptr(&self) -> *const T {
-        self.ptr.as_ptr()
     }
 
     pub fn shrink(&mut self, capacity: usize) {

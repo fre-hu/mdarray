@@ -25,7 +25,6 @@ Note that this crate requires nightly Rust toolchain.
 #![allow(incomplete_features)]
 #![feature(allocator_api)]
 #![feature(const_fn_trait_bound)]
-#![feature(custom_inner_attributes)]
 #![feature(generic_const_exprs)]
 #![feature(ptr_metadata)]
 #![feature(slice_index_methods)]
@@ -33,6 +32,7 @@ Note that this crate requires nightly Rust toolchain.
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
+mod buffer;
 mod dimension;
 mod grid;
 mod index;
@@ -40,7 +40,6 @@ mod iterator;
 mod layout;
 mod order;
 mod raw_vec;
-mod sub_grid;
 mod view;
 
 pub use dimension::{Dim1, Dim2};

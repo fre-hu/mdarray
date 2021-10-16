@@ -100,14 +100,25 @@ impl<O: Order, X: DimIndex> IndexMap<1, O> for X {
 }
 
 macro_rules! impl_index_map {
-    ($n:tt, ($($x:tt),+), ($($y:tt),+), $last:tt, ($($vars:tt),+)) => {
-        impl<$($x: DimIndex),+, $last: DimIndex> IndexMap<$n, ColumnMajor> for ($($x),+, $last) {
-            const FULL: bool = <($($x),+) as IndexMap<{$n - 1}, ColumnMajor>>::FULL && $last::FULL;
+    ($n:tt, $o:tt, $b:tt, ($($x:tt),+), ($($y:tt),+), $last:tt, ($($vars:tt),+)) => {
+        impl<$($x: DimIndex),+, $last: DimIndex> IndexMap<$n, $o> for ($($x),+, $last) {
+            const FULL: bool = match $b {
+                true => <($($x),+) as IndexMap<{$n - 1}, $o>>::FULL && $last::FULL,
+                false => <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::FULL && X::FULL,
+            };
 
-            const CONT: usize = <($($x),+) as IndexMap<{$n - 1}, ColumnMajor>>::CONT
-                + (<($($x),+) as IndexMap<{$n - 1}, ColumnMajor>>::FULL && $last::RANGE) as usize;
-            const RANK: usize =
-                <($($x),+) as IndexMap::<{$n - 1}, ColumnMajor>>::RANK + $last::RANGE as usize;
+            const CONT: usize = match $b {
+                true => {
+                    <($($x),+) as IndexMap<{$n - 1}, $o>>::CONT
+                        + (<($($x),+) as IndexMap<{$n - 1}, $o>>::FULL && $last::RANGE) as usize
+                }
+                false => {
+                    <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::CONT
+                       + (<($($y),+) as IndexMap<{$n - 1}, RowMajor>>::FULL && X::RANGE) as usize
+                }
+            };
+
+            const RANK: usize = X::RANGE as usize + <($($y),+) as IndexMap::<{$n - 1}, $o>>::RANK;
 
             fn view_info(&self,
                 dims: &mut [usize],
@@ -118,7 +129,7 @@ macro_rules! impl_index_map {
             ) {
                 start[0] = match self.0.clone().dim_info(limits[0]) {
                     DimInfo::Range(r) => {
-                        <($($y),+) as IndexMap<{$n - 1}, ColumnMajor>>::view_info(
+                        <($($y),+) as IndexMap<{$n - 1}, $o>>::view_info(
                             &($(self.$vars.clone()),+),
                             &mut dims[1..],
                             &mut shape[1..],
@@ -131,51 +142,7 @@ macro_rules! impl_index_map {
                         r.start
                     }
                     DimInfo::Scalar(s) => {
-                        <($($y),+) as IndexMap<{$n - 1}, ColumnMajor>>::view_info(
-                            &($(self.$vars.clone()),+),
-                            dims,
-                            shape,
-                            &mut start[1..],
-                            &limits[1..],
-                            dim + 1,
-                        );
-                        s
-                    }
-                };
-            }
-        }
-
-        impl<X: DimIndex, $($y: DimIndex),+> IndexMap<$n, RowMajor> for (X, $($y),+) {
-            const FULL: bool = <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::FULL && X::FULL;
-
-            const CONT: usize = <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::CONT
-                + (<($($y),+) as IndexMap<{$n - 1}, RowMajor>>::FULL && X::RANGE) as usize;
-            const RANK: usize =
-                <($($y),+) as IndexMap::<{$n - 1}, RowMajor>>::RANK + X::RANGE as usize;
-
-            fn view_info(&self,
-                dims: &mut [usize],
-                shape: &mut [usize],
-                start: &mut [usize],
-                limits: &[usize],
-                dim: usize,
-            ) {
-                start[0] = match self.0.clone().dim_info(limits[0]) {
-                    DimInfo::Range(r) => {
-                        <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::view_info(
-                            &($(self.$vars.clone()),+),
-                            &mut dims[1..],
-                            &mut shape[1..],
-                            &mut start[1..],
-                            &limits[1..],
-                            dim + 1,
-                        );
-                        dims[0] = dim;
-                        shape[0] = r.end - r.start;
-                        r.start
-                    }
-                    DimInfo::Scalar(s) => {
-                        <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::view_info(
+                        <($($y),+) as IndexMap<{$n - 1}, $o>>::view_info(
                             &($(self.$vars.clone()),+),
                             dims,
                             shape,
@@ -191,11 +158,19 @@ macro_rules! impl_index_map {
     };
 }
 
-impl_index_map!(2, (X), (Y), Y, (1));
-impl_index_map!(3, (X, Y), (Y, Z), Z, (1, 2));
-impl_index_map!(4, (X, Y, Z), (Y, Z, W), W, (1, 2, 3));
-impl_index_map!(5, (X, Y, Z, W), (Y, Z, W, U), U, (1, 2, 3, 4));
-impl_index_map!(6, (X, Y, Z, W, U), (Y, Z, W, U, V), V, (1, 2, 3, 4, 5));
+#[rustfmt::skip]
+macro_rules! impl_index_maps {
+    ($o:tt, $b:tt) => {
+        impl_index_map!(2, $o, $b, (X), (Y), Y, (1));
+        impl_index_map!(3, $o, $b, (X, Y), (Y, Z), Z, (1, 2));
+        impl_index_map!(4, $o, $b, (X, Y, Z), (Y, Z, W), W, (1, 2, 3));
+        impl_index_map!(5, $o, $b, (X, Y, Z, W), (Y, Z, W, U), U, (1, 2, 3, 4));
+        impl_index_map!(6, $o, $b, (X, Y, Z, W, U), (Y, Z, W, U, V), V, (1, 2, 3, 4, 5));
+    };
+}
+
+impl_index_maps!(ColumnMajor, true);
+impl_index_maps!(RowMajor, false);
 
 macro_rules! impl_view_index {
     ($type:ty) => {
@@ -203,11 +178,11 @@ macro_rules! impl_view_index {
             type Output = DenseView<T, 1, O>;
 
             fn index(self, view: &DenseView<T, N, O>) -> &Self::Output {
-                <Self as SliceIndex<[T]>>::index(self, view).as_ref()
+                <Self as SliceIndex<[T]>>::index(self, view.as_slice()).as_ref()
             }
 
             fn index_mut(self, view: &mut DenseView<T, N, O>) -> &mut Self::Output {
-                <Self as SliceIndex<[T]>>::index_mut(self, view).as_mut()
+                <Self as SliceIndex<[T]>>::index_mut(self, view.as_mut_slice()).as_mut()
             }
         }
     };
@@ -225,11 +200,11 @@ impl<T, const N: usize, O: Order> ViewIndex<T, N, 0, O> for usize {
     type Output = T;
 
     fn index(self, view: &StridedView<T, N, 0, O>) -> &Self::Output {
-        <Self as SliceIndex<[T]>>::index(self, view)
+        <Self as SliceIndex<[T]>>::index(self, view.as_slice())
     }
 
     fn index_mut(self, view: &mut StridedView<T, N, 0, O>) -> &mut Self::Output {
-        <Self as SliceIndex<[T]>>::index_mut(self, view)
+        <Self as SliceIndex<[T]>>::index_mut(self, view.as_mut_slice())
     }
 }
 

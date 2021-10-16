@@ -1,16 +1,14 @@
 #![allow(unused_parens)]
-#![rustfmt::skip::macros(impl_view)]
 
+use crate::grid::{SubGrid, SubGridMut};
 use crate::index::{DimIndex, IndexMap, ViewIndex};
 use crate::iterator::{Iter, IterMut};
 use crate::layout::{Layout, StridedLayout};
 use crate::order::{ColumnMajor, Order, RowMajor};
-use crate::sub_grid::{SubGrid, SubGridMut};
 use std::marker::PhantomData;
-use std::mem;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Index, IndexMut};
 use std::ptr::{self, NonNull};
-use std::slice;
+use std::{mem, slice};
 
 /// Multidimensional array view with static rank and element order.
 #[repr(transparent)]
@@ -28,38 +26,34 @@ pub type DenseView<T, const N: usize, O> = StridedView<T, N, 0, O>;
 
 impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
     /// Returns a mutable pointer to the array buffer.
-    pub fn as_mut_ptr(&self) -> *mut T {
-        let (data, _) = (self as *const Self).to_raw_parts();
-
-        data as *mut T
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        (self as *mut Self).cast()
     }
 
     /// Returns a raw pointer to the array buffer.
     pub fn as_ptr(&self) -> *const T {
-        let (data, _) = (self as *const Self).to_raw_parts();
-
-        data as *const T
+        (self as *const Self).cast()
     }
 
     /// Creates an array view from a raw pointer and an array layout.
-    pub unsafe fn from_raw_parts(data: *const T, layout: &L) -> &Self {
+    pub unsafe fn from_raw_parts(ptr: *const T, layout: &L) -> &Self {
         assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
         if mem::size_of::<L>() == mem::size_of::<usize>() {
-            &*(ptr::from_raw_parts(data.cast(), mem::transmute_copy(layout)) as *const Self)
+            &*(ptr::from_raw_parts(ptr.cast(), mem::transmute_copy(layout)) as *const Self)
         } else {
-            &*(ptr::from_raw_parts(data.cast(), layout as *const L as usize) as *const Self)
+            &*(ptr::from_raw_parts(ptr.cast(), layout as *const L as usize) as *const Self)
         }
     }
 
     /// Creates a mutable array view from a raw pointer and an array layout.
-    pub unsafe fn from_raw_parts_mut(data: *mut T, layout: &L) -> &mut Self {
+    pub unsafe fn from_raw_parts_mut(ptr: *mut T, layout: &L) -> &mut Self {
         assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
         if mem::size_of::<L>() == mem::size_of::<usize>() {
-            &mut *(ptr::from_raw_parts_mut(data.cast(), mem::transmute_copy(layout)) as *mut Self)
+            &mut *(ptr::from_raw_parts_mut(ptr.cast(), mem::transmute_copy(layout)) as *mut Self)
         } else {
-            &mut *(ptr::from_raw_parts_mut(data.cast(), layout as *const L as usize) as *mut Self)
+            &mut *(ptr::from_raw_parts_mut(ptr.cast(), layout as *const L as usize) as *mut Self)
         }
     }
 
@@ -70,7 +64,7 @@ impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
 
     /// Returns the array layout.
     pub fn layout(&self) -> L {
-        let (_, layout) = (self as *const Self).to_raw_parts();
+        let layout = ptr::metadata(self as *const Self);
 
         if mem::size_of::<L>() == mem::size_of::<usize>() {
             unsafe { mem::transmute_copy(&layout) }
@@ -120,43 +114,46 @@ impl<T, const N: usize, const M: usize, O: Order> StridedView<T, N, M, O> {
 impl<T, const N: usize, O: Order> DenseView<T, N, O> {
     /// Returns a mutable slice of all elements in the array.
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self
+        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
     }
 
     /// Returns a slice of all elements in the array.
     pub fn as_slice(&self) -> &[T] {
-        self
+        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 }
 
+// There must be multiple view methods with concrete values/types for N, M and O, as
+// otherwise the return type will have unconstrained generic constants when T is generic.
+
 macro_rules! impl_view {
-    ($name:tt, $type:tt, $as_ptr:tt, $n:tt, $m:tt, ($($v:tt),+), ($($x:tt),+), $d:meta) => {
-        impl<T> StridedView<T, $n, $m, ColumnMajor> {
+    ($v:tt, $g:tt, $p:tt, {$($u:tt)?}, $n:tt, $m:tt, $o:tt, ($($t:tt),+), ($($x:tt),+), $d:meta) => {
+        impl<T> StridedView<T, $n, $m, $o> {
             /// Returns a subarray with the specified array view.
             ///
             /// The layout must be concrete (i.e. have no generic parameters) to compute the
             /// resulting layout. Note that variants that differ by return types are hidden.
             #[$d]
-            pub fn $name<$($x: DimIndex),+>(
-                &self,
-                $($v: $x),+
-            ) -> $type<
+            pub fn $v<$($x: DimIndex),+>(
+                &$($u)? self,
+                $($t: $x),+
+            ) -> $g<
                 T,
-                { <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK },
+                { <($($x),+) as IndexMap<$n, $o>>::RANK },
                 {
                     outer_rank::<$n, $m>(
-                        <($($x),+) as IndexMap<$n, ColumnMajor>>::CONT,
-                        <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK,
+                        <($($x),+) as IndexMap<$n, $o>>::CONT,
+                        <($($x),+) as IndexMap<$n, $o>>::RANK,
                     )
                 },
-                ColumnMajor,
+                $o,
             > {
-                let mut dims = [0; <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK];
-                let mut shape = [0; <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK];
+                let mut dims = [0; <($($x),+) as IndexMap<$n, $o>>::RANK];
+                let mut shape = [0; <($($x),+) as IndexMap<$n, $o>>::RANK];
                 let mut start = [0; $n];
 
-                <($($x),+) as IndexMap<$n, ColumnMajor>>::view_info(
-                    &($($v),+),
+                <($($x),+) as IndexMap<$n, $o>>::view_info(
+                    &($($t),+),
                     &mut dims,
                     &mut shape,
                     &mut start,
@@ -171,157 +168,80 @@ macro_rules! impl_view {
                 }
 
                 let mut strides = [0; outer_rank::<$n, $m>(
-                    <($($x),+) as IndexMap<$n, ColumnMajor>>::CONT,
-                    <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK,
+                    <($($x),+) as IndexMap<$n, $o>>::CONT,
+                    <($($x),+) as IndexMap<$n, $o>>::RANK,
                 )];
 
                 for i in 0..strides.len() {
-                    strides[i] = self.stride(dims[i + dims.len() - strides.len()]);
+                    strides[i] = self.stride(dims[$o::select(i + dims.len() - strides.len(), i)]);
                 }
 
-                $type::new(
-                    unsafe { NonNull::new_unchecked(self.$as_ptr().offset(offset) as *mut T) },
-                    StridedLayout::<
-                        { <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK },
-                        {
-                            outer_rank::<$n, $m>(
-                                <($($x),+) as IndexMap<$n, ColumnMajor>>::CONT,
-                                <($($x),+) as IndexMap<$n, ColumnMajor>>::RANK,
-                            )
-                        },
-                        ColumnMajor,
-                    >::new(shape, strides),
-                )
-            }
-        }
-
-        impl<T> StridedView<T, $n, $m, RowMajor> {
-            #[doc(hidden)]
-            pub fn $name<$($x: DimIndex),+>(
-                &self,
-                $($v: $x),+
-            ) -> $type<
-                T,
-                { <($($x),+) as IndexMap<$n, RowMajor>>::RANK },
-                {
-                    outer_rank::<$n, $m>(
-                        <($($x),+) as IndexMap<$n, RowMajor>>::CONT,
-                        <($($x),+) as IndexMap<$n, RowMajor>>::RANK,
-                    )
-                },
-                RowMajor,
-            > {
-                let mut dims = [0; <($($x),+) as IndexMap<$n, RowMajor>>::RANK];
-                let mut shape = [0; <($($x),+) as IndexMap<$n, RowMajor>>::RANK];
-                let mut start = [0; $n];
-
-                <($($x),+) as IndexMap<$n, RowMajor>>::view_info(
-                    &($($v),+),
-                    &mut dims,
-                    &mut shape,
-                    &mut start,
-                    &self.shape(),
-                    0,
-                );
-
-                let mut offset = 0;
-
-                for i in 0..$n {
-                    offset += start[i] as isize * self.stride(i);
-                }
-
-                let mut strides = [0; outer_rank::<$n, $m>(
-                    <($($x),+) as IndexMap<$n, RowMajor>>::CONT,
-                    <($($x),+) as IndexMap<$n, RowMajor>>::RANK,
-                )];
-
-                for i in 0..strides.len() {
-                    strides[i] = self.stride(dims[i]);
-                }
-
-                $type::new(
-                    unsafe { NonNull::new_unchecked(self.$as_ptr().offset(offset) as *mut T) },
-                    StridedLayout::<
-                        { <($($x),+) as IndexMap<$n, RowMajor>>::RANK },
-                        {
-                            outer_rank::<$n, $m>(
-                                <($($x),+) as IndexMap<$n, RowMajor>>::CONT,
-                                <($($x),+) as IndexMap<$n, RowMajor>>::RANK,
-                            )
-                        },
-                        RowMajor,
-                    >::new(shape, strides),
+                $g::new(
+                    unsafe { NonNull::new_unchecked(self.$p().offset(offset) as *mut T) },
+                    StridedLayout::new(shape, strides),
                 )
             }
         }
     };
 }
 
-impl_view!(view, SubGrid, as_ptr, 1, 0, (x), (X), doc());
-impl_view!(view, SubGrid, as_ptr, 1, 1, (x), (X), doc(hidden));
+#[rustfmt::skip]
+macro_rules! impl_views {
+    ($v:tt, $g:tt, $p:tt, $u:tt, $o:tt, $d:meta) => {
+        impl_view!($v, $g, $p, $u, 1, 0, $o, (x), (X), $d);
+        impl_view!($v, $g, $p, $u, 1, 1, $o, (x), (X), doc(hidden));
 
-impl_view!(view, SubGrid, as_ptr, 2, 0, (x, y), (X, Y), doc());
-impl_view!(view, SubGrid, as_ptr, 2, 1, (x, y), (X, Y), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 2, 2, (x, y), (X, Y), doc(hidden));
+        impl_view!($v, $g, $p, $u, 2, 0, $o, (x, y), (X, Y), $d);
+        impl_view!($v, $g, $p, $u, 2, 1, $o, (x, y), (X, Y), doc(hidden));
+        impl_view!($v, $g, $p, $u, 2, 2, $o, (x, y), (X, Y), doc(hidden));
 
-impl_view!(view, SubGrid, as_ptr, 3, 0, (x, y, z), (X, Y, Z), doc());
-impl_view!(view, SubGrid, as_ptr, 3, 1, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 3, 2, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 3, 3, (x, y, z), (X, Y, Z), doc(hidden));
+        impl_view!($v, $g, $p, $u, 3, 0, $o, (x, y, z), (X, Y, Z), $d);
+        impl_view!($v, $g, $p, $u, 3, 1, $o, (x, y, z), (X, Y, Z), doc(hidden));
+        impl_view!($v, $g, $p, $u, 3, 2, $o, (x, y, z), (X, Y, Z), doc(hidden));
+        impl_view!($v, $g, $p, $u, 3, 3, $o, (x, y, z), (X, Y, Z), doc(hidden));
 
-impl_view!(view, SubGrid, as_ptr, 4, 0, (x, y, z, w), (X, Y, Z, W), doc());
-impl_view!(view, SubGrid, as_ptr, 4, 1, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 4, 2, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 4, 3, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 4, 4, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+        impl_view!($v, $g, $p, $u, 4, 0, $o, (x, y, z, w), (X, Y, Z, W), $d);
+        impl_view!($v, $g, $p, $u, 4, 1, $o, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+        impl_view!($v, $g, $p, $u, 4, 2, $o, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+        impl_view!($v, $g, $p, $u, 4, 3, $o, (x, y, z, w), (X, Y, Z, W), doc(hidden));
+        impl_view!($v, $g, $p, $u, 4, 4, $o, (x, y, z, w), (X, Y, Z, W), doc(hidden));
 
-impl_view!(view, SubGrid, as_ptr, 5, 0, (x, y, z, w, u), (X, Y, Z, W, U), doc());
-impl_view!(view, SubGrid, as_ptr, 5, 1, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 5, 2, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 5, 3, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 5, 4, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 5, 5, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+        impl_view!($v, $g, $p, $u, 5, 0, $o, (x, y, z, w, u), (X, Y, Z, W, U), $d);
+        impl_view!($v, $g, $p, $u, 5, 1, $o, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+        impl_view!($v, $g, $p, $u, 5, 2, $o, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+        impl_view!($v, $g, $p, $u, 5, 3, $o, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+        impl_view!($v, $g, $p, $u, 5, 4, $o, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
+        impl_view!($v, $g, $p, $u, 5, 5, $o, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
 
-impl_view!(view, SubGrid, as_ptr, 6, 0, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc());
-impl_view!(view, SubGrid, as_ptr, 6, 1, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 6, 2, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view, SubGrid, as_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+        impl_view!($v, $g, $p, $u, 6, 0, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), $d);
+        impl_view!($v, $g, $p, $u, 6, 1, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+        impl_view!($v, $g, $p, $u, 6, 2, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+        impl_view!($v, $g, $p, $u, 6, 3, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+        impl_view!($v, $g, $p, $u, 6, 4, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+        impl_view!($v, $g, $p, $u, 6, 5, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+        impl_view!($v, $g, $p, $u, 6, 6, $o, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+    };
+}
 
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 1, 0, (x), (X), doc());
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 1, 1, (x), (X), doc(hidden));
+impl_views!(view, SubGrid, as_ptr, {}, ColumnMajor, doc());
+impl_views!(view, SubGrid, as_ptr, {}, RowMajor, doc(hidden));
 
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 2, 0, (x, y), (X, Y), doc());
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 2, 1, (x, y), (X, Y), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 2, 2, (x, y), (X, Y), doc(hidden));
+impl_views!(view_mut, SubGridMut, as_mut_ptr, {mut}, ColumnMajor, doc());
+impl_views!(view_mut, SubGridMut, as_mut_ptr, {mut}, RowMajor, doc(hidden));
 
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 0, (x, y, z), (X, Y, Z), doc());
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 1, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 2, (x, y, z), (X, Y, Z), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 3, 3, (x, y, z), (X, Y, Z), doc(hidden));
+pub const fn outer_rank<const N: usize, const M: usize>(cont: usize, rank: usize) -> usize {
+    if N - M < cont {
+        rank - (N - M)
+    } else {
+        rank - cont
+    }
+}
 
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 0, (x, y, z, w), (X, Y, Z, W), doc());
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 1, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 2, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 3, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 4, 4, (x, y, z, w), (X, Y, Z, W), doc(hidden));
-
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 0, (x, y, z, w, u), (X, Y, Z, W, U), doc());
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 1, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 2, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 3, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 4, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 5, 5, (x, y, z, w, u), (X, Y, Z, W, U), doc(hidden));
-
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 0, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc());
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 1, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 2, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 3, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 4, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 5, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
-impl_view!(view_mut, SubGridMut, as_mut_ptr, 6, 6, (x, y, z, w, u, v), (X, Y, Z, W, U, V), doc(hidden));
+impl<T, const N: usize, O: Order> AsMut<[T]> for DenseView<T, N, O> {
+    fn as_mut(&mut self) -> &mut [T] {
+        self.as_mut_slice()
+    }
+}
 
 impl<T, O: Order> AsMut<DenseView<T, 1, O>> for [T] {
     fn as_mut(&mut self) -> &mut DenseView<T, 1, O> {
@@ -331,25 +251,17 @@ impl<T, O: Order> AsMut<DenseView<T, 1, O>> for [T] {
     }
 }
 
+impl<T, const N: usize, O: Order> AsRef<[T]> for DenseView<T, N, O> {
+    fn as_ref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
 impl<T, O: Order> AsRef<DenseView<T, 1, O>> for [T] {
     fn as_ref(&self) -> &DenseView<T, 1, O> {
         assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
         unsafe { &*ptr::from_raw_parts(self.as_ptr().cast(), self.len()) }
-    }
-}
-
-impl<T, const N: usize, O: Order> Deref for DenseView<T, N, O> {
-    type Target = [T];
-
-    fn deref(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
-    }
-}
-
-impl<T, const N: usize, O: Order> DerefMut for DenseView<T, N, O> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
     }
 }
 
@@ -368,13 +280,5 @@ impl<I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> Inde
 {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
-    }
-}
-
-pub const fn outer_rank<const N: usize, const M: usize>(cont: usize, rank: usize) -> usize {
-    if N - M < cont {
-        rank - (N - M)
-    } else {
-        rank - cont
     }
 }

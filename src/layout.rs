@@ -4,6 +4,10 @@ use std::marker::PhantomData;
 pub trait Layout<const N: usize, O: Order>: Copy {
     fn shape(&self) -> [usize; N];
     fn size(&self, dim: usize) -> usize;
+
+    fn len(&self) -> usize {
+        self.shape().iter().product()
+    }
 }
 
 #[derive(Clone, Copy)]

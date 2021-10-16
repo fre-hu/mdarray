@@ -1,7 +1,6 @@
 #![allow(incomplete_features)]
 #![feature(allocator_api)]
 #![feature(const_fn_trait_bound)]
-#![feature(custom_inner_attributes)]
 #![feature(generic_const_exprs)]
 #![feature(ptr_metadata)]
 #![feature(slice_index_methods)]
@@ -9,7 +8,7 @@
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
-use mdarray::*;
+use mdarray::{CGrid, Grid, SGrid2};
 
 fn to_vec<'a, T: 'a + Clone, I: Iterator<Item = &'a T>>(i: I) -> Vec<T> {
     i.cloned().collect::<Vec<T>>()
