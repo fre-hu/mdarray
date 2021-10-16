@@ -3,15 +3,6 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::{cmp, mem};
 
-// Maximum SIMD vector size
-const MIN_ALIGN: usize = if cfg!(target_feature = "avx512f") {
-    64
-} else if cfg!(target_feature = "avx") {
-    32
-} else {
-    16
-};
-
 pub struct RawVec<T, A: Allocator> {
     ptr: NonNull<T>,
     capacity: usize,
@@ -50,12 +41,12 @@ impl<T, A: Allocator> RawVec<T, A> {
     }
 
     pub fn grow_exact(&mut self, capacity: usize) {
-        let new_layout = Self::layout(capacity.checked_mul(mem::size_of::<T>()).unwrap());
+        let new_layout = Layout::array::<T>(capacity).unwrap();
 
         let result = if self.capacity == 0 {
             self.alloc.allocate(new_layout)
         } else {
-            let old_layout = Self::layout(self.capacity * mem::size_of::<T>());
+            let old_layout = Layout::array::<T>(self.capacity).unwrap();
 
             unsafe { self.alloc.grow(self.ptr.cast(), old_layout, new_layout) }
         };
@@ -79,8 +70,8 @@ impl<T, A: Allocator> RawVec<T, A> {
     }
 
     pub fn shrink(&mut self, capacity: usize) {
-        let old_layout = Self::layout(self.capacity * mem::size_of::<T>());
-        let new_layout = Self::layout(capacity * mem::size_of::<T>());
+        let old_layout = Layout::array::<T>(self.capacity).unwrap();
+        let new_layout = Layout::array::<T>(capacity).unwrap();
 
         let result = unsafe { self.alloc.shrink(self.ptr.cast(), old_layout, new_layout) };
 
@@ -94,7 +85,7 @@ impl<T, A: Allocator> RawVec<T, A> {
     }
 
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        let layout = Self::layout(capacity.checked_mul(mem::size_of::<T>()).unwrap());
+        let layout = Layout::array::<T>(capacity).unwrap();
 
         let ptr = match alloc.allocate(layout) {
             Ok(ptr) => ptr,
@@ -108,20 +99,12 @@ impl<T, A: Allocator> RawVec<T, A> {
             _marker: PhantomData,
         }
     }
-
-    fn layout(size: usize) -> Layout {
-        assert!(usize::BITS == 64 || size <= isize::MAX as usize);
-
-        let align = cmp::max(mem::align_of::<T>(), MIN_ALIGN);
-
-        unsafe { Layout::from_size_align_unchecked(size, align) }
-    }
 }
 
 impl<T, A: Allocator> Drop for RawVec<T, A> {
     fn drop(&mut self) {
         if self.capacity > 0 {
-            let layout = Self::layout(self.capacity * mem::size_of::<T>());
+            let layout = Layout::array::<T>(self.capacity).unwrap();
 
             unsafe { self.alloc.deallocate(self.ptr.cast(), layout) }
         }

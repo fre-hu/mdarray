@@ -1,6 +1,7 @@
 #![allow(incomplete_features)]
 #![feature(allocator_api)]
 #![feature(const_fn_trait_bound)]
+#![feature(const_generics_defaults)]
 #![feature(generic_const_exprs)]
 #![feature(ptr_metadata)]
 #![feature(slice_index_methods)]

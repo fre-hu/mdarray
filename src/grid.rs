@@ -1,3 +1,4 @@
+use crate::aligned_alloc::AlignedAlloc;
 use crate::buffer::Buffer;
 use crate::buffer::{DenseBuffer, StaticBuffer, SubBuffer, SubBufferMut};
 use crate::dimension::Dimension;
@@ -17,7 +18,8 @@ pub struct GridBase<T, B: Buffer<T, N, O>, const N: usize, O: Order> {
 }
 
 /// Dense multidimensional array with static rank and element order, and dynamic shape.
-pub type DenseGrid<T, const N: usize, O, A = Global> = GridBase<T, DenseBuffer<T, N, O, A>, N, O>;
+pub type DenseGrid<T, const N: usize, O, A = AlignedAlloc> =
+    GridBase<T, DenseBuffer<T, N, O, A>, N, O>;
 
 /// Dense multidimensional array with static rank, shape and element order.
 pub type StaticGrid<T, D, const N: usize, O> = GridBase<T, StaticBuffer<T, D, N, O>, N, O>;
@@ -123,10 +125,10 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
     }
 }
 
-impl<T, const N: usize, O: Order> DenseGrid<T, N, O, Global> {
+impl<T, const N: usize, O: Order> DenseGrid<T, N, O, AlignedAlloc> {
     /// Creates an array from raw components of another array.
     pub unsafe fn from_raw_parts(ptr: *mut T, shape: [usize; N], capacity: usize) -> Self {
-        Self::from_raw_parts_in(ptr, shape, capacity, Global)
+        Self::from_raw_parts_in(ptr, shape, capacity, AlignedAlloc::new(Global))
     }
 
     /// Decomposes an array into its raw components.
@@ -138,12 +140,12 @@ impl<T, const N: usize, O: Order> DenseGrid<T, N, O, Global> {
 
     /// Creates a new, empty array.
     pub fn new() -> Self {
-        Self::new_in(Global)
+        Self::new_in(AlignedAlloc::new(Global))
     }
 
     /// Creates a new, empty array with the specified capacity.
     pub fn with_capacity(capacity: usize) -> Self {
-        Self::with_capacity_in(capacity, Global)
+        Self::with_capacity_in(capacity, AlignedAlloc::new(Global))
     }
 }
 
@@ -202,7 +204,7 @@ impl<T, B: Buffer<T, N, O> + Clone, const N: usize, O: Order> Clone for GridBase
     }
 }
 
-impl<T, const N: usize, O: Order> Default for DenseGrid<T, N, O, Global> {
+impl<T, const N: usize, O: Order> Default for DenseGrid<T, N, O, AlignedAlloc> {
     fn default() -> Self {
         Self::new()
     }

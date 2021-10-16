@@ -25,6 +25,7 @@ Note that this crate requires nightly Rust toolchain.
 #![allow(incomplete_features)]
 #![feature(allocator_api)]
 #![feature(const_fn_trait_bound)]
+#![feature(const_generics_defaults)]
 #![feature(generic_const_exprs)]
 #![feature(ptr_metadata)]
 #![feature(slice_index_methods)]
@@ -32,6 +33,7 @@ Note that this crate requires nightly Rust toolchain.
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
+mod aligned_alloc;
 mod buffer;
 mod dimension;
 mod grid;
@@ -42,12 +44,11 @@ mod order;
 mod raw_vec;
 mod view;
 
+pub use aligned_alloc::AlignedAlloc;
 pub use dimension::{Dim1, Dim2};
 pub use grid::{DenseGrid, GridBase, StaticGrid};
 pub use order::{ColumnMajor, Order, RowMajor};
 pub use view::{DenseView, StridedView, ViewBase};
-
-use std::alloc::Global;
 
 /// Dense multidimensional array view with column-major element order.
 pub type View<T, const N: usize> = DenseView<T, N, ColumnMajor>;
@@ -56,10 +57,10 @@ pub type View<T, const N: usize> = DenseView<T, N, ColumnMajor>;
 pub type CView<T, const N: usize> = DenseView<T, N, RowMajor>;
 
 /// Dense multidimensional array with column-major element order.
-pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, N, ColumnMajor, A>;
+pub type Grid<T, const N: usize, A = AlignedAlloc> = DenseGrid<T, N, ColumnMajor, A>;
 
 /// Dense multidimensional array with row-major element order.
-pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, N, RowMajor, A>;
+pub type CGrid<T, const N: usize, A = AlignedAlloc> = DenseGrid<T, N, RowMajor, A>;
 
 /// Static 1-dimensional array with column-major element order.
 pub type SGrid1<T, const X: usize> = StaticGrid<T, Dim1<X>, 1, ColumnMajor>;
