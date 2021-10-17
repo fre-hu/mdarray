@@ -31,6 +31,8 @@ Note that this crate requires nightly Rust toolchain.
 #![feature(slice_index_methods)]
 #![feature(slice_ptr_len)]
 #![feature(slice_range)]
+#![feature(specialization)]
+#![feature(trusted_len)]
 #![warn(missing_docs)]
 
 mod aligned_alloc;

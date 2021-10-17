@@ -1,14 +1,19 @@
 use crate::aligned_alloc::AlignedAlloc;
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, FromIterIn};
 use crate::buffer::{DenseBuffer, StaticBuffer, SubBuffer, SubBufferMut};
-use crate::dimension::Dimension;
+use crate::dimension::{Dim1, Dim2, Dimension};
+use crate::iterator::{Drain, IntoIter};
 use crate::layout::StridedLayout;
-use crate::order::Order;
-use crate::view::ViewBase;
+use crate::order::{ColumnMajor, Order, RowMajor};
+use crate::view::{StridedView, ViewBase};
 use std::alloc::{Allocator, Global};
+use std::borrow::{Borrow, BorrowMut};
+use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter, Result};
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 use std::{cmp, mem};
 
 /// Multidimensional array with static rank and element order.
@@ -58,6 +63,11 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
         self.buffer.clear();
     }
 
+    /// Creates a draining iterator over all elemets in the array.
+    pub fn drain(&mut self) -> Drain<T> {
+        self.buffer.drain()
+    }
+
     /// Creates an array from raw components of another array with the specified allocator.
     pub unsafe fn from_raw_parts_in(
         ptr: *mut T,
@@ -65,8 +75,6 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
         capacity: usize,
         alloc: A,
     ) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
         Self {
             buffer: DenseBuffer::from_raw_parts_in(ptr, shape, capacity, alloc),
             _marker: PhantomData,
@@ -82,8 +90,6 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
 
     /// Creates a new, empty array with the specified allocator.
     pub fn new_in(alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
         Self {
             buffer: DenseBuffer::new_in(alloc),
             _marker: PhantomData,
@@ -116,8 +122,6 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
 
     /// Creates a new, empty array with the specified capacity and allocator.
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
         Self {
             buffer: DenseBuffer::with_capacity_in(capacity, alloc),
             _marker: PhantomData,
@@ -162,8 +166,6 @@ where
 {
     /// Creates a new array, where the given value is copied to each element.
     pub fn new(value: T) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
         Self {
             buffer: StaticBuffer::new(value), // TODO: Change to [value; D::LEN]
             _marker: PhantomData,
@@ -174,8 +176,6 @@ where
 impl<'a, T, const N: usize, const M: usize, O: Order> SubGrid<'a, T, N, M, O> {
     /// Creates a subarray from the specified pointer and layout.
     pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
         Self {
             buffer: SubBuffer::new(ptr, layout),
             _marker: PhantomData,
@@ -186,12 +186,26 @@ impl<'a, T, const N: usize, const M: usize, O: Order> SubGrid<'a, T, N, M, O> {
 impl<'a, T, const N: usize, const M: usize, O: Order> SubGridMut<'a, T, N, M, O> {
     /// Creates a mutable subarray from the specified pointer and layout.
     pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
         Self {
             buffer: SubBufferMut::new(ptr, layout),
             _marker: PhantomData,
         }
+    }
+}
+
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Borrow<ViewBase<T, B::Layout, N, O>>
+    for GridBase<T, B, N, O>
+{
+    fn borrow(&self) -> &ViewBase<T, B::Layout, N, O> {
+        self.as_view()
+    }
+}
+
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> BorrowMut<ViewBase<T, B::Layout, N, O>>
+    for GridBase<T, B, N, O>
+{
+    fn borrow_mut(&mut self) -> &mut ViewBase<T, B::Layout, N, O> {
+        self.as_mut_view()
     }
 }
 
@@ -201,6 +215,15 @@ impl<T, B: Buffer<T, N, O> + Clone, const N: usize, O: Order> Clone for GridBase
             buffer: self.buffer.clone(),
             _marker: PhantomData,
         }
+    }
+}
+
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Debug for GridBase<T, B, N, O>
+where
+    ViewBase<T, B::Layout, N, O>: Debug,
+{
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {
+        self.as_view().fmt(fmt)
     }
 }
 
@@ -231,5 +254,189 @@ impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Deref for GridBase<T, B, N
 impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> DerefMut for GridBase<T, B, N, O> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_view()
+    }
+}
+
+impl<T, B: Buffer<T, N, O>, const N: usize, O: Order> Eq for GridBase<T, B, N, O> where
+    ViewBase<T, B::Layout, N, O>: Eq
+{
+}
+
+impl<T, O: Order, A: Allocator> From<Vec<T, A>> for DenseGrid<T, 1, O, A> {
+    fn from(vec: Vec<T, A>) -> Self {
+        let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_alloc();
+
+        unsafe { Self::from_raw_parts_in(ptr, [len], capacity, alloc) }
+    }
+}
+
+impl<T, const N: usize, O: Order, A: Allocator> From<DenseGrid<T, N, O, A>> for Vec<T, A> {
+    fn from(grid: DenseGrid<T, N, O, A>) -> Self {
+        let (ptr, shape, capacity, alloc) = grid.into_raw_parts_with_alloc();
+
+        unsafe { Vec::from_raw_parts_in(ptr, shape.iter().product(), capacity, alloc) }
+    }
+}
+
+// TODO: Add From<[..]> using StaticGrid::new(array)
+
+impl<T, const X: usize, O: Order> From<StaticGrid<T, Dim1<X>, 1, O>> for [T; X]
+where
+    [(); Dim1::<X>::LEN]: ,
+{
+    fn from(grid: StaticGrid<T, Dim1<X>, 1, O>) -> Self {
+        let grid = mem::ManuallyDrop::new(grid);
+
+        unsafe { ptr::read(grid.as_ptr() as *const [T; X]) }
+    }
+}
+
+impl<T, const X: usize, const Y: usize> From<StaticGrid<T, Dim2<X, Y>, 2, ColumnMajor>>
+    for [[T; X]; Y]
+where
+    [(); Dim2::<X, Y>::LEN]: ,
+{
+    fn from(grid: StaticGrid<T, Dim2<X, Y>, 2, ColumnMajor>) -> Self {
+        let grid = mem::ManuallyDrop::new(grid);
+
+        unsafe { ptr::read(grid.as_ptr() as *const [[T; X]; Y]) }
+    }
+}
+
+impl<T, const X: usize, const Y: usize> From<StaticGrid<T, Dim2<X, Y>, 2, RowMajor>> for [[T; Y]; X]
+where
+    [(); Dim2::<X, Y>::LEN]: ,
+{
+    fn from(grid: StaticGrid<T, Dim2<X, Y>, 2, RowMajor>) -> Self {
+        let grid = mem::ManuallyDrop::new(grid);
+
+        unsafe { ptr::read(grid.as_ptr() as *const [[T; Y]; X]) }
+    }
+}
+
+impl<T, O: Order> FromIterator<T> for DenseGrid<T, 1, O> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self {
+            buffer: DenseBuffer::from_iter_in(iter.into_iter(), AlignedAlloc::new(Global)),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'a, T, B: Buffer<T, N, O>, const N: usize, O: Order> IntoIterator for &'a GridBase<T, B, N, O>
+where
+    &'a ViewBase<T, B::Layout, N, O>: IntoIterator<Item = &'a T>,
+{
+    type Item = &'a T;
+    type IntoIter = <&'a ViewBase<T, B::Layout, N, O> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_view().into_iter()
+    }
+}
+
+impl<'a, T, B: Buffer<T, N, O>, const N: usize, O: Order> IntoIterator
+    for &'a mut GridBase<T, B, N, O>
+where
+    &'a mut ViewBase<T, B::Layout, N, O>: IntoIterator<Item = &'a mut T>,
+{
+    type Item = &'a mut T;
+    type IntoIter = <&'a mut ViewBase<T, B::Layout, N, O> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_mut_view().into_iter()
+    }
+}
+
+impl<T, const N: usize, O: Order, A: Allocator> IntoIterator for DenseGrid<T, N, O, A> {
+    type Item = T;
+    type IntoIter = IntoIter<T, DenseBuffer<T, N, O, A>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Self::IntoIter::new(Vec::from(self).into_iter())
+    }
+}
+
+impl<T, D: Dimension<N>, const N: usize, O: Order> IntoIterator for StaticGrid<T, D, N, O>
+where
+    [(); D::LEN]: ,
+{
+    type Item = T;
+    type IntoIter = IntoIter<T, StaticBuffer<T, D, N, O>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let me = mem::ManuallyDrop::new(self);
+        let array = unsafe { ptr::read(me.as_ptr() as *const [T; D::LEN]) };
+
+        Self::IntoIter::new(<[T; D::LEN] as IntoIterator>::into_iter(array))
+    }
+}
+
+impl<T, B: Buffer<T, 1, O>, O: Order> Ord for GridBase<T, B, 1, O>
+where
+    ViewBase<T, B::Layout, 1, O>: Ord,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_view().cmp(other.as_view())
+    }
+}
+
+impl<T, U, B: Buffer<T, N, O>, C: Buffer<U, N, O>, const N: usize, O: Order>
+    PartialEq<GridBase<U, C, N, O>> for GridBase<T, B, N, O>
+where
+    ViewBase<T, B::Layout, N, O>: PartialEq<ViewBase<U, C::Layout, N, O>>,
+{
+    fn eq(&self, other: &GridBase<U, C, N, O>) -> bool {
+        self.as_view().eq(other.as_view())
+    }
+}
+
+impl<T, U, B: Buffer<T, N, O>, const N: usize, const M: usize, O: Order>
+    PartialEq<StridedView<U, N, M, O>> for GridBase<T, B, N, O>
+where
+    ViewBase<T, B::Layout, N, O>: PartialEq<StridedView<U, N, M, O>>,
+{
+    fn eq(&self, other: &StridedView<U, N, M, O>) -> bool {
+        self.as_view().eq(other)
+    }
+}
+
+impl<T, U, B: Buffer<U, N, O>, const N: usize, const M: usize, O: Order>
+    PartialEq<GridBase<U, B, N, O>> for StridedView<T, N, M, O>
+where
+    StridedView<T, N, M, O>: PartialEq<ViewBase<U, B::Layout, N, O>>,
+{
+    fn eq(&self, other: &GridBase<U, B, N, O>) -> bool {
+        self.eq(other.as_view())
+    }
+}
+
+impl<T, U, B: Buffer<T, 1, O>, C: Buffer<U, 1, O>, O: Order> PartialOrd<GridBase<U, C, 1, O>>
+    for GridBase<T, B, 1, O>
+where
+    ViewBase<T, B::Layout, 1, O>: PartialOrd<ViewBase<U, C::Layout, 1, O>>,
+{
+    fn partial_cmp(&self, other: &GridBase<U, C, 1, O>) -> Option<Ordering> {
+        self.as_view().partial_cmp(other.as_view())
+    }
+}
+
+impl<T, U, B: Buffer<T, 1, O>, const M: usize, O: Order> PartialOrd<StridedView<U, 1, M, O>>
+    for GridBase<T, B, 1, O>
+where
+    ViewBase<T, B::Layout, 1, O>: PartialOrd<StridedView<U, 1, M, O>>,
+{
+    fn partial_cmp(&self, other: &StridedView<U, 1, M, O>) -> Option<Ordering> {
+        self.as_view().partial_cmp(other)
+    }
+}
+
+impl<T, U, B: Buffer<U, 1, O>, const M: usize, O: Order> PartialOrd<GridBase<U, B, 1, O>>
+    for StridedView<T, 1, M, O>
+where
+    StridedView<T, 1, M, O>: PartialOrd<ViewBase<U, B::Layout, 1, O>>,
+{
+    fn partial_cmp(&self, other: &GridBase<U, B, 1, O>) -> Option<Ordering> {
+        self.partial_cmp(other.as_view())
     }
 }

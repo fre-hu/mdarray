@@ -1,8 +1,20 @@
+use crate::buffer::OwnedBuffer;
 use crate::layout::{Layout, StridedLayout};
 use crate::order::Order;
 use crate::view::StridedView;
-use std::iter::FusedIterator;
+use std::iter::{FusedIterator, TrustedLen};
 use std::marker::PhantomData;
+use std::ptr;
+
+pub struct Drain<'a, T> {
+    start: *const T,
+    end: *const T,
+    _marker: PhantomData<&'a mut T>,
+}
+
+pub struct IntoIter<T, B: OwnedBuffer<T>> {
+    iter: B::IntoIter,
+}
 
 pub struct Iter<'a, T, const N: usize, const M: usize, O: Order> {
     layout: StridedLayout<N, M, O>,
@@ -21,6 +33,75 @@ pub struct IterMut<'a, T, const N: usize, const M: usize, O: Order> {
     inner_size: usize,
     _marker: PhantomData<&'a mut T>,
 }
+
+impl<'a, T> Drain<'a, T> {
+    pub fn new(ptr: *const T, len: usize) -> Self {
+        Self {
+            start: ptr,
+            end: unsafe { ptr.add(len) },
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T, B: OwnedBuffer<T>> IntoIter<T, B> {
+    pub fn new(iter: B::IntoIter) -> Self {
+        Self { iter }
+    }
+}
+
+impl<'a, T> Drop for Drain<'a, T> {
+    fn drop(&mut self) {
+        for _ in self {}
+    }
+}
+
+impl<'a, T> ExactSizeIterator for Drain<'a, T> {}
+impl<'a, T> FusedIterator for Drain<'a, T> {}
+
+impl<T, B: OwnedBuffer<T>> ExactSizeIterator for IntoIter<T, B> {}
+impl<T, B: OwnedBuffer<T>> FusedIterator for IntoIter<T, B> {}
+
+impl<'a, T> Iterator for Drain<'a, T> {
+    type Item = T;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<T> {
+        if self.start == self.end {
+            None
+        } else {
+            let current = self.start;
+
+            unsafe {
+                self.start = self.start.offset(1);
+
+                Some(ptr::read(current))
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = unsafe { self.end.offset_from(self.start) as usize };
+
+        (len, Some(len))
+    }
+}
+
+impl<T, B: OwnedBuffer<T>> Iterator for IntoIter<T, B> {
+    type Item = T;
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<T> {
+        self.iter.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+unsafe impl<'a, T> TrustedLen for Drain<'a, T> {}
+unsafe impl<T, B: OwnedBuffer<T>> TrustedLen for IntoIter<T, B> {}
 
 macro_rules! impl_iter {
     ($type:ty, $as_ptr:tt, {$($mut:tt)?}) => {
@@ -127,6 +208,8 @@ macro_rules! impl_iter {
                 }
             }
         }
+
+        unsafe impl<'a, T, const N: usize, const M: usize, O: Order> TrustedLen for $type {}
     };
 }
 

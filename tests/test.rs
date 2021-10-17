@@ -7,12 +7,18 @@
 #![feature(slice_index_methods)]
 #![feature(slice_ptr_len)]
 #![feature(slice_range)]
+#![feature(specialization)]
+#![feature(trusted_len)]
 #![warn(missing_docs)]
 
-use mdarray::{CGrid, Grid, SGrid2};
+use mdarray::{CGrid, Grid, SGrid1, SGrid2};
+use std::cmp::Ordering;
+use std::iter::FromIterator;
 
-fn to_vec<'a, T: 'a + Clone, I: Iterator<Item = &'a T>>(i: I) -> Vec<T> {
-    i.cloned().collect::<Vec<T>>()
+macro_rules! to_slice {
+    ($view:expr) => {
+        $view.to_grid().as_slice()
+    };
 }
 
 #[test]
@@ -38,12 +44,22 @@ fn test_mdarray() {
         }
     }
 
-    assert_eq!(to_vec(a.view(.., 2, 3).iter()), [1023, 1123, 1223]);
-    assert_eq!(to_vec(a.view(1, 1.., 3).iter()), [1113, 1123, 1133]);
-    assert_eq!(to_vec(a.view(1, 2, 2..).iter()), [1122, 1123, 1124]);
+    assert_eq!(to_slice!(a.view(.., 2, 3)), [1023, 1123, 1223]);
+    assert_eq!(to_slice!(a.view(1, 1.., 3)), [1113, 1123, 1133]);
+    assert_eq!(to_slice!(a.view(1, 2, 2..)), [1122, 1123, 1124]);
 
-    assert_eq!(to_vec(a.view(1.., ..2, 4).iter()), [1104, 1204, 1114, 1214]);
-    assert_eq!(to_vec(c.view(1.., ..2, 4).iter()), [1104, 1114, 1204, 1214]);
+    assert_eq!(to_slice!(a.view(1.., ..2, 4)), [1104, 1204, 1114, 1214]);
+    assert_eq!(to_slice!(c.view(1.., ..2, 4)), [1104, 1114, 1204, 1214]);
+
+    assert!(format!("{:?}", a.view(2, 1..3, ..2)) == "[[1210, 1220], [1211, 1221]]");
+    assert!(format!("{:?}", c.view(2, 1..3, ..2)) == "[[1210, 1211], [1220, 1221]]");
+
+    assert!(SGrid1::<usize, 3>::new(1).cmp(&SGrid1::<usize, 3>::new(2)) == Ordering::Less);
+    assert!(a[..].cmp(&a[..]) == Ordering::Equal);
+
+    assert!(a == a && *a == a && a == *a && *a == *a);
+    assert!(a.view(1, .., 2) <= a.view(1, .., 2) && *a.view(1, .., 2) < a.view(2, .., 1));
+    assert!(a.view(2, .., 1) > *a.view(1, .., 2) && *a.view(2, .., 1) >= *a.view(2, .., 1));
 
     let mut r = a.clone().reshape([5, 4, 3]);
     let mut s = c.clone().reshape([5, 4, 3]);
@@ -60,8 +76,8 @@ fn test_mdarray() {
     assert_eq!(r.view(1.., 1.., 1..).strides(), [5, 20]);
     assert_eq!(s.view(1.., 1.., 1..).strides(), [12, 3]);
 
-    assert_eq!(to_vec(r.view(1.., 1.., 1..).view(2, 1, 0).iter()), &[1032]);
-    assert_eq!(to_vec(s.view(1.., 1.., 1..).view(2, 1, 0).iter()), &[1203]);
+    assert_eq!(to_slice!(r.view(1.., 1.., 1..).view(2, 1, 0)), [1032]);
+    assert_eq!(to_slice!(s.view(1.., 1.., 1..).view(2, 1, 0)), [1203]);
 
     r.iter_mut().for_each(|x| *x *= 2);
     s.as_mut_slice().iter_mut().for_each(|x| *x *= 2);
@@ -80,10 +96,10 @@ fn test_mdarray() {
 
     let t = s.clone();
 
-    assert_eq!(to_vec(s.iter()), to_vec(t.iter()));
+    assert_eq!(Grid::from_iter(s.drain()), Grid::from_iter(t.into_iter()));
 
     let u = SGrid2::<usize, 3, 4>::new(5);
     let v = u.clone();
 
-    assert_eq!(to_vec(u.iter()), to_vec(v.iter()));
+    assert_eq!(u, v);
 }

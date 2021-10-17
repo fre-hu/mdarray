@@ -1,10 +1,16 @@
 #![allow(unused_parens)]
 
-use crate::grid::{SubGrid, SubGridMut};
+use crate::aligned_alloc::AlignedAlloc;
+use crate::buffer::{DenseBuffer, FromIterIn};
+use crate::grid::{DenseGrid, SubGrid, SubGridMut};
 use crate::index::{DimIndex, IndexMap, ViewIndex};
 use crate::iterator::{Iter, IterMut};
 use crate::layout::{Layout, StridedLayout};
 use crate::order::{ColumnMajor, Order, RowMajor};
+use std::alloc::{Allocator, Global};
+use std::borrow::ToOwned;
+use std::cmp::Ordering;
+use std::fmt::{Debug, Formatter, Result};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::ptr::{self, NonNull};
@@ -23,6 +29,12 @@ pub type StridedView<T, const N: usize, const M: usize, O> =
 
 /// Dense multidimensional array view with static rank and element order, and dynamic shape.
 pub type DenseView<T, const N: usize, O> = StridedView<T, N, 0, O>;
+
+struct DebugState<'a, T: Debug, const N: usize, const M: usize, O: Order> {
+    view: &'a StridedView<T, N, M, O>,
+    index: [usize; N],
+    dim: usize,
+}
 
 impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
     /// Returns a mutable pointer to the array buffer.
@@ -108,6 +120,21 @@ impl<T, const N: usize, const M: usize, O: Order> StridedView<T, N, M, O> {
     /// Returns the distance between elements in each dimension.
     pub fn strides(&self) -> [isize; M] {
         self.layout().strides()
+    }
+}
+
+impl<T: Clone, const N: usize, const M: usize, O: Order> StridedView<T, N, M, O> {
+    /// Copies the array view into a new array.
+    pub fn to_grid(&self) -> DenseGrid<T, N, O> {
+        self.to_grid_in(AlignedAlloc::new(Global))
+    }
+
+    /// Copies the array view into a new array with the specifed allocator.
+    pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> DenseGrid<T, N, O, A> {
+        let buffer = DenseBuffer::<T, 1, O, A>::from_iter_in(self.iter().cloned(), alloc);
+        let (ptr, _, capacity, alloc) = buffer.into_raw_parts_with_alloc();
+
+        unsafe { DenseGrid::from_raw_parts_in(ptr, self.shape(), capacity, alloc) }
     }
 }
 
@@ -265,6 +292,42 @@ impl<T, O: Order> AsRef<DenseView<T, 1, O>> for [T] {
     }
 }
 
+impl<T: Debug, const N: usize, const M: usize, O: Order> Debug for StridedView<T, N, M, O> {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {
+        DebugState {
+            view: self,
+            index: [0; N],
+            dim: N - 1,
+        }
+        .fmt(fmt)
+    }
+}
+
+impl<'a, T: Debug, const N: usize, const M: usize, O: Order> Debug for DebugState<'a, T, N, M, O> {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {
+        let mut list = fmt.debug_list();
+        let mut index = self.index;
+
+        for i in 0..self.view.size(O::select(self.dim, N - 1 - self.dim)) {
+            index[O::select(self.dim, N - 1 - self.dim)] = i;
+
+            if self.dim == 0 {
+                list.entry(&self.view[index]);
+            } else {
+                list.entry(&DebugState {
+                    view: self.view,
+                    index,
+                    dim: self.dim - 1,
+                });
+            }
+        }
+
+        list.finish()
+    }
+}
+
+impl<T: Eq, const N: usize, const M: usize, O: Order> Eq for StridedView<T, N, M, O> {}
+
 impl<I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> Index<I>
     for StridedView<T, N, M, O>
 {
@@ -280,5 +343,75 @@ impl<I: ViewIndex<T, N, M, O>, T, const N: usize, const M: usize, O: Order> Inde
 {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
+    }
+}
+
+impl<'a, T, const N: usize, const M: usize, O: Order> IntoIterator for &'a StridedView<T, N, M, O> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T, N, M, O>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T, const N: usize, const M: usize, O: Order> IntoIterator
+    for &'a mut StridedView<T, N, M, O>
+{
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T, N, M, O>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<T: Ord, const M: usize, O: Order> Ord for StridedView<T, 1, M, O> {
+    default fn cmp(&self, other: &Self) -> Ordering {
+        self.iter().cmp(other.iter())
+    }
+}
+
+impl<T: Ord, O: Order> Ord for DenseView<T, 1, O> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+impl<T: PartialEq<U>, U: PartialEq, const N: usize, const M: usize, const K: usize, O: Order>
+    PartialEq<StridedView<U, N, K, O>> for StridedView<T, N, M, O>
+{
+    default fn eq(&self, other: &StridedView<U, N, K, O>) -> bool {
+        self.shape() == other.shape() && self.iter().eq(other.iter())
+    }
+}
+
+impl<T: PartialEq<U>, U: PartialEq, const N: usize, O: Order> PartialEq<DenseView<U, N, O>>
+    for DenseView<T, N, O>
+{
+    fn eq(&self, other: &DenseView<U, N, O>) -> bool {
+        self.shape() == other.shape() && self.as_slice() == other.as_slice()
+    }
+}
+
+impl<T: PartialOrd<U>, U: PartialOrd, const M: usize, const K: usize, O: Order>
+    PartialOrd<StridedView<U, 1, K, O>> for StridedView<T, 1, M, O>
+{
+    default fn partial_cmp(&self, other: &StridedView<U, 1, K, O>) -> Option<Ordering> {
+        self.iter().partial_cmp(other.iter())
+    }
+}
+
+impl<T: PartialOrd, O: Order> PartialOrd for DenseView<T, 1, O> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.as_slice().partial_cmp(other.as_slice())
+    }
+}
+
+impl<T: Clone, const N: usize, O: Order> ToOwned for DenseView<T, N, O> {
+    type Owned = DenseGrid<T, N, O>;
+
+    fn to_owned(&self) -> DenseGrid<T, N, O> {
+        self.to_grid()
     }
 }
