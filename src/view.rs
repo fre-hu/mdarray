@@ -2,10 +2,11 @@
 
 use crate::aligned_alloc::AlignedAlloc;
 use crate::buffer::{DenseBuffer, FromIterIn};
+use crate::dimension::Dim2;
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
 use crate::index::{DimIndex, IndexMap, ViewIndex};
 use crate::iterator::{Iter, IterMut};
-use crate::layout::{Layout, StridedLayout};
+use crate::layout::{Layout, StaticLayout, StridedLayout};
 use crate::order::{ColumnMajor, Order, RowMajor};
 use std::alloc::{Allocator, Global};
 use std::borrow::ToOwned;
@@ -87,7 +88,7 @@ impl<T, L: Layout<N, O>, const N: usize, O: Order> ViewBase<T, L, N, O> {
 
     /// Returns the number of elements in the array.
     pub fn len(&self) -> usize {
-        self.layout().shape().iter().product()
+        self.layout().len()
     }
 
     /// Returns the shape of the array.
@@ -289,6 +290,27 @@ impl<T, O: Order> AsRef<DenseView<T, 1, O>> for [T] {
         assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
         unsafe { &*ptr::from_raw_parts(self.as_ptr().cast(), self.len()) }
+    }
+}
+
+impl<T, const X: usize, O: Order> AsRef<DenseView<T, 1, O>> for [T; X] {
+    fn as_ref(&self) -> &DenseView<T, 1, O> {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        unsafe { &*ptr::from_raw_parts(self.as_ptr().cast(), X) }
+    }
+}
+
+impl<T, const X: usize, const Y: usize, O: Order> AsRef<DenseView<T, 2, O>> for [[T; X]; Y] {
+    fn as_ref(&self) -> &DenseView<T, 2, O> {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        let layout = O::select(
+            &<Dim2<X, Y> as StaticLayout<2, O>>::LAYOUT,
+            &<Dim2<Y, X> as StaticLayout<2, O>>::LAYOUT,
+        );
+
+        unsafe { ViewBase::from_raw_parts(self.as_ptr().cast(), &layout) }
     }
 }
 

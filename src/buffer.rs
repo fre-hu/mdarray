@@ -1,6 +1,6 @@
 use crate::dimension::Dimension;
 use crate::iterator::Drain;
-use crate::layout::{DenseLayout, Layout, StridedLayout};
+use crate::layout::{DenseLayout, Layout, StaticLayout, StridedLayout};
 use crate::order::Order;
 use crate::raw_vec::RawVec;
 use std::alloc::Allocator;
@@ -218,13 +218,6 @@ impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseBuffer<T, N, O, A> {
     }
 }
 
-impl<T, D: Dimension<N>, const N: usize, O: Order> StaticBuffer<T, D, N, O>
-where
-    [T; D::LEN]: ,
-{
-    const LAYOUT: DenseLayout<N, O> = DenseLayout::new(D::SHAPE, []);
-}
-
 impl<T: Copy, D: Dimension<N>, const N: usize, O: Order> StaticBuffer<T, D, N, O>
 where
     [T; D::LEN]: ,
@@ -294,7 +287,7 @@ where
     }
 
     fn layout(&self) -> &Self::Layout {
-        &Self::LAYOUT
+        &<D as StaticLayout<N, O>>::LAYOUT
     }
 }
 

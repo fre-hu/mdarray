@@ -1,3 +1,4 @@
+use crate::dimension::Dimension;
 use crate::order::Order;
 use std::marker::PhantomData;
 
@@ -8,6 +9,10 @@ pub trait Layout<const N: usize, O: Order>: Copy {
     fn len(&self) -> usize {
         self.shape().iter().product()
     }
+}
+
+pub trait StaticLayout<const N: usize, O: Order> {
+    const LAYOUT: DenseLayout<N, O>;
 }
 
 #[derive(Clone, Copy)]
@@ -63,4 +68,8 @@ impl<const N: usize, const M: usize, O: Order> Layout<N, O> for StridedLayout<N,
     fn size(&self, dim: usize) -> usize {
         self.shape[dim]
     }
+}
+
+impl<D: Dimension<N>, const N: usize, O: Order> StaticLayout<N, O> for D {
+    const LAYOUT: DenseLayout<N, O> = DenseLayout::new(D::SHAPE, []);
 }

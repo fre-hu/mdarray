@@ -11,7 +11,7 @@
 #![feature(trusted_len)]
 #![warn(missing_docs)]
 
-use mdarray::{CGrid, Grid, SGrid1, SGrid2};
+use mdarray::{CGrid, CView, Grid, SGrid1, SGrid2, View};
 use std::cmp::Ordering;
 use std::iter::FromIterator;
 
@@ -60,6 +60,10 @@ fn test_mdarray() {
     assert!(a == a && *a == a && a == *a && *a == *a);
     assert!(a.view(1, .., 2) <= a.view(1, .., 2) && *a.view(1, .., 2) < a.view(2, .., 1));
     assert!(a.view(2, .., 1) > *a.view(1, .., 2) && *a.view(2, .., 1) >= *a.view(2, .., 1));
+
+    assert!(&a.view(.., 1, 2) == AsRef::<View<usize, 1>>::as_ref(&[1012, 1112, 1212]));
+    assert!(&a.view(1, 2..3, 3..) == AsRef::<View<usize, 2>>::as_ref(&[[1123], [1124]]));
+    assert!(&c.view(1, 2..3, 3..) == AsRef::<CView<usize, 2>>::as_ref(&[[1123, 1124]]));
 
     let mut r = a.clone().reshape([5, 4, 3]);
     let mut s = c.clone().reshape([5, 4, 3]);
