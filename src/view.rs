@@ -130,7 +130,7 @@ impl<T: Clone, const N: usize, const M: usize, O: Order> StridedView<T, N, M, O>
         self.to_grid_in(AlignedAlloc::new(Global))
     }
 
-    /// Copies the array view into a new array with the specifed allocator.
+    /// Copies the array view into a new array with the specified allocator.
     pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> DenseGrid<T, N, O, A> {
         let buffer = DenseBuffer::<T, 1, O, A>::from_iter_in(self.iter().cloned(), alloc);
         let (ptr, _, capacity, alloc) = buffer.into_raw_parts_with_alloc();
@@ -276,6 +276,27 @@ impl<T, O: Order> AsMut<DenseView<T, 1, O>> for [T] {
         assert!(mem::size_of::<T>() != 0); // ZST not allowed
 
         unsafe { &mut *ptr::from_raw_parts_mut(self.as_mut_ptr().cast(), self.len()) }
+    }
+}
+
+impl<T, const X: usize, O: Order> AsMut<DenseView<T, 1, O>> for [T; X] {
+    fn as_mut(&mut self) -> &mut DenseView<T, 1, O> {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        unsafe { &mut *ptr::from_raw_parts_mut(self.as_mut_ptr().cast(), X) }
+    }
+}
+
+impl<T, const X: usize, const Y: usize, O: Order> AsMut<DenseView<T, 2, O>> for [[T; X]; Y] {
+    fn as_mut(&mut self) -> &mut DenseView<T, 2, O> {
+        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+
+        let layout = O::select(
+            &<Dim2<X, Y> as StaticLayout<2, O>>::LAYOUT,
+            &<Dim2<Y, X> as StaticLayout<2, O>>::LAYOUT,
+        );
+
+        unsafe { ViewBase::from_raw_parts_mut(self.as_mut_ptr().cast(), &layout) }
     }
 }
 

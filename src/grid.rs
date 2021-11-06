@@ -120,6 +120,13 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseGrid<T, N, O, A> {
         self.buffer.shrink_to(self.len());
     }
 
+    /// Converts the array into a vector.
+    pub fn into_vec(self) -> Vec<T, A> {
+        let (ptr, shape, capacity, alloc) = self.into_raw_parts_with_alloc();
+
+        unsafe { Vec::from_raw_parts_in(ptr, shape.iter().product(), capacity, alloc) }
+    }
+
     /// Creates a new, empty array with the specified capacity and allocator.
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         Self {
@@ -170,6 +177,42 @@ where
             buffer: StaticBuffer::new(value), // TODO: Change to [value; D::LEN]
             _marker: PhantomData,
         }
+    }
+}
+
+impl<T, const X: usize, O: Order> StaticGrid<T, Dim1<X>, 1, O>
+where
+    [(); Dim1::<X>::LEN]: ,
+{
+    /// Converts the array into a primitive array.
+    pub fn into_array(self) -> [T; X] {
+        let grid = mem::ManuallyDrop::new(self);
+
+        unsafe { ptr::read(grid.as_ptr() as *const [T; X]) }
+    }
+}
+
+impl<T, const X: usize, const Y: usize> StaticGrid<T, Dim2<X, Y>, 2, ColumnMajor>
+where
+    [(); Dim2::<X, Y>::LEN]: ,
+{
+    /// Converts the array into a primitive array.
+    pub fn into_array(self) -> [[T; X]; Y] {
+        let grid = mem::ManuallyDrop::new(self);
+
+        unsafe { ptr::read(grid.as_ptr() as *const [[T; X]; Y]) }
+    }
+}
+
+impl<T, const X: usize, const Y: usize> StaticGrid<T, Dim2<X, Y>, 2, RowMajor>
+where
+    [(); Dim2::<X, Y>::LEN]: ,
+{
+    /// Converts the array into a primitive array.
+    pub fn into_array(self) -> [[T; Y]; X] {
+        let grid = mem::ManuallyDrop::new(self);
+
+        unsafe { ptr::read(grid.as_ptr() as *const [[T; Y]; X]) }
     }
 }
 
@@ -272,9 +315,7 @@ impl<T, O: Order, A: Allocator> From<Vec<T, A>> for DenseGrid<T, 1, O, A> {
 
 impl<T, const N: usize, O: Order, A: Allocator> From<DenseGrid<T, N, O, A>> for Vec<T, A> {
     fn from(grid: DenseGrid<T, N, O, A>) -> Self {
-        let (ptr, shape, capacity, alloc) = grid.into_raw_parts_with_alloc();
-
-        unsafe { Vec::from_raw_parts_in(ptr, shape.iter().product(), capacity, alloc) }
+        grid.into_vec()
     }
 }
 
@@ -285,9 +326,7 @@ where
     [(); Dim1::<X>::LEN]: ,
 {
     fn from(grid: StaticGrid<T, Dim1<X>, 1, O>) -> Self {
-        let grid = mem::ManuallyDrop::new(grid);
-
-        unsafe { ptr::read(grid.as_ptr() as *const [T; X]) }
+        grid.into_array()
     }
 }
 
@@ -297,9 +336,7 @@ where
     [(); Dim2::<X, Y>::LEN]: ,
 {
     fn from(grid: StaticGrid<T, Dim2<X, Y>, 2, ColumnMajor>) -> Self {
-        let grid = mem::ManuallyDrop::new(grid);
-
-        unsafe { ptr::read(grid.as_ptr() as *const [[T; X]; Y]) }
+        grid.into_array()
     }
 }
 
@@ -308,9 +345,7 @@ where
     [(); Dim2::<X, Y>::LEN]: ,
 {
     fn from(grid: StaticGrid<T, Dim2<X, Y>, 2, RowMajor>) -> Self {
-        let grid = mem::ManuallyDrop::new(grid);
-
-        unsafe { ptr::read(grid.as_ptr() as *const [[T; Y]; X]) }
+        grid.into_array()
     }
 }
 
