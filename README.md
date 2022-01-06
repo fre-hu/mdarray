@@ -10,13 +10,13 @@ with interworking to other crates for e.g. BLAS/LAPACK functionality.
 Here are the main features of mdarray:
 
 - Dense array type, where the rank and element order is known at compile time.
-- Static array type, where the rank, shape and element order is known at compile time.
 - Column-major and row-major element order.
 - Subarrays (views) can be created with arbitrary shapes and strides.
 - Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
 
-The design is inspired from the Rust ndarray and nalgebra crates, the proposed C++
-mdspan/mdarray types and multidimensional arrays in Julia and Matlab.
+The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
+the proposed C++ mdarray and mdspan types, and multidimensional arrays in
+Julia and Matlab.
 
 Note that this crate requires nightly Rust toolchain.
 

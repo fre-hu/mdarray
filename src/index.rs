@@ -1,250 +1,296 @@
-#![allow(unused_parens)]
+use std::ops::{Bound, Index, IndexMut, Range, RangeBounds, RangeFrom};
+use std::ops::{RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
+use std::slice;
 
+use crate::dimension::{Const, Dim, Shape};
+use crate::format::UnitStrided;
+use crate::layout::{DenseLayout, Layout, StridedLayout};
+use crate::mapping::Mapping;
 use crate::order::{ColumnMajor, Order, RowMajor};
-use crate::view::{DenseView, StridedView};
-use std::ops::{Bound, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
-use std::slice::{self, SliceIndex};
+use crate::span::SpanBase;
 
-pub enum DimInfo {
-    Range(Range<usize>),
-    Scalar(usize),
+pub trait DimIndex {
+    type Layout<L: Layout>: Layout;
+    type Outer<L: Layout>: Layout;
+    type Root<L: Layout>: Layout;
+
+    fn first_info<L: Layout>(
+        self,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Root<L>);
+
+    fn next_info<L: Layout>(
+        self,
+        offset: isize,
+        inner: L,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Outer<L>);
 }
 
-pub trait DimIndex: Clone {
-    const FULL: bool;
-    const RANGE: bool;
+pub trait PartialRange: RangeBounds<usize> {}
 
-    fn dim_info(self, size: usize) -> DimInfo;
-}
+pub trait ViewIndex<D: Dim, O: Order, L: Layout<Order = O>> {
+    type Inner: Layout;
+    type Layout: Layout;
+    type Outer: Layout;
 
-pub trait IndexMap<const N: usize, O: Order> {
-    const FULL: bool;
-
-    const CONT: usize;
-    const RANK: usize;
-
-    fn view_info(
-        &self,
-        dims: &mut [usize],
-        shape: &mut [usize],
-        start: &mut [usize],
-        limit: &[usize],
-        dim: usize,
-    );
-}
-
-pub trait ViewIndex<T, const N: usize, const M: usize, O: Order> {
-    type Output: ?Sized;
-
-    fn index(self, view: &StridedView<T, N, M, O>) -> &Self::Output;
-    fn index_mut(self, view: &mut StridedView<T, N, M, O>) -> &mut Self::Output;
+    fn view_info(self, layout: L) -> (isize, Self::Layout, Self::Outer);
 }
 
 impl DimIndex for usize {
-    const FULL: bool = false;
-    const RANGE: bool = false;
+    type Layout<L: Layout> = L;
+    type Outer<L: Layout> = L::NonDense;
+    type Root<L: Layout> = StridedLayout<L::Dim, L::Order>;
 
-    fn dim_info(self, limit: usize) -> DimInfo {
-        if self >= limit {
-            panic_bounds_check(self, limit)
+    fn first_info<L: Layout>(
+        self,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Root<L>) {
+        if self >= size {
+            panic_bounds_check(self, size)
         }
 
-        DimInfo::Scalar(self)
+        (stride * self as isize, L::default(), StridedLayout::default())
+    }
+
+    fn next_info<L: Layout>(
+        self,
+        offset: isize,
+        inner: L,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Outer<L>) {
+        if self >= size {
+            panic_bounds_check(self, size)
+        }
+
+        (offset + stride * self as isize, inner, inner.to_non_dense())
     }
 }
 
-macro_rules! impl_dim_index {
-    ($type:ty, $full:tt) => {
-        impl DimIndex for $type {
-            const FULL: bool = $full;
-            const RANGE: bool = true;
+impl DimIndex for RangeFull {
+    type Layout<L: Layout> = L::Larger;
+    type Outer<L: Layout> = L::Larger;
+    type Root<L: Layout> = L::Larger;
 
-            fn dim_info(self, limit: usize) -> DimInfo {
-                DimInfo::Range(slice::range(self, ..limit))
-            }
-        }
-    };
-}
+    fn first_info<L: Layout>(
+        self,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Root<L>) {
+        let layout = L::default().add_dim(size, stride);
 
-impl_dim_index!((Bound<usize>, Bound<usize>), false);
-impl_dim_index!(Range<usize>, false);
-impl_dim_index!(RangeFrom<usize>, false);
-impl_dim_index!(RangeFull, true);
-impl_dim_index!(RangeInclusive<usize>, false);
-impl_dim_index!(RangeTo<usize>, false);
-impl_dim_index!(RangeToInclusive<usize>, false);
+        (0, layout, layout)
+    }
 
-impl<O: Order, X: DimIndex> IndexMap<1, O> for X {
-    const FULL: bool = X::FULL;
+    fn next_info<L: Layout>(
+        self,
+        offset: isize,
+        inner: L,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Outer<L>) {
+        let layout = inner.add_dim(size, stride);
 
-    const CONT: usize = X::RANGE as usize;
-    const RANK: usize = X::RANGE as usize;
-
-    fn view_info(
-        &self,
-        dims: &mut [usize],
-        shape: &mut [usize],
-        start: &mut [usize],
-        limits: &[usize],
-        dim: usize,
-    ) {
-        start[0] = match self.clone().dim_info(limits[0]) {
-            DimInfo::Range(r) => {
-                dims[0] = dim;
-                shape[0] = r.end - r.start;
-                r.start
-            }
-            DimInfo::Scalar(s) => s,
-        };
+        (offset, layout, layout)
     }
 }
 
-macro_rules! impl_index_map {
-    ($n:tt, $o:tt, $b:tt, ($($x:tt),+), ($($y:tt),+), $last:tt, ($($vars:tt),+)) => {
-        impl<$($x: DimIndex),+, $last: DimIndex> IndexMap<$n, $o> for ($($x),+, $last) {
-            const FULL: bool = match $b {
-                true => <($($x),+) as IndexMap<{$n - 1}, $o>>::FULL && $last::FULL,
-                false => <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::FULL && X::FULL,
-            };
+impl<R: PartialRange> DimIndex for R {
+    type Layout<L: Layout> = L::Larger;
+    type Outer<L: Layout> = <L::Larger as Mapping<L::Larger>>::NonDense;
+    type Root<L: Layout> = <L::Larger as Mapping<L::Larger>>::NonDense;
 
-            const CONT: usize = match $b {
-                true => {
-                    <($($x),+) as IndexMap<{$n - 1}, $o>>::CONT
-                        + (<($($x),+) as IndexMap<{$n - 1}, $o>>::FULL && $last::RANGE) as usize
-                }
-                false => {
-                    <($($y),+) as IndexMap<{$n - 1}, RowMajor>>::CONT
-                       + (<($($y),+) as IndexMap<{$n - 1}, RowMajor>>::FULL && X::RANGE) as usize
-                }
-            };
+    fn first_info<L: Layout>(
+        self,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Root<L>) {
+        let range = slice::range(self, ..size);
+        let layout = L::default().add_dim(range.end - range.start, stride);
 
-            const RANK: usize = X::RANGE as usize + <($($y),+) as IndexMap::<{$n - 1}, $o>>::RANK;
+        (stride * range.start as isize, layout, layout.to_non_dense())
+    }
 
-            fn view_info(&self,
-                dims: &mut [usize],
-                shape: &mut [usize],
-                start: &mut [usize],
-                limits: &[usize],
-                dim: usize,
-            ) {
-                start[0] = match self.0.clone().dim_info(limits[0]) {
-                    DimInfo::Range(r) => {
-                        <($($y),+) as IndexMap<{$n - 1}, $o>>::view_info(
-                            &($(self.$vars.clone()),+),
-                            &mut dims[1..],
-                            &mut shape[1..],
-                            &mut start[1..],
-                            &limits[1..],
-                            dim + 1,
-                        );
-                        dims[0] = dim;
-                        shape[0] = r.end - r.start;
-                        r.start
-                    }
-                    DimInfo::Scalar(s) => {
-                        <($($y),+) as IndexMap<{$n - 1}, $o>>::view_info(
-                            &($(self.$vars.clone()),+),
-                            dims,
-                            shape,
-                            &mut start[1..],
-                            &limits[1..],
-                            dim + 1,
-                        );
-                        s
-                    }
-                };
+    fn next_info<L: Layout>(
+        self,
+        offset: isize,
+        inner: L,
+        size: usize,
+        stride: isize,
+    ) -> (isize, Self::Layout<L>, Self::Outer<L>) {
+        let range = slice::range(self, ..size);
+        let layout = inner.add_dim(range.end - range.start, stride);
+
+        (offset + stride * range.start as isize, layout, layout.to_non_dense())
+    }
+}
+
+impl PartialRange for (Bound<usize>, Bound<usize>) {}
+impl PartialRange for Range<usize> {}
+impl PartialRange for RangeFrom<usize> {}
+impl PartialRange for RangeInclusive<usize> {}
+impl PartialRange for RangeTo<usize> {}
+impl PartialRange for RangeToInclusive<usize> {}
+
+impl<O: Order, L: Layout<Order = O>, X: DimIndex> ViewIndex<Const<1>, O, L> for X {
+    type Inner = L::Reshaped<[usize; 0]>;
+    type Layout = X::Layout<Self::Inner>;
+    type Outer = X::Root<Self::Inner>;
+
+    fn view_info(self, layout: L) -> (isize, Self::Layout, Self::Outer) {
+        self.first_info(layout.size(layout.dim(0)), layout.stride(layout.dim(0)))
+    }
+}
+
+macro_rules! impl_view_index_cm {
+    ($n:tt, ($($xy:tt),+), $z:tt, ($($idx:tt),+), $last:tt) => {
+        #[allow(unused_parens)]
+        impl<L: Layout<Order = ColumnMajor>, $($xy: DimIndex),+, $z: DimIndex>
+            ViewIndex<Const<$n>, ColumnMajor, L> for ($($xy),+, $z)
+        {
+            type Inner = <($($xy),+) as ViewIndex<Const<{$n - 1}>, ColumnMajor, L>>::Outer;
+            type Layout = $z::Layout<Self::Inner>;
+            type Outer = $z::Outer<Self::Inner>;
+
+            fn view_info(self, layout: L) -> (isize, Self::Layout, Self::Outer) {
+                let dim = layout.dim($n - 1);
+                let (offset, _, inner) =
+                    <($($xy),+) as ViewIndex<Const<{$n - 1}>, ColumnMajor, L>>::view_info(
+                        ($(self.$idx),+),
+                        layout
+                    );
+
+                self.$last.next_info(offset, inner, layout.size(dim), layout.stride(dim))
             }
         }
     };
 }
 
-#[rustfmt::skip]
-macro_rules! impl_index_maps {
-    ($o:tt, $b:tt) => {
-        impl_index_map!(2, $o, $b, (X), (Y), Y, (1));
-        impl_index_map!(3, $o, $b, (X, Y), (Y, Z), Z, (1, 2));
-        impl_index_map!(4, $o, $b, (X, Y, Z), (Y, Z, W), W, (1, 2, 3));
-        impl_index_map!(5, $o, $b, (X, Y, Z, W), (Y, Z, W, U), U, (1, 2, 3, 4));
-        impl_index_map!(6, $o, $b, (X, Y, Z, W, U), (Y, Z, W, U, V), V, (1, 2, 3, 4, 5));
+impl_view_index_cm!(2, (X), Y, (0), 1);
+impl_view_index_cm!(3, (X, Y), Z, (0, 1), 2);
+impl_view_index_cm!(4, (X, Y, Z), W, (0, 1, 2), 3);
+impl_view_index_cm!(5, (X, Y, Z, W), U, (0, 1, 2, 3), 4);
+impl_view_index_cm!(6, (X, Y, Z, W, U), V, (0, 1, 2, 3, 4), 5);
+
+macro_rules! impl_view_index_rm {
+    ($n:tt, ($($yz:tt),+), ($($idx:tt),+)) => {
+        #[allow(unused_parens)]
+        impl<L: Layout<Order = RowMajor>, X: DimIndex, $($yz: DimIndex),+>
+            ViewIndex<Const<$n>, RowMajor, L> for (X, $($yz),+)
+        {
+            type Inner = <($($yz),+) as ViewIndex<Const<{$n - 1}>, RowMajor, L>>::Outer;
+            type Layout = X::Layout<Self::Inner>;
+            type Outer = X::Outer<Self::Inner>;
+
+            fn view_info(self, layout: L) -> (isize, Self::Layout, Self::Outer) {
+                let dim = layout.dim($n - 1);
+                let (offset, _, inner) =
+                    <($($yz),+) as ViewIndex<Const<{$n - 1}>, RowMajor, L>>::view_info(
+                        ($(self.$idx),+),
+                        layout
+                    );
+
+                self.0.next_info(offset, inner, layout.size(dim), layout.stride(dim))
+            }
+        }
     };
 }
 
-impl_index_maps!(ColumnMajor, true);
-impl_index_maps!(RowMajor, false);
+impl_view_index_rm!(2, (Y), (1));
+impl_view_index_rm!(3, (Y, Z), (1, 2));
+impl_view_index_rm!(4, (Y, Z, W), (1, 2, 3));
+impl_view_index_rm!(5, (Y, Z, W, U), (1, 2, 3, 4));
+impl_view_index_rm!(6, (Y, Z, W, U, V), (1, 2, 3, 4, 5));
 
-macro_rules! impl_view_index {
+impl<S: Shape, T, D: Dim<Shape = S>, L: Layout<Dim = D>> Index<S> for SpanBase<T, L> {
+    type Output = T;
+
+    fn index(&self, index: S) -> &T {
+        let layout = self.layout();
+
+        for i in 0..L::Dim::RANK {
+            if index.as_ref()[i] >= layout.size(i) {
+                panic_bounds_check(index.as_ref()[i], layout.size(i))
+            }
+        }
+
+        unsafe { &*self.as_ptr().offset(layout.offset(index)) }
+    }
+}
+
+impl<S: Shape, T, D: Dim<Shape = S>, L: Layout<Dim = D>> IndexMut<S> for SpanBase<T, L> {
+    fn index_mut(&mut self, index: S) -> &mut T {
+        let layout = self.layout();
+
+        for i in 0..L::Dim::RANK {
+            if index.as_ref()[i] >= layout.size(i) {
+                panic_bounds_check(index.as_ref()[i], layout.size(i))
+            }
+        }
+
+        unsafe { &mut *self.as_mut_ptr().offset(layout.offset(index)) }
+    }
+}
+
+impl<T, L: Layout<Dim = Const<1>>> Index<usize> for SpanBase<T, L> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &T {
+        if index >= self.size(0) {
+            panic_bounds_check(index, self.size(0))
+        }
+
+        unsafe { &*self.as_ptr().offset(self.stride(0) * index as isize) }
+    }
+}
+
+impl<T, L: Layout<Dim = Const<1>>> IndexMut<usize> for SpanBase<T, L> {
+    fn index_mut(&mut self, index: usize) -> &mut T {
+        if index >= self.size(0) {
+            panic_bounds_check(index, self.size(0))
+        }
+
+        unsafe { &mut *self.as_mut_ptr().offset(self.stride(0) * index as isize) }
+    }
+}
+
+macro_rules! impl_index_range {
     ($type:ty) => {
-        impl<T, const N: usize, O: Order> ViewIndex<T, N, 0, O> for $type {
-            type Output = DenseView<T, 1, O>;
+        impl<T, F: UnitStrided, O: Order, L: Layout<Dim = Const<1>, Format = F, Order = O>>
+            Index<$type> for SpanBase<T, L>
+        {
+            type Output = SpanBase<T, DenseLayout<Const<1>, O>>;
 
-            fn index(self, view: &DenseView<T, N, O>) -> &Self::Output {
-                <Self as SliceIndex<[T]>>::index(self, view.as_slice()).as_ref()
+            fn index(&self, index: $type) -> &Self::Output {
+                self.as_slice()[index].as_ref()
             }
+        }
 
-            fn index_mut(self, view: &mut DenseView<T, N, O>) -> &mut Self::Output {
-                <Self as SliceIndex<[T]>>::index_mut(self, view.as_mut_slice()).as_mut()
+        impl<T, F: UnitStrided, L: Layout<Dim = Const<1>, Format = F>> IndexMut<$type>
+            for SpanBase<T, L>
+        {
+            fn index_mut(&mut self, index: $type) -> &mut Self::Output {
+                self.as_mut_slice()[index].as_mut()
             }
         }
     };
 }
 
-impl_view_index!((Bound<usize>, Bound<usize>));
-impl_view_index!(Range<usize>);
-impl_view_index!(RangeFrom<usize>);
-impl_view_index!(RangeInclusive<usize>);
-impl_view_index!(RangeFull);
-impl_view_index!(RangeTo<usize>);
-impl_view_index!(RangeToInclusive<usize>);
+impl_index_range!((Bound<usize>, Bound<usize>));
+impl_index_range!(Range<usize>);
+impl_index_range!(RangeFrom<usize>);
+impl_index_range!(RangeInclusive<usize>);
+impl_index_range!(RangeFull);
+impl_index_range!(RangeTo<usize>);
+impl_index_range!(RangeToInclusive<usize>);
 
-impl<T, const N: usize, O: Order> ViewIndex<T, N, 0, O> for usize {
-    type Output = T;
-
-    fn index(self, view: &StridedView<T, N, 0, O>) -> &Self::Output {
-        <Self as SliceIndex<[T]>>::index(self, view.as_slice())
-    }
-
-    fn index_mut(self, view: &mut StridedView<T, N, 0, O>) -> &mut Self::Output {
-        <Self as SliceIndex<[T]>>::index_mut(self, view.as_mut_slice())
-    }
-}
-
-impl<T, const N: usize, const M: usize, O: Order> ViewIndex<T, N, M, O> for [usize; N] {
-    type Output = T;
-
-    fn index(self, view: &StridedView<T, N, M, O>) -> &Self::Output {
-        let mut index = 0;
-
-        for i in 0..self.len() {
-            if self[i] >= view.size(i) {
-                panic_bounds_check(self[i], view.size(i))
-            }
-
-            index += self[i] as isize * view.stride(i);
-        }
-
-        unsafe { &*view.as_ptr().offset(index) }
-    }
-
-    fn index_mut(self, view: &mut StridedView<T, N, M, O>) -> &mut Self::Output {
-        let mut index = 0;
-
-        for i in 0..self.len() {
-            if self[i] >= view.size(i) {
-                panic_bounds_check(self[i], view.size(i))
-            }
-
-            index += self[i] as isize * view.stride(i);
-        }
-
-        unsafe { &mut *view.as_mut_ptr().offset(index) }
-    }
-}
-
+#[cold]
 #[inline(never)]
 #[track_caller]
 fn panic_bounds_check(index: usize, len: usize) -> ! {
-    panic!(
-        "index out of bounds: the len is {} but the index is {}",
-        len, index
-    )
+    panic!("index out of bounds: the len is {len} but the index is {index}")
 }

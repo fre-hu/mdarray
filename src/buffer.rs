@@ -1,56 +1,43 @@
-use crate::dimension::Dimension;
-use crate::iterator::Drain;
-use crate::layout::{DenseLayout, Layout, StaticLayout, StridedLayout};
-use crate::order::Order;
-use crate::raw_vec::RawVec;
 use std::alloc::Allocator;
-use std::iter::TrustedLen;
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
-use std::{array, mem, vec};
+use std::{cmp, mem};
 
-pub trait Buffer<T, const N: usize, O: Order> {
-    type Layout: Layout<N, O>;
+use crate::dimension::Dim;
+use crate::layout::{DenseLayout, Layout};
+use crate::order::Order;
+use crate::raw_vec::RawVec;
 
-    fn as_mut_ptr(&mut self) -> *mut T;
-    fn as_ptr(&self) -> *const T;
+pub trait Buffer {
+    type Item;
+    type Layout: Layout;
+
+    fn as_ptr(&self) -> *const Self::Item;
     fn layout(&self) -> &Self::Layout;
 }
 
-pub trait FromIterIn<I: Iterator, A: Allocator> {
-    fn from_iter_in(iter: I, alloc: A) -> Self;
+pub trait BufferMut: Buffer {
+    fn as_mut_ptr(&mut self) -> *mut Self::Item;
 }
 
-pub trait OwnedBuffer<T> {
-    type IntoIter: Iterator<Item = T>;
-}
-
-pub struct DenseBuffer<T, const N: usize, O: Order, A: Allocator> {
+pub struct DenseBuffer<T, D: Dim, O: Order, A: Allocator> {
     vec: RawVec<T, A>,
-    layout: DenseLayout<N, O>,
+    layout: DenseLayout<D, O>,
 }
 
-pub struct StaticBuffer<T, D: Dimension<N>, const N: usize, O: Order>
-where
-    [T; D::LEN]: ,
-{
-    array: [T; D::LEN],
-    _marker: PhantomData<(D, O)>,
-}
-
-pub struct SubBuffer<'a, T, const N: usize, const M: usize, O: Order> {
+pub struct SubBuffer<'a, T, L: Layout> {
     ptr: NonNull<T>,
-    layout: StridedLayout<N, M, O>,
+    layout: L,
     _marker: PhantomData<&'a T>,
 }
 
-pub struct SubBufferMut<'a, T, const N: usize, const M: usize, O: Order> {
+pub struct SubBufferMut<'a, T, L: Layout> {
     ptr: NonNull<T>,
-    layout: StridedLayout<N, M, O>,
+    layout: L,
     _marker: PhantomData<&'a mut T>,
 }
 
-impl<T, const N: usize, O: Order, A: Allocator> DenseBuffer<T, N, O, A> {
+impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
     pub fn allocator(&self) -> &A {
         self.vec.allocator()
     }
@@ -62,7 +49,7 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseBuffer<T, N, O, A> {
     pub fn clear(&mut self) {
         let len = self.layout.len();
 
-        self.layout.resize([0; N], [0; 0]);
+        self.layout = DenseLayout::default();
 
         for i in 0..len {
             unsafe {
@@ -71,42 +58,90 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseBuffer<T, N, O, A> {
         }
     }
 
-    pub fn drain(&mut self) -> Drain<T> {
-        let len = self.layout.len();
-
-        self.layout.resize([0; N], [0; 0]);
-
-        Drain::new(self.as_ptr(), len)
-    }
-
     pub unsafe fn from_raw_parts_in(
         ptr: *mut T,
-        shape: [usize; N],
+        shape: D::Shape,
         capacity: usize,
         alloc: A,
     ) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
 
         Self {
             vec: RawVec::from_raw_parts_in(ptr, capacity, alloc),
-            layout: DenseLayout::new(shape, []),
+            layout: DenseLayout::new(shape),
         }
     }
 
-    pub fn into_raw_parts_with_alloc(self) -> (*mut T, [usize; N], usize, A) {
+    pub fn into_raw_parts_with_alloc(self) -> (*mut T, D::Shape, usize, A) {
         let mut me = mem::ManuallyDrop::new(self);
 
-        (me.as_mut_ptr(), me.layout.shape(), me.capacity(), unsafe {
-            ptr::read(me.allocator())
-        })
+        (me.as_mut_ptr(), me.layout.shape(), me.capacity(), unsafe { ptr::read(me.allocator()) })
     }
 
     pub fn new_in(alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
 
-        Self {
-            vec: RawVec::new_in(alloc),
-            layout: DenseLayout::new([0; N], []),
+        Self { vec: RawVec::new_in(alloc), layout: DenseLayout::default() }
+    }
+
+    pub fn resize(&mut self, shape: D::Shape, value: T)
+    where
+        T: Clone,
+        A: Clone,
+    {
+        let new_len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+
+        if new_len == 0 {
+            self.clear();
+        } else {
+            let old_len = self.layout.len();
+            let old_shape = self.layout.shape();
+
+            let copy = O::select(
+                shape.as_ref()[..D::RANK - 1] != old_shape.as_ref()[..D::RANK - 1],
+                shape.as_ref()[1..] != old_shape.as_ref()[1..],
+            );
+
+            if copy {
+                let mut vec = RawVec::with_capacity_in(new_len, self.allocator().clone());
+
+                self.layout = DenseLayout::default(); // Leak elements in case of exception.
+
+                unsafe {
+                    Self::copy_dim(
+                        self.as_mut_ptr(),
+                        vec.as_mut_ptr(),
+                        old_shape,
+                        shape,
+                        &value,
+                        O::select(D::RANK - 1, 0),
+                    );
+                }
+
+                mem::swap(&mut self.vec, &mut vec);
+
+                self.layout = DenseLayout::new(shape);
+            } else {
+                if new_len > self.capacity() {
+                    self.vec.grow(new_len);
+                }
+
+                let ptr = self.as_mut_ptr();
+
+                for i in old_len..new_len {
+                    unsafe {
+                        ptr::write(ptr.add(i), value.clone());
+                    }
+                }
+
+                self.layout = DenseLayout::new(shape); // Resize after creating new elements.
+
+                for i in new_len..old_len {
+                    unsafe {
+                        ptr::drop_in_place(ptr.add(i));
+                    }
+                }
+            }
         }
     }
 
@@ -117,151 +152,61 @@ impl<T, const N: usize, O: Order, A: Allocator> DenseBuffer<T, N, O, A> {
     }
 
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
+        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
 
-        Self {
-            vec: RawVec::with_capacity_in(capacity, alloc),
-            layout: DenseLayout::new([0; N], []),
-        }
+        Self { vec: RawVec::with_capacity_in(capacity, alloc), layout: DenseLayout::default() }
     }
-}
 
-impl<T: Clone, const N: usize, O: Order, A: Allocator> DenseBuffer<T, N, O, A> {
-    pub fn resize(&mut self, shape: [usize; N], value: T) {
-        let old_len = self.layout.len();
-        let new_len = shape.iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+    unsafe fn copy_dim(
+        old_ptr: *mut T,
+        new_ptr: *mut T,
+        old_shape: D::Shape,
+        new_shape: D::Shape,
+        value: &T,
+        dim: usize,
+    ) where
+        T: Clone,
+    {
+        let old_stride: usize = O::select(
+            old_shape.as_ref()[..dim].iter().product(),
+            old_shape.as_ref()[dim + 1..].iter().product(),
+        );
 
-        if new_len > self.capacity() {
-            self.vec.grow(new_len);
-        }
+        let new_stride: usize = O::select(
+            new_shape.as_ref()[..dim].iter().product(),
+            new_shape.as_ref()[dim + 1..].iter().product(),
+        );
 
-        let ptr = self.as_mut_ptr();
+        let min_size = cmp::min(old_shape.as_ref()[dim], new_shape.as_ref()[dim]);
 
-        if new_len == 0 {
-            self.clear();
-        } else if old_len == 0 {
-            for i in 0..new_len {
-                unsafe {
-                    ptr::write(ptr.add(i), value.clone());
-                }
-            }
-
-            self.layout.resize(shape, []);
+        if dim == O::select(0, D::RANK - 1) {
+            ptr::copy(old_ptr, new_ptr, min_size);
         } else {
-            let mut min_shape = self.layout.shape();
-
-            let mut count = 1;
-            let mut stride = old_len;
-
-            self.layout.resize([0; N], []); // Leak elements in case of exception
-
-            // Shrink dimensions that are too large
-            for i in 0..N {
-                let dim = O::select(N - 1 - i, i);
-
-                stride /= min_shape[dim];
-
-                if min_shape[dim] > shape[dim] {
-                    let old_stride = stride * min_shape[dim];
-                    let new_stride = stride * shape[dim];
-
-                    unsafe {
-                        for j in new_stride..old_stride {
-                            ptr::drop_in_place(ptr.add(j));
-                        }
-
-                        for j in 1..count {
-                            ptr::copy(ptr.add(j * old_stride), ptr.add(j * new_stride), new_stride);
-
-                            for k in new_stride..old_stride {
-                                ptr::drop_in_place(ptr.add(j * old_stride + k));
-                            }
-                        }
-                    }
-
-                    min_shape[dim] = shape[dim];
-                }
-
-                count *= min_shape[dim];
+            for i in 0..min_size {
+                Self::copy_dim(
+                    old_ptr.add(i * old_stride),
+                    new_ptr.add(i * new_stride),
+                    old_shape,
+                    new_shape,
+                    value,
+                    O::select(dim, dim + 2) - 1,
+                );
             }
+        }
 
-            // Expand dimensions that are too small
-            for i in 0..N {
-                let dim = O::select(i, N - 1 - i);
+        for i in min_size * old_stride..old_shape.as_ref()[dim] * old_stride {
+            ptr::drop_in_place(old_ptr.add(i));
+        }
 
-                count /= min_shape[dim];
-
-                if shape[dim] > min_shape[dim] {
-                    let old_stride = stride * min_shape[dim];
-                    let new_stride = stride * shape[dim];
-
-                    unsafe {
-                        for j in (1..count).rev() {
-                            ptr::copy(ptr.add(j * old_stride), ptr.add(j * new_stride), old_stride);
-
-                            for k in old_stride..new_stride {
-                                ptr::write(ptr.add(j * new_stride + k), value.clone());
-                            }
-                        }
-
-                        for j in old_stride..new_stride {
-                            ptr::write(ptr.add(j), value.clone());
-                        }
-                    }
-                }
-
-                stride *= shape[dim];
-            }
-
-            self.layout.resize(shape, []);
+        for i in min_size * new_stride..new_shape.as_ref()[dim] * new_stride {
+            ptr::write(new_ptr.add(i), value.clone());
         }
     }
 }
 
-impl<T: Copy, D: Dimension<N>, const N: usize, O: Order> StaticBuffer<T, D, N, O>
-where
-    [T; D::LEN]: ,
-{
-    pub fn new(value: T) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        Self {
-            array: [value; D::LEN], // TODO: Change to array and remove T: Copy
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a, T, const N: usize, const M: usize, O: Order> SubBuffer<'a, T, N, M, O> {
-    pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        Self {
-            ptr,
-            layout,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a, T, const N: usize, const M: usize, O: Order> SubBufferMut<'a, T, N, M, O> {
-    pub fn new(ptr: NonNull<T>, layout: StridedLayout<N, M, O>) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        Self {
-            ptr,
-            layout,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T, const N: usize, O: Order, A: Allocator> Buffer<T, N, O> for DenseBuffer<T, N, O, A> {
-    type Layout = DenseLayout<N, O>;
-
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.vec.as_mut_ptr()
-    }
+impl<T, D: Dim, O: Order, A: Allocator> Buffer for DenseBuffer<T, D, O, A> {
+    type Item = T;
+    type Layout = DenseLayout<D, O>;
 
     fn as_ptr(&self) -> *const T {
         self.vec.as_ptr()
@@ -272,127 +217,16 @@ impl<T, const N: usize, O: Order, A: Allocator> Buffer<T, N, O> for DenseBuffer<
     }
 }
 
-impl<T, D: Dimension<N>, const N: usize, O: Order> Buffer<T, N, O> for StaticBuffer<T, D, N, O>
-where
-    [(); D::LEN]: ,
-{
-    type Layout = DenseLayout<N, O>;
-
+impl<T, D: Dim, O: Order, A: Allocator> BufferMut for DenseBuffer<T, D, O, A> {
     fn as_mut_ptr(&mut self) -> *mut T {
-        self.array.as_mut_ptr()
-    }
-
-    fn as_ptr(&self) -> *const T {
-        self.array.as_ptr()
-    }
-
-    fn layout(&self) -> &Self::Layout {
-        &<D as StaticLayout<N, O>>::LAYOUT
+        self.vec.as_mut_ptr()
     }
 }
 
-impl<'a, T, const N: usize, const M: usize, O: Order> Buffer<T, N, O>
-    for SubBuffer<'a, T, N, M, O>
-{
-    type Layout = StridedLayout<N, M, O>;
-
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.ptr.as_ptr()
-    }
-
-    fn as_ptr(&self) -> *const T {
-        self.ptr.as_ptr()
-    }
-
-    fn layout(&self) -> &Self::Layout {
-        &self.layout
-    }
-}
-
-impl<'a, T, const N: usize, const M: usize, O: Order> Buffer<T, N, O>
-    for SubBufferMut<'a, T, N, M, O>
-{
-    type Layout = StridedLayout<N, M, O>;
-
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.ptr.as_ptr()
-    }
-
-    fn as_ptr(&self) -> *const T {
-        self.ptr.as_ptr()
-    }
-
-    fn layout(&self) -> &Self::Layout {
-        &self.layout
-    }
-}
-
-impl<I: Iterator<Item = T>, T, O: Order, A: Allocator> FromIterIn<I, A>
-    for DenseBuffer<T, 1, O, A>
-{
-    default fn from_iter_in(mut iter: I, alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        let mut len = 0;
-        let mut vec = RawVec::<T, A>::new_in(alloc);
-
-        while let Some(x) = iter.next() {
-            if len == vec.capacity() {
-                let (lower, _) = iter.size_hint();
-
-                vec.grow(vec.capacity().saturating_add(lower).saturating_add(1));
-            }
-
-            unsafe {
-                ptr::write(vec.as_mut_ptr().add(len), x);
-            }
-
-            len += 1;
-        }
-
-        Self {
-            vec,
-            layout: DenseLayout::new([len], []),
-        }
-    }
-}
-
-impl<I: TrustedLen<Item = T>, T, O: Order, A: Allocator> FromIterIn<I, A>
-    for DenseBuffer<T, 1, O, A>
-{
-    fn from_iter_in(iter: I, alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0); // ZST not allowed
-
-        let (lower, _) = iter.size_hint();
-        let mut vec = RawVec::<T, A>::with_capacity_in(lower, alloc);
-
-        for (i, x) in iter.enumerate() {
-            unsafe {
-                ptr::write(vec.as_mut_ptr().add(i), x);
-            }
-        }
-
-        Self {
-            vec,
-            layout: DenseLayout::new([lower], []),
-        }
-    }
-}
-
-impl<T, const N: usize, O: Order, A: Allocator> OwnedBuffer<T> for DenseBuffer<T, N, O, A> {
-    type IntoIter = vec::IntoIter<T, A>;
-}
-
-impl<T, D: Dimension<N>, const N: usize, O: Order> OwnedBuffer<T> for StaticBuffer<T, D, N, O>
-where
-    [(); D::LEN]: ,
-{
-    type IntoIter = array::IntoIter<T, { D::LEN }>;
-}
-
-impl<T: Clone, const N: usize, O: Order, A: Allocator + Clone> Clone for DenseBuffer<T, N, O, A> {
+impl<T: Clone, D: Dim, O: Order, A: Allocator + Clone> Clone for DenseBuffer<T, D, O, A> {
     fn clone(&self) -> Self {
         let len = self.layout.len();
+
         let mut vec = RawVec::<T, A>::with_capacity_in(len, self.allocator().clone());
 
         for i in 0..len {
@@ -401,27 +235,56 @@ impl<T: Clone, const N: usize, O: Order, A: Allocator + Clone> Clone for DenseBu
             }
         }
 
-        Self {
-            vec,
-            layout: DenseLayout::new(self.layout.shape(), []),
-        }
+        Self { vec, layout: self.layout }
     }
 }
 
-impl<T: Clone, D: Dimension<N>, const N: usize, O: Order> Clone for StaticBuffer<T, D, N, O>
-where
-    [(); D::LEN]: ,
-{
-    fn clone(&self) -> Self {
-        Self {
-            array: self.array.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T, const N: usize, O: Order, A: Allocator> Drop for DenseBuffer<T, N, O, A> {
+impl<T, D: Dim, O: Order, A: Allocator> Drop for DenseBuffer<T, D, O, A> {
     fn drop(&mut self) {
         self.clear();
+    }
+}
+
+macro_rules! impl_sub_buffer {
+    ($type:tt, $raw_mut:tt) => {
+        impl<'a, T, L: Layout> $type<'a, T, L> {
+            pub unsafe fn new(ptr: *$raw_mut T, layout: L) -> Self {
+                assert!(mem::size_of::<T>() != 0, "ZST not allowed");
+
+                Self {
+                    ptr: NonNull::new_unchecked(ptr as *mut T),
+                    layout,
+                    _marker: PhantomData,
+                }
+            }
+        }
+
+        impl<'a, T, L: Layout> Buffer for $type<'a, T, L> {
+            type Item = T;
+            type Layout = L;
+
+            fn as_ptr(&self) -> *const T {
+                self.ptr.as_ptr()
+            }
+
+            fn layout(&self) -> &L {
+                &self.layout
+            }
+        }
+    };
+}
+
+impl_sub_buffer!(SubBuffer, const);
+impl_sub_buffer!(SubBufferMut, mut);
+
+impl<'a, T, L: Layout> BufferMut for SubBufferMut<'a, T, L> {
+    fn as_mut_ptr(&mut self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+}
+
+impl<'a, T, L: Layout> Clone for SubBuffer<'a, T, L> {
+    fn clone(&self) -> Self {
+        Self { ptr: self.ptr, layout: self.layout, _marker: PhantomData }
     }
 }

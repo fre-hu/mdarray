@@ -28,12 +28,7 @@ impl<T, A: Allocator> RawVec<T, A> {
     }
 
     pub unsafe fn from_raw_parts_in(ptr: *mut T, capacity: usize, alloc: A) -> Self {
-        Self {
-            ptr: NonNull::new_unchecked(ptr),
-            capacity,
-            alloc,
-            _marker: PhantomData,
-        }
+        Self { ptr: NonNull::new_unchecked(ptr), capacity, alloc, _marker: PhantomData }
     }
 
     pub fn grow(&mut self, capacity: usize) {
@@ -61,12 +56,7 @@ impl<T, A: Allocator> RawVec<T, A> {
     }
 
     pub fn new_in(alloc: A) -> Self {
-        Self {
-            ptr: NonNull::dangling(),
-            capacity: 0,
-            alloc,
-            _marker: PhantomData,
-        }
+        Self { ptr: NonNull::dangling(), capacity: 0, alloc, _marker: PhantomData }
     }
 
     pub fn shrink(&mut self, capacity: usize) {
@@ -111,5 +101,5 @@ impl<T, A: Allocator> Drop for RawVec<T, A> {
     }
 }
 
-unsafe impl<T: Send, A: Allocator> Send for RawVec<T, A> {}
-unsafe impl<T: Sync, A: Allocator> Sync for RawVec<T, A> {}
+unsafe impl<T: Send, A: Allocator + Send> Send for RawVec<T, A> {}
+unsafe impl<T: Sync, A: Allocator + Sync> Sync for RawVec<T, A> {}

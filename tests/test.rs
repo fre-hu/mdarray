@@ -1,23 +1,18 @@
-#![allow(incomplete_features)]
 #![feature(allocator_api)]
-#![feature(const_fn_trait_bound)]
 #![feature(const_generics_defaults)]
-#![feature(generic_const_exprs)]
+#![feature(generic_associated_types)]
 #![feature(ptr_metadata)]
-#![feature(slice_index_methods)]
 #![feature(slice_ptr_len)]
 #![feature(slice_range)]
-#![feature(specialization)]
-#![feature(trusted_len)]
 #![warn(missing_docs)]
 
-use mdarray::{CGrid, CView, Grid, SGrid1, SGrid2, View};
+use mdarray::{AlignedAlloc, CGrid, CSpan, Grid, Span};
+
 use std::cmp::Ordering;
-use std::iter::FromIterator;
 
 macro_rules! to_slice {
-    ($view:expr) => {
-        $view.to_grid().as_slice()
+    ($span:expr) => {
+        $span.to_grid().as_slice()
     };
 }
 
@@ -33,37 +28,37 @@ fn test_mdarray() {
     assert_eq!(a.shape(), [3, 4, 5]);
     assert_eq!(a.size(1), 4);
     assert_eq!(a.stride(2), 12);
-    assert_eq!(a.strides(), []);
+    assert_eq!(a.strides(), [1, 3, 12]);
 
     for i in 0..3 {
         for j in 0..4 {
             for k in 0..5 {
                 a[[i, j, k]] = 1000 + 100 * i + 10 * j + k;
-                c[[i, j, k]] = a[12 * k + 3 * j + i];
+                c[[i, j, k]] = a.as_slice()[12 * k + 3 * j + i];
             }
         }
     }
 
-    assert_eq!(to_slice!(a.view(.., 2, 3)), [1023, 1123, 1223]);
-    assert_eq!(to_slice!(a.view(1, 1.., 3)), [1113, 1123, 1133]);
-    assert_eq!(to_slice!(a.view(1, 2, 2..)), [1122, 1123, 1124]);
+    assert_eq!(to_slice!(a.view((.., 2, 3))), [1023, 1123, 1223]);
+    assert_eq!(to_slice!(a.view((1, 1.., 3))), [1113, 1123, 1133]);
+    assert_eq!(to_slice!(a.view((1, 2, 2..))), [1122, 1123, 1124]);
 
-    assert_eq!(to_slice!(a.view(1.., ..2, 4)), [1104, 1204, 1114, 1214]);
-    assert_eq!(to_slice!(c.view(1.., ..2, 4)), [1104, 1114, 1204, 1214]);
+    assert_eq!(to_slice!(a.view((1.., ..2, 4))), [1104, 1204, 1114, 1214]);
+    assert_eq!(to_slice!(c.view((1.., ..2, 4))), [1104, 1114, 1204, 1214]);
 
-    assert!(format!("{:?}", a.view(2, 1..3, ..2)) == "[[1210, 1220], [1211, 1221]]");
-    assert!(format!("{:?}", c.view(2, 1..3, ..2)) == "[[1210, 1211], [1220, 1221]]");
+    assert!(format!("{:?}", a.view((2, 1..3, ..2))) == "[[1210, 1220], [1211, 1221]]");
+    assert!(format!("{:?}", c.view((2, 1..3, ..2))) == "[[1210, 1211], [1220, 1221]]");
 
-    assert!(SGrid1::<usize, 3>::new(1).cmp(&SGrid1::<usize, 3>::new(2)) == Ordering::Less);
-    assert!(a[..].cmp(&a[..]) == Ordering::Equal);
+    assert!(Grid::from([1, 2, 3]).cmp(&Grid::from([4, 5])) == Ordering::Less);
+    assert!(a.to_view().flatten()[..].cmp(&a.as_slice().as_ref()) == Ordering::Equal);
 
     assert!(a == a && *a == a && a == *a && *a == *a);
-    assert!(a.view(1, .., 2) <= a.view(1, .., 2) && *a.view(1, .., 2) < a.view(2, .., 1));
-    assert!(a.view(2, .., 1) > *a.view(1, .., 2) && *a.view(2, .., 1) >= *a.view(2, .., 1));
+    assert!(a.view((1, .., 2)) <= a.view((1, .., 2)) && *a.view((1, .., 2)) < a.view((2, .., 1)));
+    assert!(a.view((2, .., 1)) > *a.view((1, .., 2)) && *a.view((2, .., 1)) >= *a.view((2, .., 1)));
 
-    assert!(&a.view(.., 1, 2) == AsRef::<View<usize, 1>>::as_ref(&[1012, 1112, 1212]));
-    assert!(&a.view(1, 2..3, 3..) == AsRef::<View<usize, 2>>::as_ref(&[[1123], [1124]]));
-    assert!(&c.view(1, 2..3, 3..) == AsRef::<CView<usize, 2>>::as_ref(&[[1123, 1124]]));
+    assert!(&a.view((.., 1, 2)) == AsRef::<Span<usize, 1>>::as_ref(&[1012, 1112, 1212]));
+    assert!(&a.view((1, 2..3, 3..)) == AsRef::<Span<usize, 2>>::as_ref(&[[1123], [1124]]));
+    assert!(&c.view((1, 2..3, 3..)) == AsRef::<CSpan<usize, 2>>::as_ref(&[[1123, 1124]]));
 
     let mut r = a.clone().reshape([5, 4, 3]);
     let mut s = c.clone().reshape([5, 4, 3]);
@@ -71,22 +66,22 @@ fn test_mdarray() {
     a.resize([4, 4, 4], 9999);
     c.resize([4, 4, 4], 9999);
 
-    assert_eq!(a.iter().sum::<usize>(), 213576);
-    assert_eq!(c.iter().sum::<usize>(), 213576);
+    assert_eq!(a.flat_iter().sum::<usize>(), 213576);
+    assert_eq!(c.flat_iter().sum::<usize>(), 213576);
 
-    assert_eq!(r.view(1.., 1.., 1..).shape(), [4, 3, 2]);
-    assert_eq!(s.view(1.., 1.., 1..).shape(), [4, 3, 2]);
+    assert_eq!(r.view((1.., 1.., 1..)).shape(), [4, 3, 2]);
+    assert_eq!(s.view((1.., 1.., 1..)).shape(), [4, 3, 2]);
 
-    assert_eq!(r.view(1.., 1.., 1..).strides(), [5, 20]);
-    assert_eq!(s.view(1.., 1.., 1..).strides(), [12, 3]);
+    assert_eq!(r.view((1.., 1.., 1..)).strides(), [1, 5, 20]);
+    assert_eq!(s.view((1.., 1.., 1..)).strides(), [12, 3, 1]);
 
-    assert_eq!(to_slice!(r.view(1.., 1.., 1..).view(2, 1, 0)), [1032]);
-    assert_eq!(to_slice!(s.view(1.., 1.., 1..).view(2, 1, 0)), [1203]);
+    assert_eq!(to_slice!(r.view((1.., 1.., 1..)).view((2, 1, 0))), [1032]);
+    assert_eq!(to_slice!(s.view((1.., 1.., 1..)).view((2, 1, 0))), [1203]);
 
-    r.iter_mut().for_each(|x| *x *= 2);
+    r.flat_iter_mut().for_each(|x| *x *= 2);
     s.as_mut_slice().iter_mut().for_each(|x| *x *= 2);
 
-    assert_eq!(r.iter().sum::<usize>(), 134040);
+    assert_eq!(r.flat_iter().sum::<usize>(), 134040);
     assert_eq!(s.as_slice().iter().sum::<usize>(), 134040);
 
     r.clear();
@@ -100,10 +95,9 @@ fn test_mdarray() {
 
     let t = s.clone();
 
-    assert_eq!(Grid::from_iter(s.drain()), Grid::from_iter(t.into_iter()));
+    assert_eq!(Grid::from_iter(s.reshape([60])).as_ref(), t.into_vec());
 
-    let u = SGrid2::<usize, 3, 4>::new(5);
-    let v = u.clone();
+    let u = Grid::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, Default::default());
 
-    assert_eq!(u, v);
+    assert_eq!(u.as_ptr() as usize % 64, 0);
 }
