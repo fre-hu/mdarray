@@ -3,209 +3,109 @@ use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 use std::{cmp, mem};
 
-use crate::dimension::Dim;
+use crate::dim::Dim;
 use crate::layout::{DenseLayout, Layout};
 use crate::order::Order;
-use crate::raw_vec::RawVec;
 
-pub trait Buffer {
-    type Item;
-    type Layout: Layout;
+pub trait Buffer<T> {
+    type Layout: Copy;
 
-    fn as_ptr(&self) -> *const Self::Item;
+    fn as_ptr(&self) -> *const T;
     fn layout(&self) -> &Self::Layout;
 }
 
-pub trait BufferMut: Buffer {
-    fn as_mut_ptr(&mut self) -> *mut Self::Item;
+pub trait BufferMut<T>: Buffer<T> {
+    fn as_mut_ptr(&mut self) -> *mut T;
 }
 
 pub struct DenseBuffer<T, D: Dim, O: Order, A: Allocator> {
-    vec: RawVec<T, A>,
+    vec: Vec<T, A>,
     layout: DenseLayout<D, O>,
 }
 
-pub struct SubBuffer<'a, T, L: Layout> {
+pub struct SubBuffer<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
-    _marker: PhantomData<&'a T>,
+    phantom: PhantomData<&'a T>,
 }
 
-pub struct SubBufferMut<'a, T, L: Layout> {
+pub struct SubBufferMut<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
-    _marker: PhantomData<&'a mut T>,
+    phantom: PhantomData<&'a mut T>,
+}
+
+struct VecGuard<'a, T, A: Allocator> {
+    ptr: *mut T,
+    len: usize,
+    phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
 impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
-    pub fn allocator(&self) -> &A {
-        self.vec.allocator()
-    }
-
-    pub fn capacity(&self) -> usize {
-        self.vec.capacity()
-    }
-
-    pub fn clear(&mut self) {
-        let len = self.layout.len();
-
-        self.layout = DenseLayout::default();
-
-        for i in 0..len {
-            unsafe {
-                ptr::drop_in_place(self.as_mut_ptr().add(i));
-            }
-        }
-    }
-
-    pub unsafe fn from_raw_parts_in(
-        ptr: *mut T,
-        shape: D::Shape,
-        capacity: usize,
-        alloc: A,
-    ) -> Self {
+    pub(crate) unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D, O>) -> Self {
         assert!(mem::size_of::<T>() != 0, "ZST not allowed");
+        assert!(layout.rank() > 0, "invalid rank");
 
-        Self {
-            vec: RawVec::from_raw_parts_in(ptr, capacity, alloc),
-            layout: DenseLayout::new(shape),
-        }
+        Self { vec, layout }
     }
 
-    pub fn into_raw_parts_with_alloc(self) -> (*mut T, D::Shape, usize, A) {
-        let mut me = mem::ManuallyDrop::new(self);
+    pub(crate) fn into_parts(self) -> (Vec<T, A>, DenseLayout<D, O>) {
+        let Self { vec, layout } = self;
 
-        (me.as_mut_ptr(), me.layout.shape(), me.capacity(), unsafe { ptr::read(me.allocator()) })
+        (vec, layout)
     }
 
-    pub fn new_in(alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-
-        Self { vec: RawVec::new_in(alloc), layout: DenseLayout::default() }
-    }
-
-    pub fn resize(&mut self, shape: D::Shape, value: T)
+    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, shape: D::Shape, mut f: F)
     where
         T: Clone,
         A: Clone,
     {
-        let new_len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
 
-        if new_len == 0 {
-            self.clear();
+        if len == 0 {
+            self.vec.clear();
         } else {
-            let old_len = self.layout.len();
+            let inner_dims = self.layout.dims(..self.layout.rank() - 1);
             let old_shape = self.layout.shape();
 
-            let copy = O::select(
-                shape.as_ref()[..D::RANK - 1] != old_shape.as_ref()[..D::RANK - 1],
-                shape.as_ref()[1..] != old_shape.as_ref()[1..],
-            );
+            if shape.as_ref()[inner_dims.clone()] != old_shape.as_ref()[inner_dims] {
+                let mut vec = Vec::with_capacity_in(len, self.vec.allocator().clone());
 
-            if copy {
-                let mut vec = RawVec::with_capacity_in(new_len, self.allocator().clone());
-
-                self.layout = DenseLayout::default(); // Leak elements in case of exception.
+                self.layout = Layout::default(); // Remove contents in case of exception.
 
                 unsafe {
-                    Self::copy_dim(
-                        self.as_mut_ptr(),
-                        vec.as_mut_ptr(),
+                    copy_dim::<T, D, O, A, D::Lower, F>(
+                        &mut VecGuard::new(&mut self.vec),
+                        &mut vec,
                         old_shape,
                         shape,
-                        &value,
-                        O::select(D::RANK - 1, 0),
+                        &mut f,
                     );
                 }
 
-                mem::swap(&mut self.vec, &mut vec);
-
-                self.layout = DenseLayout::new(shape);
+                self.vec = vec;
             } else {
-                if new_len > self.capacity() {
-                    self.vec.grow(new_len);
-                }
-
-                let ptr = self.as_mut_ptr();
-
-                for i in old_len..new_len {
-                    unsafe {
-                        ptr::write(ptr.add(i), value.clone());
-                    }
-                }
-
-                self.layout = DenseLayout::new(shape); // Resize after creating new elements.
-
-                for i in new_len..old_len {
-                    unsafe {
-                        ptr::drop_in_place(ptr.add(i));
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn shrink_to(&mut self, capacity: usize) {
-        if capacity < self.capacity() {
-            self.vec.shrink(capacity);
-        }
-    }
-
-    pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
-        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-
-        Self { vec: RawVec::with_capacity_in(capacity, alloc), layout: DenseLayout::default() }
-    }
-
-    unsafe fn copy_dim(
-        old_ptr: *mut T,
-        new_ptr: *mut T,
-        old_shape: D::Shape,
-        new_shape: D::Shape,
-        value: &T,
-        dim: usize,
-    ) where
-        T: Clone,
-    {
-        let old_stride: usize = O::select(
-            old_shape.as_ref()[..dim].iter().product(),
-            old_shape.as_ref()[dim + 1..].iter().product(),
-        );
-
-        let new_stride: usize = O::select(
-            new_shape.as_ref()[..dim].iter().product(),
-            new_shape.as_ref()[dim + 1..].iter().product(),
-        );
-
-        let min_size = cmp::min(old_shape.as_ref()[dim], new_shape.as_ref()[dim]);
-
-        if dim == O::select(0, D::RANK - 1) {
-            ptr::copy(old_ptr, new_ptr, min_size);
-        } else {
-            for i in 0..min_size {
-                Self::copy_dim(
-                    old_ptr.add(i * old_stride),
-                    new_ptr.add(i * new_stride),
-                    old_shape,
-                    new_shape,
-                    value,
-                    O::select(dim, dim + 2) - 1,
-                );
+                self.vec.resize_with(len, f);
             }
         }
 
-        for i in min_size * old_stride..old_shape.as_ref()[dim] * old_stride {
-            ptr::drop_in_place(old_ptr.add(i));
-        }
+        self.layout = DenseLayout::new(shape);
+    }
 
-        for i in min_size * new_stride..new_shape.as_ref()[dim] * new_stride {
-            ptr::write(new_ptr.add(i), value.clone());
-        }
+    pub(crate) unsafe fn set_layout(&mut self, layout: DenseLayout<D, O>) {
+        self.layout = layout;
+    }
+
+    pub(crate) fn vec(&self) -> &Vec<T, A> {
+        &self.vec
+    }
+
+    pub(crate) unsafe fn vec_mut(&mut self) -> &mut Vec<T, A> {
+        &mut self.vec
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> Buffer for DenseBuffer<T, D, O, A> {
-    type Item = T;
+impl<T, D: Dim, O: Order, A: Allocator> Buffer<T> for DenseBuffer<T, D, O, A> {
     type Layout = DenseLayout<D, O>;
 
     fn as_ptr(&self) -> *const T {
@@ -217,7 +117,7 @@ impl<T, D: Dim, O: Order, A: Allocator> Buffer for DenseBuffer<T, D, O, A> {
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> BufferMut for DenseBuffer<T, D, O, A> {
+impl<T, D: Dim, O: Order, A: Allocator> BufferMut<T> for DenseBuffer<T, D, O, A> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.vec.as_mut_ptr()
     }
@@ -225,42 +125,31 @@ impl<T, D: Dim, O: Order, A: Allocator> BufferMut for DenseBuffer<T, D, O, A> {
 
 impl<T: Clone, D: Dim, O: Order, A: Allocator + Clone> Clone for DenseBuffer<T, D, O, A> {
     fn clone(&self) -> Self {
-        let len = self.layout.len();
-
-        let mut vec = RawVec::<T, A>::with_capacity_in(len, self.allocator().clone());
-
-        for i in 0..len {
-            unsafe {
-                ptr::write(vec.as_mut_ptr().add(i), (*self.as_ptr().add(i)).clone());
-            }
-        }
-
-        Self { vec, layout: self.layout }
+        Self { vec: self.vec.clone(), layout: self.layout }
     }
-}
 
-impl<T, D: Dim, O: Order, A: Allocator> Drop for DenseBuffer<T, D, O, A> {
-    fn drop(&mut self) {
-        self.clear();
+    fn clone_from(&mut self, src: &Self) {
+        self.layout = Layout::default();
+        self.vec.clone_from(&src.vec);
+        self.layout = src.layout;
     }
 }
 
 macro_rules! impl_sub_buffer {
     ($type:tt, $raw_mut:tt) => {
-        impl<'a, T, L: Layout> $type<'a, T, L> {
-            pub unsafe fn new(ptr: *$raw_mut T, layout: L) -> Self {
+        impl<'a, T, L: Copy> $type<'a, T, L> {
+            pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
                 assert!(mem::size_of::<T>() != 0, "ZST not allowed");
 
                 Self {
                     ptr: NonNull::new_unchecked(ptr as *mut T),
                     layout,
-                    _marker: PhantomData,
+                    phantom: PhantomData,
                 }
             }
         }
 
-        impl<'a, T, L: Layout> Buffer for $type<'a, T, L> {
-            type Item = T;
+        impl<'a, T, L: Copy> Buffer<T> for $type<'a, T, L> {
             type Layout = L;
 
             fn as_ptr(&self) -> *const T {
@@ -277,14 +166,80 @@ macro_rules! impl_sub_buffer {
 impl_sub_buffer!(SubBuffer, const);
 impl_sub_buffer!(SubBufferMut, mut);
 
-impl<'a, T, L: Layout> BufferMut for SubBufferMut<'a, T, L> {
+impl<'a, T, L: Copy> BufferMut<T> for SubBufferMut<'a, T, L> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr.as_ptr()
     }
 }
 
-impl<'a, T, L: Layout> Clone for SubBuffer<'a, T, L> {
+impl<'a, T, L: Copy> Clone for SubBuffer<'a, T, L> {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr, layout: self.layout, _marker: PhantomData }
+        Self { ptr: self.ptr, layout: self.layout, phantom: PhantomData }
+    }
+}
+
+impl<'a, T, A: Allocator> VecGuard<'a, T, A> {
+    fn new(vec: &'a mut Vec<T, A>) -> Self {
+        let len = vec.len();
+
+        unsafe {
+            vec.set_len(0);
+        }
+
+        Self { ptr: vec.as_mut_ptr(), len, phantom: PhantomData }
+    }
+}
+
+impl<'a, T, A: Allocator> Drop for VecGuard<'a, T, A> {
+    fn drop(&mut self) {
+        unsafe {
+            ptr::drop_in_place(ptr::slice_from_raw_parts_mut(self.ptr, self.len));
+        }
+    }
+}
+
+unsafe fn copy_dim<T: Clone, D: Dim, O: Order, A: Allocator, I: Dim, F: FnMut() -> T>(
+    old_vec: &mut VecGuard<T, A>,
+    new_vec: &mut Vec<T, A>,
+    old_shape: D::Shape,
+    new_shape: D::Shape,
+    f: &mut F,
+) {
+    let inner_dims = O::select(0..I::RANK, D::RANK - I::RANK..D::RANK);
+
+    let old_stride: usize = old_shape.as_ref()[inner_dims.clone()].iter().product();
+    let new_stride: usize = new_shape.as_ref()[inner_dims].iter().product();
+
+    let old_size = old_shape.as_ref()[O::select(I::RANK, D::RANK - 1 - I::RANK)];
+    let new_size = new_shape.as_ref()[O::select(I::RANK, D::RANK - 1 - I::RANK)];
+
+    let min_size = cmp::min(old_size, new_size);
+
+    if I::RANK == 0 {
+        ptr::copy(old_vec.ptr, new_vec.as_mut_ptr().add(new_vec.len()), min_size);
+
+        old_vec.ptr = old_vec.ptr.add(min_size);
+        old_vec.len -= min_size;
+
+        new_vec.set_len(new_vec.len() + min_size);
+    } else {
+        for _ in 0..min_size {
+            copy_dim::<T, D, O, A, I::Lower, F>(old_vec, new_vec, old_shape, new_shape, f);
+        }
+    }
+
+    if old_size > min_size {
+        let count = (old_size - min_size) * old_stride;
+        let slice = ptr::slice_from_raw_parts_mut(old_vec.ptr, count);
+
+        old_vec.ptr = old_vec.ptr.add(count);
+        old_vec.len -= count;
+
+        ptr::drop_in_place(slice);
+    }
+
+    for _ in 0..(new_size - min_size) * new_stride {
+        new_vec.as_mut_ptr().add(new_vec.len()).write(f());
+        new_vec.set_len(new_vec.len() + 1);
     }
 }

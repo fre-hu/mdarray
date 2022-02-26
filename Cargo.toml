@@ -8,3 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/fre-hu/mdarray"
 
 [dependencies]
+serde = { version = "1.0", optional = true }
+
+[dev-dependencies]
+serde_test = "1.0"

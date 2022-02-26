@@ -3,46 +3,45 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use crate::grid::{SubGrid, SubGridMut};
-use crate::layout::Layout;
 
-pub struct AxisIter<'a, T, L: Layout> {
+pub struct AxisIter<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
     index: usize,
     size: usize,
     stride: isize,
-    _marker: PhantomData<&'a T>,
+    phantom: PhantomData<&'a T>,
 }
 
-pub struct AxisIterMut<'a, T, L: Layout> {
+pub struct AxisIterMut<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
     index: usize,
     size: usize,
     stride: isize,
-    _marker: PhantomData<&'a mut T>,
+    phantom: PhantomData<&'a mut T>,
 }
 
-pub struct StridedIter<'a, T> {
+pub struct LinearIter<'a, T> {
     ptr: NonNull<T>,
     index: usize,
     size: usize,
     stride: isize,
-    _marker: PhantomData<&'a T>,
+    phantom: PhantomData<&'a T>,
 }
 
-pub struct StridedIterMut<'a, T> {
+pub struct LinearIterMut<'a, T> {
     ptr: NonNull<T>,
     index: usize,
     size: usize,
     stride: isize,
-    _marker: PhantomData<&'a mut T>,
+    phantom: PhantomData<&'a mut T>,
 }
 
 macro_rules! impl_axis_iter {
     ($type:ty, $grid:tt, $raw_mut:tt) => {
-        impl<'a, T, L: Layout> $type {
-            pub unsafe fn new(
+        impl<'a, T, L: Copy> $type {
+            pub unsafe fn new_unchecked(
                 ptr: *$raw_mut T,
                 layout: L,
                 size: usize,
@@ -54,13 +53,12 @@ macro_rules! impl_axis_iter {
                     index: 0,
                     size,
                     stride,
-                    _marker: PhantomData,
+                    phantom: PhantomData,
                 }
             }
         }
 
-        impl<'a, T, L: Layout> DoubleEndedIterator for $type {
-            #[inline(always)]
+        impl<'a, T, L: Copy> DoubleEndedIterator for $type {
             fn next_back(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -69,18 +67,19 @@ macro_rules! impl_axis_iter {
 
                     let count = self.stride * self.size as isize;
 
-                    unsafe { Some($grid::new(self.ptr.as_ptr().offset(count), self.layout)) }
+                    unsafe {
+                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.layout))
+                    }
                 }
             }
         }
 
-        impl<'a, T, L: Layout> ExactSizeIterator for $type {}
-        impl<'a, T, L: Layout> FusedIterator for $type {}
+        impl<'a, T, L: Copy> ExactSizeIterator for $type {}
+        impl<'a, T, L: Copy> FusedIterator for $type {}
 
-        impl<'a, T, L: Layout> Iterator for $type {
+        impl<'a, T, L: Copy> Iterator for $type {
             type Item = $grid<'a, T, L>;
 
-            #[inline(always)]
             fn next(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -89,7 +88,9 @@ macro_rules! impl_axis_iter {
 
                     self.index += 1;
 
-                    unsafe { Some($grid::new(self.ptr.as_ptr().offset(count), self.layout)) }
+                    unsafe {
+                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.layout))
+                    }
                 }
             }
 
@@ -105,7 +106,7 @@ macro_rules! impl_axis_iter {
 impl_axis_iter!(AxisIter<'a, T, L>, SubGrid, const);
 impl_axis_iter!(AxisIterMut<'a, T, L>, SubGridMut, mut);
 
-impl<'a, T, L: Layout> Clone for AxisIter<'a, T, L> {
+impl<'a, T, L: Copy> Clone for AxisIter<'a, T, L> {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
@@ -113,21 +114,21 @@ impl<'a, T, L: Layout> Clone for AxisIter<'a, T, L> {
             index: self.index,
             size: self.size,
             stride: self.stride,
-            _marker: PhantomData,
+            phantom: PhantomData,
         }
     }
 }
 
-unsafe impl<'a, T: Sync, L: Layout> Send for AxisIter<'a, T, L> {}
-unsafe impl<'a, T: Sync, L: Layout> Sync for AxisIter<'a, T, L> {}
+unsafe impl<'a, T: Sync, L: Copy> Send for AxisIter<'a, T, L> {}
+unsafe impl<'a, T: Sync, L: Copy> Sync for AxisIter<'a, T, L> {}
 
-unsafe impl<'a, T: Send, L: Layout> Send for AxisIterMut<'a, T, L> {}
-unsafe impl<'a, T: Sync, L: Layout> Sync for AxisIterMut<'a, T, L> {}
+unsafe impl<'a, T: Send, L: Copy> Send for AxisIterMut<'a, T, L> {}
+unsafe impl<'a, T: Sync, L: Copy> Sync for AxisIterMut<'a, T, L> {}
 
-macro_rules! impl_strided_iter {
-    ($type:ty, $raw_mut:tt, {$($mut:tt)?}) => {
+macro_rules! impl_linear_iter {
+    ($type:ty, $raw_mut:tt, {$($const:tt)?}, {$($mut:tt)?}) => {
         impl<'a, T> $type {
-            pub unsafe fn new(
+            pub $($const)? unsafe fn new_unchecked(
                 ptr: *$raw_mut T,
                 size: usize,
                 stride: isize,
@@ -137,13 +138,12 @@ macro_rules! impl_strided_iter {
                     index: 0,
                     size,
                     stride,
-                    _marker: PhantomData,
+                    phantom: PhantomData,
                 }
             }
         }
 
         impl<'a, T> DoubleEndedIterator for $type {
-            #[inline(always)]
             fn next_back(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -163,7 +163,6 @@ macro_rules! impl_strided_iter {
         impl<'a, T> Iterator for $type {
             type Item = &'a $($mut)? T;
 
-            #[inline(always)]
             fn next(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -185,23 +184,23 @@ macro_rules! impl_strided_iter {
     }
 }
 
-impl_strided_iter!(StridedIter<'a, T>, const, {});
-impl_strided_iter!(StridedIterMut<'a, T>, mut, {mut});
+impl_linear_iter!(LinearIter<'a, T>, const, {const}, {});
+impl_linear_iter!(LinearIterMut<'a, T>, mut, {}, {mut});
 
-impl<'a, T> Clone for StridedIter<'a, T> {
+impl<'a, T> Clone for LinearIter<'a, T> {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
             index: self.index,
             size: self.size,
             stride: self.stride,
-            _marker: PhantomData,
+            phantom: PhantomData,
         }
     }
 }
 
-unsafe impl<'a, T: Sync> Send for StridedIter<'a, T> {}
-unsafe impl<'a, T: Sync> Sync for StridedIter<'a, T> {}
+unsafe impl<'a, T: Sync> Send for LinearIter<'a, T> {}
+unsafe impl<'a, T: Sync> Sync for LinearIter<'a, T> {}
 
-unsafe impl<'a, T: Send> Send for StridedIterMut<'a, T> {}
-unsafe impl<'a, T: Sync> Sync for StridedIterMut<'a, T> {}
+unsafe impl<'a, T: Send> Send for LinearIterMut<'a, T> {}
+unsafe impl<'a, T: Sync> Sync for LinearIterMut<'a, T> {}

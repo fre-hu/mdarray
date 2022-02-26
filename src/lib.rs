@@ -36,17 +36,20 @@ to the buffer and the layout, and is stored internally as a fat pointer.
 It is useful for function parameters where the same `SpanBase` type can
 refer to either an owned array or an array view.
 
-The array layout describes how elements are accessed in memory. The layout
+The array layout describes how elements are stored in memory. The layout
 is parameterized by the rank (i.e. the number of dimensions), the storage
 format and the element order. It contains the shape (i.e. the size in each
 dimension), and the strides per dimension if needed.
 
 The storage format is `Dense` if elements are stored contiguously without gaps.
 In this case, the strides are calculated from the shape and not stored as
-part of the layout. The format is `General` if each dimension can have an
-arbitrary stride, except for the innermost one which must have unit stride.
-It is compatible with the BLAS/LAPACK general matrix storage. The format is
-`Strided` if the innermost dimension can also have arbitrary stride.
+part of the layout. The format is `General` if each dimension can have
+arbitrary stride except for the innermost one, which has unit stride. It is
+compatible with the BLAS/LAPACK general matrix storage.
+
+The format is `Linear` if the innermost dimension can have arbitrary stride
+and the other dimensions must follow in order, allowing for linear indexing.
+The format is `Strided` if all dimensions can have arbitrary strides.
 
 The element order is `ColumnMajor` for Fortran order where the innermost
 dimension is the innermost one, or `RowMajor` for the opposite C order.
@@ -55,21 +58,21 @@ over multiple dimensions.
 
 The following type aliases are provided:
 
-| Alias                      | Description                              |
-| -------------------------- | ---------------------------------------- |
-| `Grid<T, const N: usize>`  | Dense array with column-major order      |
-| `CGrid<T, const N: usize>` | Dense array with row-major order         |
-| `Span<T, const N: usize>`  | Dense array span with column-major order |
-| `CSpan<T, const N: usize>` | Dense array span with row-major order    |
+| Alias                                  | Description                         |
+| -------------------------------------- | ----------------------------------- |
+| `Grid<T, const N: usize, A = Global>`  | Dense array with column-major order |
+| `CGrid<T, const N: usize, A = Global>` | Dense array with row-major order    |
+| `Span<T, const N: usize, F = Dense>`   | Array span with column-major order  |
+| `CSpan<T, const N: usize, F = Dense>`  | Array span with row-major order     |
 
 ## Indexing and views
 
 Scalar indexing is done using the normal square-bracket index operator and
 an array of `usize` per dimension as index.
 
-For one-dimensional arrays, indexing can also be done with a scalar `usize`
-as index. If the storage format is `Dense` or `General`, a range can be
-used as index to select a one-dimensional array span.
+If the array layout type supports linear indexing, a scalar `usize` can also
+be used as index. If the array layout type supports slice indexing, a range
+can be used as index to select a slice.
 
 An array view can be created with the `view` and `view_mut` methods and a
 tuple of indices per dimension as argument. Each index can be either a range
@@ -78,17 +81,32 @@ from the indices and the input format.
 
 ## Iteration
 
-For one-dimensional arrays, an iterator can be created with the `iter`,
-`iter_mut` and `into_iter` methods like `Vec` and `slice`.
+If the array layout type supports linear indexing, an iterator can be created
+with the `iter`, `iter_mut` and `into_iter` methods like `Vec` and `slice`.
 
 For multidimensional arrays, indexing over a single dimension is done
 with the `outer_iter`/`outer_iter_mut`, `inner_iter`/`inner_iter_mut` and
 `axis_iter`/`axis_iter_mut` methods. The iterators give array views of
 the remaining dimensions.
 
-For multidimensional arrays with contiguous array layout, it is possible
-to use the `flat_iter` and `flat_iter_mut` to iterate over all dimensions.
-The methods will check at runtime and panic if the layout is not contiguous.
+If linear indexing is possible but the array layout type is not known, the
+`flat_iter` and `flat_iter_mut` methods can be used instead of `iter` and
+`iter_mut`. The methods will check at runtime that the layout is valid.
+
+## Operators
+
+Arithmetic, logical, negation, comparison and compound assignment operators
+are supported for arrays. For arithmetic, logical and negation operators,
+at most one parameter can be passed by value. If all parametes are passed by
+reference, a new array is allocated for the result. For comparison operators,
+the parameters are always passed by reference.
+
+Scalar parameters must be passed using the `fill` function to wrap the value
+in a `Fill` struct. If the type does not implement the `Copy` trait, the
+parameter must be passed by reference.
+
+Note that for complex calculations it can be more efficient to use iterators
+and element-wise operations to reduce memory accesses.
 
 ## Example
 
@@ -100,7 +118,7 @@ the compiler is able to vectorize the inner loop.
 ```
 use mdarray::{Grid, Span};
 
-pub fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
+fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
     assert!(c.shape() == [a.size(0), b.size(1)] && a.size(1) == b.size(0), "shape mismatch");
 
     for (mut cj, bj) in c.outer_iter_mut().zip(b.outer_iter()) {
@@ -127,34 +145,37 @@ This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 */
 
 #![feature(allocator_api)]
-#![feature(const_generics_defaults)]
 #![feature(generic_associated_types)]
+#![feature(int_roundings)]
+#![feature(marker_trait_attr)]
 #![feature(ptr_metadata)]
-#![feature(slice_ptr_len)]
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
-mod aligned_alloc;
 mod buffer;
-mod dimension;
+mod dim;
 mod format;
 mod grid;
 mod index;
-mod iterator;
+mod iter;
 mod layout;
 mod mapping;
-mod operator;
+mod ops;
 mod order;
-mod raw_vec;
 mod span;
+
+#[cfg(feature = "serde")]
+mod serde;
 
 use std::alloc::Global;
 
-pub use aligned_alloc::AlignedAlloc;
-pub use dimension::{Const, Dim, Shape, Strides};
-pub use format::{Dense, Format, General, Strided};
+pub use dim::{Const, Dim, Shape, Strides};
+pub use format::{Dense, Format, General, Linear, Strided};
+pub use format::{NonUniform, NonUnitStrided, Uniform, UnitStrided};
 pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
-pub use layout::{DenseLayout, GeneralLayout, Layout, StridedLayout};
+pub use index::{step, DimIndex, PartialRange, SpanIndex, StepRange};
+pub use layout::{HasLinearIndexing, HasSliceIndexing, Layout};
+pub use ops::{fill, Fill};
 pub use order::{ColumnMajor, Order, RowMajor};
 pub use span::SpanBase;
 
@@ -164,8 +185,8 @@ pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, Const<N>, ColumnMajo
 /// Dense multidimensional array with row-major element order.
 pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, Const<N>, RowMajor, A>;
 
-/// Dense multidimensional array span with column-major element order.
-pub type Span<T, const N: usize> = SpanBase<T, DenseLayout<Const<N>, ColumnMajor>>;
+/// Multidimensional array span with column-major element order.
+pub type Span<T, const N: usize, F = Dense> = SpanBase<T, Layout<Const<N>, F, ColumnMajor>>;
 
-/// Dense multidimensional array span with row-major element order.
-pub type CSpan<T, const N: usize> = SpanBase<T, DenseLayout<Const<N>, RowMajor>>;
+/// Multidimensional array span with row-major element order.
+pub type CSpan<T, const N: usize, F = Dense> = SpanBase<T, Layout<Const<N>, F, RowMajor>>;

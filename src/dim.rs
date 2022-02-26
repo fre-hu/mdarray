@@ -1,12 +1,15 @@
 use std::fmt::Debug;
 
-/// Array dimension trait.
+/// Array dimension trait for rank, shape and strides.
 pub trait Dim: Copy + Debug + Default {
-    /// Next larger dimension.
-    type Larger: Dim;
+    /// Next higher dimension.
+    type Higher: Dim;
 
-    /// Next smaller dimension.
-    type Smaller: Dim;
+    /// Next lower dimension.
+    type Lower: Dim;
+
+    /// One if non-zero dimension and zero otherwise.
+    type MaxOne: Dim;
 
     /// Array shape type.
     type Shape: Shape<Dim = Self>;
@@ -34,12 +37,16 @@ pub trait Strides: AsMut<[isize]> + AsRef<[isize]> + Copy + Debug + Default {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Const<const N: usize>;
 
+pub(crate) type U0 = Const<0>;
+pub(crate) type U1 = Const<1>;
+
 macro_rules! impl_dimension {
     ($($n:tt),*) => {
         $(
             impl Dim for Const<$n> {
-                type Larger = Const<{ $n + ($n < 6) as usize }>;
-                type Smaller = Const<{ $n - ($n > 0) as usize }>;
+                type Higher = Const<{ $n + ($n < 6) as usize }>;
+                type Lower = Const<{ $n - ($n > 0) as usize }>;
+                type MaxOne = Const<{ ($n > 0) as usize }>;
 
                 type Shape = [usize; $n];
                 type Strides = [isize; $n];
