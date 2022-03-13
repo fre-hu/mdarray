@@ -146,7 +146,7 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         let mut outer_strides = <D::Lower as Dim>::Strides::default();
 
         if self.rank() > 1 {
-            outer_strides.as_mut().copy_from_slice(&self.strides().as_ref()[self.dims(1..)]);
+            outer_strides[..].copy_from_slice(&self.strides()[self.dims(1..)]);
         }
 
         GeneralLayout::new(self.shape(), outer_strides)

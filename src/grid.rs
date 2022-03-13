@@ -65,11 +65,11 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
             let inner_dims = self.dims(..self.rank() - 1);
 
             assert!(
-                grid.shape().as_ref()[inner_dims.clone()] == shape.as_ref()[inner_dims],
+                grid.shape()[inner_dims.clone()] == shape[inner_dims],
                 "inner dimensions mismatch"
             );
 
-            shape.as_mut()[dim] += grid.size(dim);
+            shape[dim] += grid.size(dim);
             shape
         };
 
@@ -109,11 +109,11 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
             let inner_dims = self.dims(..self.rank() - 1);
 
             assert!(
-                span.shape().as_ref()[inner_dims.clone()] == shape.as_ref()[inner_dims],
+                span.shape()[inner_dims.clone()] == shape[inner_dims],
                 "inner dimensions mismatch"
             );
 
-            shape.as_mut()[dim] += span.size(dim);
+            shape[dim] += span.size(dim);
             shape
         };
 
@@ -135,7 +135,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
 
     /// Creates an array with the results from the given function with the specified allocator.
     pub fn from_fn_in<F: FnMut(D::Shape) -> T>(shape: D::Shape, mut f: F, alloc: A) -> Self {
-        let len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
         let mut vec = Vec::with_capacity_in(len, alloc);
 
         unsafe {
@@ -516,8 +516,8 @@ unsafe fn from_fn<T, D: Dim, O: Order, A: Allocator, I: Dim, F: FnMut(D::Shape) 
 ) {
     let dim = O::select(I::RANK, D::RANK - 1 - I::RANK);
 
-    for i in 0..shape.as_ref()[dim] {
-        index.as_mut()[dim] = i;
+    for i in 0..shape[dim] {
+        index[dim] = i;
 
         if I::RANK == 0 {
             vec.as_mut_ptr().add(vec.len()).write(f(index));

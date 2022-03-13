@@ -60,7 +60,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
         T: Clone,
         A: Clone,
     {
-        let len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
 
         if len == 0 {
             self.vec.clear();
@@ -68,7 +68,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
             let inner_dims = self.layout.dims(..self.layout.rank() - 1);
             let old_shape = self.layout.shape();
 
-            if shape.as_ref()[inner_dims.clone()] != old_shape.as_ref()[inner_dims] {
+            if shape[inner_dims.clone()] != old_shape[inner_dims] {
                 let mut vec = Vec::with_capacity_in(len, self.vec.allocator().clone());
 
                 self.layout = Layout::default(); // Remove contents in case of exception.
@@ -207,11 +207,11 @@ unsafe fn copy_dim<T: Clone, D: Dim, O: Order, A: Allocator, I: Dim, F: FnMut() 
 ) {
     let inner_dims = O::select(0..I::RANK, D::RANK - I::RANK..D::RANK);
 
-    let old_stride: usize = old_shape.as_ref()[inner_dims.clone()].iter().product();
-    let new_stride: usize = new_shape.as_ref()[inner_dims].iter().product();
+    let old_stride: usize = old_shape[inner_dims.clone()].iter().product();
+    let new_stride: usize = new_shape[inner_dims].iter().product();
 
-    let old_size = old_shape.as_ref()[O::select(I::RANK, D::RANK - 1 - I::RANK)];
-    let new_size = new_shape.as_ref()[O::select(I::RANK, D::RANK - 1 - I::RANK)];
+    let old_size = old_shape[O::select(I::RANK, D::RANK - 1 - I::RANK)];
+    let new_size = new_shape[O::select(I::RANK, D::RANK - 1 - I::RANK)];
 
     let min_size = cmp::min(old_size, new_size);
 

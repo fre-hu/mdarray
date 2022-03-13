@@ -131,9 +131,9 @@ where
 {
     fn eq(&self, rhs: &SpanBase<U, Layout<D, G, O>>) -> bool {
         if self.has_slice_indexing() && rhs.has_slice_indexing() {
-            self.shape().as_ref() == rhs.shape().as_ref() && self.as_slice().eq(rhs.as_slice())
+            self.shape()[..] == rhs.shape()[..] && self.as_slice().eq(rhs.as_slice())
         } else if self.has_linear_indexing() && rhs.has_linear_indexing() {
-            self.shape().as_ref() == rhs.shape().as_ref() && self.flat_iter().eq(rhs.flat_iter())
+            self.shape()[..] == rhs.shape()[..] && self.flat_iter().eq(rhs.flat_iter())
         } else {
             self.outer_iter().eq(rhs.outer_iter())
         }
@@ -426,7 +426,7 @@ unsafe fn from_binary_op<T, U, V, D: Dim, O: Order, F: Fn(&T, &U) -> V>(
     f: &F,
 ) {
     if lhs.has_linear_indexing() && rhs.has_linear_indexing() {
-        assert!(lhs.shape().as_ref() == rhs.shape().as_ref(), "shape mismatch");
+        assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
         for (x, y) in lhs.flat_iter().zip(rhs.flat_iter()) {
             vec.as_mut_ptr().add(vec.len()).write(f(x, y));
@@ -466,7 +466,7 @@ fn map_binary_op<T, U, D: Dim, O: Order, F: Fn((&mut T, &U))>(
     f: &F,
 ) {
     if lhs.has_linear_indexing() && rhs.has_linear_indexing() {
-        assert!(lhs.shape().as_ref() == rhs.shape().as_ref(), "shape mismatch");
+        assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
         lhs.flat_iter_mut().zip(rhs.flat_iter()).for_each(f);
     } else {

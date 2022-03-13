@@ -608,7 +608,7 @@ fn clone_span<T: Clone, D: Dim, O: Order>(
     dst: &mut SpanBase<T, Layout<D, impl Format, O>>,
 ) {
     if src.has_linear_indexing() && dst.has_linear_indexing() {
-        assert!(src.shape().as_ref() == dst.shape().as_ref(), "shape mismatch");
+        assert!(src.shape()[..] == dst.shape()[..], "shape mismatch");
 
         if src.has_slice_indexing() && dst.has_slice_indexing() {
             dst.as_mut_slice().clone_from_slice(src.as_slice());

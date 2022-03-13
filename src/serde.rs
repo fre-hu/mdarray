@@ -41,7 +41,7 @@ where
                     vec.push(value);
                 }
 
-                shape.as_mut()[0] = vec.len();
+                shape[0] = vec.len();
 
                 Ok(DenseGrid::from(vec).reshape(shape))
             } else {
@@ -57,13 +57,13 @@ where
                 let mut grid = DenseGrid::with_capacity(capacity);
                 let mut larger = D::Shape::default();
 
-                larger.as_mut()[grid.dims(..D::RANK - 1)].copy_from_slice(shape.as_ref());
-                larger.as_mut()[grid.dim(D::RANK - 1)] = 1;
+                larger[grid.dims(..D::RANK - 1)].copy_from_slice(&shape[..]);
+                larger[grid.dim(D::RANK - 1)] = 1;
 
                 grid.append(&mut value.reshape(larger));
 
                 while let Some(value) = seq.next_element::<DenseGrid<T, D::Lower, O>>()? {
-                    if value.shape().as_ref() != shape.as_ref() {
+                    if value.shape()[..] != shape[..] {
                         return Err(A::Error::invalid_value(Unexpected::Seq, &self));
                     }
 

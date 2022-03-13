@@ -344,8 +344,8 @@ impl<T, S: Shape, F: Format, O: Order> Index<S> for SpanBase<T, Layout<S::Dim, F
         let layout = self.layout();
 
         for i in 0..self.rank() {
-            if index.as_ref()[i] >= layout.size(i) {
-                panic_bounds_check(index.as_ref()[i], layout.size(i))
+            if index[i] >= layout.size(i) {
+                panic_bounds_check(index[i], layout.size(i))
             }
         }
 
@@ -358,8 +358,8 @@ impl<T, S: Shape, F: Format, O: Order> IndexMut<S> for SpanBase<T, Layout<S::Dim
         let layout = self.layout();
 
         for i in 0..self.rank() {
-            if index.as_ref()[i] >= layout.size(i) {
-                panic_bounds_check(index.as_ref()[i], layout.size(i))
+            if index[i] >= layout.size(i) {
+                panic_bounds_check(index[i], layout.size(i))
             }
         }
 
@@ -422,8 +422,8 @@ macro_rules! impl_index_range {
 impl_index_range!((Bound<usize>, Bound<usize>));
 impl_index_range!(Range<usize>);
 impl_index_range!(RangeFrom<usize>);
-impl_index_range!(RangeInclusive<usize>);
 impl_index_range!(RangeFull);
+impl_index_range!(RangeInclusive<usize>);
 impl_index_range!(RangeTo<usize>);
 impl_index_range!(RangeToInclusive<usize>);
 

@@ -41,7 +41,7 @@ pub trait Mapping<D: Dim, F: Format, O: Order>: Copy + Debug + Default {
     }
 
     fn len(&self) -> usize {
-        self.shape().as_ref().iter().product()
+        self.shape()[..].iter().product()
     }
 }
 
@@ -89,8 +89,8 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
 
         let mut shape = <D::Higher as Dim>::Shape::default();
 
-        shape.as_mut()[O::select(0..D::RANK, 1..D::RANK + 1)].copy_from_slice(self.shape.as_ref());
-        shape.as_mut()[O::select(D::RANK, 0)] = size;
+        shape[O::select(0..D::RANK, 1..D::RANK + 1)].copy_from_slice(&self.shape[..]);
+        shape[O::select(D::RANK, 0)] = size;
 
         DenseLayout::new(shape)
     }
@@ -128,7 +128,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         let mut stride = 1;
 
         for i in 0..D::RANK {
-            offset += stride * index.as_ref()[self.dim(i)];
+            offset += stride * index[self.dim(i)];
             stride *= self.size(self.dim(i));
         }
 
@@ -142,14 +142,14 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         let mut shape = <D::Lower as Dim>::Shape::default();
 
         if D::RANK > 1 {
-            shape.as_mut().copy_from_slice(&self.shape.as_ref()[self.dims(..D::RANK - 1)]);
+            shape[..].copy_from_slice(&self.shape[self.dims(..D::RANK - 1)]);
         }
 
         DenseLayout::new(shape)
     }
 
     fn reshape<S: Shape>(self, shape: S) -> DenseLayout<S::Dim, O> {
-        let len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
 
         assert!(len == self.len(), "array length must not change");
 
@@ -160,7 +160,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         assert!(D::RANK > 0, "invalid rank");
         assert!(dim == self.dim(D::RANK - 1), "invalid dimension");
 
-        self.shape.as_mut()[dim] = size;
+        self.shape[dim] = size;
 
         DenseLayout::new(self.shape)
     }
@@ -170,13 +170,13 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
     }
 
     fn size(&self, dim: usize) -> usize {
-        self.shape.as_ref()[dim]
+        self.shape[dim]
     }
 
     fn stride(&self, dim: usize) -> isize {
         let inner_dims = self.dims(..self.dim(dim));
 
-        self.shape.as_ref()[inner_dims].iter().product::<usize>() as isize
+        self.shape[inner_dims].iter().product::<usize>() as isize
     }
 
     fn strides(&self) -> D::Strides {
@@ -184,7 +184,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         let mut stride = 1;
 
         for i in 0..D::RANK {
-            strides.as_mut()[self.dim(i)] = stride as isize;
+            strides[self.dim(i)] = stride as isize;
             stride *= self.size(self.dim(i));
         }
 
@@ -199,7 +199,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         let mut inner_stride = <D::MaxOne as Dim>::Strides::default();
 
         if D::RANK > 0 {
-            inner_stride.as_mut()[0] = 1;
+            inner_stride[0] = 1;
         }
 
         LinearLayout::new(self.shape, inner_stride)
@@ -236,7 +236,7 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
             let mut stride = self.size(self.dim(0));
 
             for i in 1..D::RANK {
-                if self.outer_strides.as_ref()[self.dim(i) - O::select(1, 0)] != stride as isize {
+                if self.stride(self.dim(i)) != stride as isize {
                     return false;
                 }
 
@@ -263,10 +263,10 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
         let mut offset = 0;
 
         if D::RANK > 0 {
-            offset = index.as_ref()[self.dim(0)] as isize;
+            offset = index[self.dim(0)] as isize;
 
             for i in 1..D::RANK {
-                offset += self.stride(self.dim(i)) * index.as_ref()[self.dim(i)] as isize;
+                offset += self.stride(self.dim(i)) * index[self.dim(i)] as isize;
             }
         }
 
@@ -286,7 +286,7 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     fn resize_dim(mut self, dim: usize, size: usize) -> GeneralLayout<D, O> {
         assert!(D::RANK > 0, "invalid rank");
 
-        self.shape.as_mut()[dim] = size;
+        self.shape[dim] = size;
 
         GeneralLayout::new(self.shape, self.outer_strides)
     }
@@ -296,19 +296,19 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     }
 
     fn size(&self, dim: usize) -> usize {
-        self.shape.as_ref()[dim]
+        self.shape[dim]
     }
 
     fn stride(&self, dim: usize) -> isize {
-        if dim == self.dim(0) { 1 } else { self.outer_strides.as_ref()[dim - O::select(1, 0)] }
+        if dim == self.dim(0) { 1 } else { self.outer_strides[dim - O::select(1, 0)] }
     }
 
     fn strides(&self) -> D::Strides {
         let mut strides = D::Strides::default();
 
         if D::RANK > 0 {
-            strides.as_mut()[self.dim(0)] = 1;
-            strides.as_mut()[self.dims(1..)].copy_from_slice(self.outer_strides.as_ref());
+            strides[self.dim(0)] = 1;
+            strides[self.dims(1..)].copy_from_slice(&self.outer_strides[..]);
         }
 
         strides
@@ -336,24 +336,22 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         let mut shape = <D::Higher as Dim>::Shape::default();
         let mut inner_stride = <<D::Higher as Dim>::MaxOne as Dim>::Strides::default();
 
-        shape.as_mut()[O::select(D::RANK, 0)] = size;
+        shape[O::select(D::RANK, 0)] = size;
 
         if D::RANK == 0 {
-            inner_stride.as_mut()[0] = stride;
+            inner_stride[0] = stride;
         } else {
-            inner_stride.as_mut()[0] = self.inner_stride.as_ref()[0];
+            assert!(stride == self.inner_stride[0] * self.len() as isize, "invalid stride");
 
-            assert!(stride == inner_stride.as_ref()[0] * self.len() as isize, "invalid stride");
-
-            shape.as_mut()[O::select(0..D::RANK, 1..D::RANK + 1)]
-                .copy_from_slice(self.shape.as_ref());
+            shape[O::select(0..D::RANK, 1..D::RANK + 1)].copy_from_slice(&self.shape[..]);
+            inner_stride[0] = self.inner_stride[0];
         }
 
         LinearLayout::new(shape, inner_stride)
     }
 
     fn flatten(self) -> LinearLayout<U1, O> {
-        let inner_stride = if D::RANK > 0 { self.inner_stride.as_ref()[0] } else { 1 };
+        let inner_stride = if D::RANK > 0 { self.inner_stride[0] } else { 1 };
 
         LinearLayout::new([self.len()], [inner_stride])
     }
@@ -367,7 +365,7 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
     }
 
     fn is_contiguous(&self) -> bool {
-        D::RANK == 0 || self.inner_stride.as_ref()[0] == 1
+        D::RANK == 0 || self.inner_stride[0] == 1
     }
 
     fn is_uniformly_strided(&self) -> bool {
@@ -390,10 +388,10 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         let mut offset = 0;
 
         if D::RANK > 0 {
-            let mut stride = self.inner_stride.as_ref()[0];
+            let mut stride = self.inner_stride[0];
 
             for i in 0..D::RANK {
-                offset += stride * index.as_ref()[self.dim(i)] as isize;
+                offset += stride * index[self.dim(i)] as isize;
                 stride *= self.size(self.dim(i)) as isize;
             }
         }
@@ -409,26 +407,26 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         let mut inner_stride = <<D::Lower as Dim>::MaxOne as Dim>::Strides::default();
 
         if D::RANK > 1 {
-            shape.as_mut()[..dim].copy_from_slice(&self.shape.as_ref()[..dim]);
-            shape.as_mut()[dim..].copy_from_slice(&self.shape.as_ref()[dim + 1..]);
+            shape[..dim].copy_from_slice(&self.shape[..dim]);
+            shape[dim..].copy_from_slice(&self.shape[dim + 1..]);
 
             let size = if dim == self.dim(0) { self.size(dim) } else { 1 };
 
-            inner_stride.as_mut()[0] = self.inner_stride.as_ref()[0] * size as isize;
+            inner_stride[0] = self.inner_stride[0] * size as isize;
         }
 
         LinearLayout::new(shape, inner_stride)
     }
 
     fn reshape<S: Shape>(self, shape: S) -> LinearLayout<S::Dim, O> {
-        let len = shape.as_ref().iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
 
         assert!(len == self.len(), "array length must not change");
 
         let mut inner_stride = <<S::Dim as Dim>::MaxOne as Dim>::Strides::default();
 
         if S::Dim::RANK > 0 {
-            inner_stride.as_mut()[0] = if D::RANK > 0 { self.inner_stride.as_ref()[0] } else { 1 };
+            inner_stride[0] = if D::RANK > 0 { self.inner_stride[0] } else { 1 };
         }
 
         LinearLayout::new(shape, inner_stride)
@@ -438,7 +436,7 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         assert!(D::RANK > 0, "invalid rank");
         assert!(dim == self.dim(D::RANK - 1), "invalid dimension");
 
-        self.shape.as_mut()[dim] = size;
+        self.shape[dim] = size;
 
         LinearLayout::new(self.shape, self.inner_stride)
     }
@@ -448,24 +446,24 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
     }
 
     fn size(&self, dim: usize) -> usize {
-        self.shape.as_ref()[dim]
+        self.shape[dim]
     }
 
     fn stride(&self, dim: usize) -> isize {
         let inner_dims = self.dims(..self.dim(dim));
-        let inner_stride = self.inner_stride.as_ref()[0];
+        let inner_stride = self.inner_stride[0];
 
-        self.shape.as_ref()[inner_dims].iter().fold(inner_stride, |acc, &x| acc * x as isize)
+        self.shape[inner_dims].iter().fold(inner_stride, |acc, &x| acc * x as isize)
     }
 
     fn strides(&self) -> D::Strides {
         let mut strides = D::Strides::default();
 
         if D::RANK > 0 {
-            let mut stride = self.inner_stride.as_ref()[0];
+            let mut stride = self.inner_stride[0];
 
             for i in 0..D::RANK {
-                strides.as_mut()[self.dim(i)] = stride;
+                strides[self.dim(i)] = stride;
                 stride *= self.size(self.dim(i)) as isize;
             }
         }
@@ -487,7 +485,7 @@ impl<D: Dim, O: Order> Default for LinearMapping<D, O> {
         let mut inner_stride = <D::MaxOne as Dim>::Strides::default();
 
         if D::RANK > 0 {
-            inner_stride.as_mut()[0] = 1;
+            inner_stride[0] = 1;
         }
 
         Self { shape: D::Shape::default(), inner_stride, phantom: PhantomData }
@@ -507,12 +505,11 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         let mut shape = <D::Higher as Dim>::Shape::default();
         let mut strides = <D::Higher as Dim>::Strides::default();
 
-        shape.as_mut()[O::select(0..D::RANK, 1..D::RANK + 1)].copy_from_slice(self.shape.as_ref());
-        shape.as_mut()[O::select(D::RANK, 0)] = size;
+        shape[O::select(0..D::RANK, 1..D::RANK + 1)].copy_from_slice(&self.shape[..]);
+        shape[O::select(D::RANK, 0)] = size;
 
-        strides.as_mut()[O::select(0..D::RANK, 1..D::RANK + 1)]
-            .copy_from_slice(self.strides.as_ref());
-        strides.as_mut()[O::select(D::RANK, 0)] = stride;
+        strides[O::select(0..D::RANK, 1..D::RANK + 1)].copy_from_slice(&self.strides[..]);
+        strides[O::select(D::RANK, 0)] = stride;
 
         StridedLayout::new(shape, strides)
     }
@@ -579,7 +576,7 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         let mut offset = 0;
 
         for i in 0..D::RANK {
-            offset += self.stride(i) * index.as_ref()[i] as isize;
+            offset += self.stride(i) * index[i] as isize;
         }
 
         offset
@@ -592,11 +589,11 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         let mut strides = <D::Lower as Dim>::Strides::default();
 
         if D::RANK > 1 {
-            shape.as_mut()[..dim].copy_from_slice(&self.shape.as_ref()[..dim]);
-            shape.as_mut()[dim..].copy_from_slice(&self.shape.as_ref()[dim + 1..]);
+            shape[..dim].copy_from_slice(&self.shape[..dim]);
+            shape[dim..].copy_from_slice(&self.shape[dim + 1..]);
 
-            strides.as_mut()[..dim].copy_from_slice(&self.strides.as_ref()[..dim]);
-            strides.as_mut()[dim..].copy_from_slice(&self.strides.as_ref()[dim + 1..]);
+            strides[..dim].copy_from_slice(&self.strides[..dim]);
+            strides[dim..].copy_from_slice(&self.strides[dim + 1..]);
         }
 
         StridedLayout::new(shape, strides)
@@ -614,23 +611,6 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         let mut k = 0;
 
         for i in 0..D::RANK {
-            // Add dimensions within a contiguous region.
-            while k < S::Dim::RANK {
-                let dim = O::select(k, S::Dim::RANK - 1 - k);
-                let len = new_len.saturating_mul(shape.as_ref()[dim]);
-
-                if len > old_len {
-                    break;
-                }
-
-                strides.as_mut()[dim] = new_stride;
-
-                new_len = len;
-                new_stride *= shape.as_ref()[dim] as isize;
-
-                k += 1;
-            }
-
             // Set strides for the next region or extend the current region.
             if old_len == new_len {
                 old_stride = self.stride(self.dim(i));
@@ -639,20 +619,35 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
                 assert!(old_stride == self.stride(self.dim(i)), "memory layout not compatible");
             }
 
-            let size = self.size(self.dim(i));
+            old_len *= self.size(self.dim(i));
+            old_stride *= self.size(self.dim(i)) as isize;
 
-            old_len *= size;
-            old_stride *= size as isize;
+            // Add dimensions within the current region.
+            while k < S::Dim::RANK {
+                let dim = O::select(k, S::Dim::RANK - 1 - k);
+                let len = new_len.saturating_mul(shape[dim]);
+
+                if len > old_len {
+                    break;
+                }
+
+                strides[dim] = new_stride;
+
+                new_len = len;
+                new_stride *= shape[dim] as isize;
+
+                k += 1;
+            }
         }
 
         // Add remaining dimensions.
         while k < S::Dim::RANK {
             let dim = O::select(k, S::Dim::RANK - 1 - k);
 
-            strides.as_mut()[dim] = new_stride;
+            strides[dim] = new_stride;
 
-            new_len = new_len.saturating_mul(shape.as_ref()[dim]);
-            new_stride *= shape.as_ref()[dim] as isize;
+            new_len = new_len.saturating_mul(shape[dim]);
+            new_stride *= shape[dim] as isize;
 
             k += 1;
         }
@@ -665,7 +660,7 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
     fn resize_dim(mut self, dim: usize, size: usize) -> StridedLayout<D, O> {
         assert!(D::RANK > 0, "invalid rank");
 
-        self.shape.as_mut()[dim] = size;
+        self.shape[dim] = size;
 
         StridedLayout::new(self.shape, self.strides)
     }
@@ -675,11 +670,11 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
     }
 
     fn size(&self, dim: usize) -> usize {
-        self.shape.as_ref()[dim]
+        self.shape[dim]
     }
 
     fn stride(&self, dim: usize) -> isize {
-        self.strides.as_ref()[dim]
+        self.strides[dim]
     }
 
     fn strides(&self) -> D::Strides {
@@ -700,7 +695,7 @@ impl<D: Dim, O: Order> Default for StridedMapping<D, O> {
         let mut strides = D::Strides::default();
 
         if D::RANK > 0 {
-            strides.as_mut()[O::select(0, D::RANK - 1)] = 1;
+            strides[O::select(0, D::RANK - 1)] = 1;
         }
 
         Self { shape: D::Shape::default(), strides, phantom: PhantomData }

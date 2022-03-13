@@ -1,5 +1,9 @@
 use std::fmt::Debug;
 
+use std::ops::{
+    Bound, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+};
+
 /// Array dimension trait for rank, shape and strides.
 pub trait Dim: Copy + Debug + Default {
     /// Next higher dimension.
@@ -22,13 +26,37 @@ pub trait Dim: Copy + Debug + Default {
 }
 
 /// Array shape trait.
-pub trait Shape: AsMut<[usize]> + AsRef<[usize]> + Copy + Debug + Default {
+pub trait Shape:
+    Copy
+    + Debug
+    + Default
+    + IndexMut<(Bound<usize>, Bound<usize>), Output = [usize]>
+    + IndexMut<usize, Output = usize>
+    + IndexMut<Range<usize>, Output = [usize]>
+    + IndexMut<RangeFrom<usize>, Output = [usize]>
+    + IndexMut<RangeFull, Output = [usize]>
+    + IndexMut<RangeInclusive<usize>, Output = [usize]>
+    + IndexMut<RangeTo<usize>, Output = [usize]>
+    + IndexMut<RangeToInclusive<usize>, Output = [usize]>
+{
     /// Array dimension type.
     type Dim: Dim<Shape = Self>;
 }
 
 /// Array strides trait.
-pub trait Strides: AsMut<[isize]> + AsRef<[isize]> + Copy + Debug + Default {
+pub trait Strides:
+    Copy
+    + Debug
+    + Default
+    + IndexMut<(Bound<usize>, Bound<usize>), Output = [isize]>
+    + IndexMut<usize, Output = isize>
+    + IndexMut<Range<usize>, Output = [isize]>
+    + IndexMut<RangeFrom<usize>, Output = [isize]>
+    + IndexMut<RangeFull, Output = [isize]>
+    + IndexMut<RangeInclusive<usize>, Output = [isize]>
+    + IndexMut<RangeTo<usize>, Output = [isize]>
+    + IndexMut<RangeToInclusive<usize>, Output = [isize]>
+{
     /// Array dimension type.
     type Dim: Dim<Strides = Self>;
 }
