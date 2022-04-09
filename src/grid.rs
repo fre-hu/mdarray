@@ -11,6 +11,7 @@ use std::result::Result;
 use crate::buffer::{Buffer, BufferMut, DenseBuffer, SubBuffer, SubBufferMut};
 use crate::dim::{Const, Dim, Shape, U1};
 use crate::format::Format;
+use crate::index::{panic_bounds_check, SpanIndex};
 use crate::layout::{DenseLayout, Layout, StaticLayout};
 use crate::order::Order;
 use crate::span::SpanBase;
@@ -323,6 +324,48 @@ macro_rules! impl_sub_grid {
                 S: Shape,
             {
                 unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
+            }
+
+            /// Divides an array view into two at the specified point along the outer dimension.
+            /// # Panics
+            /// Panics if the split point is larger than the number of elements in that dimension.
+            pub fn into_split_at(
+                $($mut)? self,
+                mid: usize,
+            ) -> ($type<'a, T, Layout<D, F, O>>, $type<'a, T, Layout<D, F, O>>) {
+                assert!(self.rank() > 0, "invalid rank");
+
+                let dim = self.dim(self.rank() - 1);
+
+                if mid > self.size(dim) {
+                    panic_bounds_check(mid, self.size(dim));
+                }
+
+                let first_layout = self.layout().resize_dim(dim, mid);
+                let second_layout = self.layout().resize_dim(dim, self.size(dim) - mid);
+
+                // Discard invalid offset if the second span is empty.
+                let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
+
+                unsafe {
+                    (
+                        $type::new_unchecked(self.$as_ptr(), first_layout),
+                        $type::new_unchecked(self.$as_ptr().offset(count), second_layout),
+                    )
+                }
+            }
+
+            /// Converts an array view into a new array view for the specified subarray.
+            /// # Panics
+            /// Panics if the subarray is out of bounds.
+            pub fn into_view<I: SpanIndex<D, O>>(
+                $($mut)? self,
+                index: I
+            ) -> $type<'a, T, Layout<I::Dim, I::Format<F>, O>> {
+                let (offset, layout, _) = I::span_info(index, self.layout());
+                let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty.
+
+                unsafe { $type::new_unchecked(self.$as_ptr().offset(count), layout) }
             }
         }
     };

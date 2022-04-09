@@ -8,7 +8,7 @@ use std::{mem, ptr, slice};
 use crate::dim::{Const, Dim, Shape, U1};
 use crate::format::Format;
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
-use crate::index::{panic_bounds_check, SpanIndex};
+use crate::index::SpanIndex;
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{DenseLayout, HasLinearIndexing, HasSliceIndexing, Layout, StaticLayout};
 use crate::mapping::Mapping;
@@ -184,6 +184,8 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     }
 
     /// Copies the specified subarray into a new array.
+    /// # Panics
+    /// Panics if the subarray is out of bounds.
     pub fn grid<I: SpanIndex<D, O>>(&self, index: I) -> DenseGrid<T, I::Dim, O>
     where
         T: Clone,
@@ -192,6 +194,8 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     }
 
     /// Copies the specified subarray into a new array with the specified allocator.
+    /// # Panics
+    /// Panics if the subarray is out of bounds.
     pub fn grid_in<I: SpanIndex<D, O>, A>(&self, index: I, alloc: A) -> DenseGrid<T, I::Dim, O, A>
     where
         T: Clone,
@@ -386,26 +390,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         &self,
         mid: usize,
     ) -> (SubGrid<T, Layout<D, F, O>>, SubGrid<T, Layout<D, F, O>>) {
-        assert!(self.rank() > 0, "invalid rank");
-
-        let dim = self.dim(self.rank() - 1);
-
-        if mid > self.size(dim) {
-            panic_bounds_check(mid, self.size(dim));
-        }
-
-        let first_layout = self.layout().resize_dim(dim, mid);
-        let second_layout = self.layout().resize_dim(dim, self.size(dim) - mid);
-
-        // Discard invalid offset if the second span is empty.
-        let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
-
-        unsafe {
-            (
-                SubGrid::new_unchecked(self.as_ptr(), first_layout),
-                SubGrid::new_unchecked(self.as_ptr().offset(count), second_layout),
-            )
-        }
+        self.to_view().into_split_at(mid)
     }
 
     /// Divides a mutable array span into two at the specified point along the outer dimension.
@@ -415,26 +400,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         &mut self,
         mid: usize,
     ) -> (SubGridMut<T, Layout<D, F, O>>, SubGridMut<T, Layout<D, F, O>>) {
-        assert!(self.rank() > 0, "invalid rank");
-
-        let dim = self.dim(self.rank() - 1);
-
-        if mid > self.size(dim) {
-            panic_bounds_check(mid, self.size(dim));
-        }
-
-        let first_layout = self.layout().resize_dim(dim, mid);
-        let second_layout = self.layout().resize_dim(dim, self.size(dim) - mid);
-
-        // Discard invalid offset if the second span is empty.
-        let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
-
-        unsafe {
-            (
-                SubGridMut::new_unchecked(self.as_mut_ptr(), first_layout),
-                SubGridMut::new_unchecked(self.as_mut_ptr().offset(count), second_layout),
-            )
-        }
+        self.to_view_mut().into_split_at(mid)
     }
 
     /// Returns the distance between elements in the specified dimension.
@@ -493,25 +459,23 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     }
 
     /// Returns an array view for the specified subarray.
+    /// # Panics
+    /// Panics if the subarray is out of bounds.
     pub fn view<I>(&self, index: I) -> SubGrid<T, Layout<I::Dim, I::Format<F>, O>>
     where
         I: SpanIndex<D, O>,
     {
-        let (offset, layout, _) = I::span_info(index, self.layout());
-        let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty view.
-
-        unsafe { SubGrid::new_unchecked(self.as_ptr().offset(count), layout) }
+        self.to_view().into_view(index)
     }
 
     /// Returns a mutable array view for the specified subarray.
+    /// # Panics
+    /// Panics if the subarray is out of bounds.
     pub fn view_mut<I>(&mut self, index: I) -> SubGridMut<T, Layout<I::Dim, I::Format<F>, O>>
     where
         I: SpanIndex<D, O>,
     {
-        let (offset, layout, _) = I::span_info(index, self.layout());
-        let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty view.
-
-        unsafe { SubGridMut::new_unchecked(self.as_mut_ptr().offset(count), layout) }
+        self.to_view_mut().into_view(index)
     }
 }
 
