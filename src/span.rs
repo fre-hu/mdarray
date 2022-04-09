@@ -95,14 +95,15 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 
-    /// Returns an iterator that gives array views over the specified middle dimension.
+    /// Returns an iterator that gives array views over the specified dimension.
     ///
     /// Iterating over middle dimensions maintains the unit inner stride propery however not
     /// uniform stride, so that the resulting array views have general or strided format.
     /// # Panics
-    /// Panics if the inner or outer dimension is specified, as that would affect the return type.
+    /// Panics if the inner dimension is specified, as that would affect the return type.
     pub fn axis_iter(&self, dim: usize) -> AxisIter<T, Layout<D::Lower, F::NonUniform, O>> {
-        assert!(dim > 0 && dim + 1 < self.rank(), "inner or outer dimension not allowed");
+        assert!(self.rank() > 0, "invalid rank");
+        assert!(dim != self.dim(0), "inner dimension not allowed");
 
         unsafe {
             AxisIter::new_unchecked(
@@ -114,17 +115,18 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         }
     }
 
-    /// Returns a mutable iterator that gives array views over the specified middle dimension.
+    /// Returns a mutable iterator that gives array views over the specified dimension.
     ///
     /// Iterating over middle dimensions maintains the unit inner stride propery however not
     /// uniform stride, so that the resulting array views have general or strided format.
     /// # Panics
-    /// Panics if the inner or outer dimension is specified, as that would affect the return type.
+    /// Panics if the inner dimension is specified, as that would affect the return type.
     pub fn axis_iter_mut(
         &mut self,
         dim: usize,
     ) -> AxisIterMut<T, Layout<D::Lower, F::NonUniform, O>> {
-        assert!(dim > 0 && dim + 1 < self.rank(), "inner or outer dimension not allowed");
+        assert!(self.rank() > 0, "invalid rank");
+        assert!(dim != self.dim(0), "inner dimension not allowed");
 
         unsafe {
             AxisIterMut::new_unchecked(
@@ -383,24 +385,46 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         self.layout().size(dim)
     }
 
-    /// Divides an array span into two at the specified point along the outer dimension.
+    /// Divides an array span into two at an index along the specified dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_at(
+    pub fn split_axis(
+        &self,
+        dim: usize,
+        mid: usize,
+    ) -> (SubGrid<T, Layout<D, F, O>>, SubGrid<T, Layout<D, F::NonUniform, O>>) {
+        self.to_view().into_split_axis(dim, mid)
+    }
+
+    /// Divides a mutable array span into two at an index along the specified dimension.
+    /// # Panics
+    /// Panics if the split point is larger than the number of elements in that dimension.
+    pub fn split_axis_mut(
+        &mut self,
+        dim: usize,
+        mid: usize,
+    ) -> (SubGridMut<T, Layout<D, F, O>>, SubGridMut<T, Layout<D, F::NonUniform, O>>) {
+        self.to_view_mut().into_split_axis(dim, mid)
+    }
+
+    /// Divides an array span into two at an index along the outer dimension.
+    /// # Panics
+    /// Panics if the split point is larger than the number of elements in that dimension.
+    pub fn split_outer(
         &self,
         mid: usize,
     ) -> (SubGrid<T, Layout<D, F, O>>, SubGrid<T, Layout<D, F, O>>) {
-        self.to_view().into_split_at(mid)
+        self.to_view().into_split_outer(mid)
     }
 
-    /// Divides a mutable array span into two at the specified point along the outer dimension.
+    /// Divides a mutable array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_at_mut(
+    pub fn split_outer_mut(
         &mut self,
         mid: usize,
     ) -> (SubGridMut<T, Layout<D, F, O>>, SubGridMut<T, Layout<D, F, O>>) {
-        self.to_view_mut().into_split_at(mid)
+        self.to_view_mut().into_split_outer(mid)
     }
 
     /// Returns the distance between elements in the specified dimension.

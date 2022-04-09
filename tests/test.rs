@@ -92,8 +92,8 @@ fn test_base() {
 
     assert_eq!(Grid::from_iter(0..3).map(|x| 10 * x)[..], [0, 10, 20]);
 
-    assert_eq!(to_slice!(a.view((..2, ..2, ..2)).split_at(1).0), [1000, 1100, 1010, 1110]);
-    assert_eq!(to_slice!(a.view_mut((..2, ..2, ..2)).split_at_mut(1).1), [1001, 1101, 1011, 1111]);
+    assert_eq!(to_slice!(a.view((..2, ..2, ..2)).split_outer(1).0), [1000, 1100, 1010, 1110]);
+    assert_eq!(to_slice!(a.view_mut((..2, ..2, ..2)).split_axis(1, 1).1), [1010, 1110, 1011, 1111]);
 
     a.truncate(2);
 

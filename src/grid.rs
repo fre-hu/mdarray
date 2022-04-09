@@ -326,10 +326,38 @@ macro_rules! impl_sub_grid {
                 unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
 
-            /// Divides an array view into two at the specified point along the outer dimension.
+            /// Divides an array view into two at an index along the specified dimension.
             /// # Panics
             /// Panics if the split point is larger than the number of elements in that dimension.
-            pub fn into_split_at(
+            pub fn into_split_axis(
+                $($mut)? self,
+                dim: usize,
+                mid: usize,
+            ) -> ($type<'a, T, Layout<D, F, O>>, $type<'a, T, Layout<D, F::NonUniform, O>>) {
+                assert!(self.rank() > 0, "invalid rank");
+
+                if mid > self.size(dim) {
+                    panic_bounds_check(mid, self.size(dim));
+                }
+
+                let first_layout = self.layout().reformat().resize_dim(dim, mid);
+                let second_layout = self.layout().reformat().resize_dim(dim, self.size(dim) - mid);
+
+                // Calculate offset for the second view if non-empty.
+                let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
+
+                unsafe {
+                    (
+                        $type::new_unchecked(self.$as_ptr(), first_layout),
+                        $type::new_unchecked(self.$as_ptr().offset(count), second_layout),
+                    )
+                }
+            }
+
+            /// Divides an array view into two at an index along the outer dimension.
+            /// # Panics
+            /// Panics if the split point is larger than the number of elements in that dimension.
+            pub fn into_split_outer(
                 $($mut)? self,
                 mid: usize,
             ) -> ($type<'a, T, Layout<D, F, O>>, $type<'a, T, Layout<D, F, O>>) {
@@ -344,7 +372,7 @@ macro_rules! impl_sub_grid {
                 let first_layout = self.layout().resize_dim(dim, mid);
                 let second_layout = self.layout().resize_dim(dim, self.size(dim) - mid);
 
-                // Discard invalid offset if the second span is empty.
+                // Calculate offset for the second view if non-empty.
                 let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
 
                 unsafe {
