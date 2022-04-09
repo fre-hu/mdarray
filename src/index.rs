@@ -119,7 +119,7 @@ impl DimIndex for usize {
             panic_bounds_check(self, size)
         }
 
-        (offset.wrapping_add(stride * self as isize), inner, inner.to_non_uniform())
+        (offset.wrapping_add(stride * self as isize), inner, inner.reformat())
     }
 }
 
@@ -172,7 +172,7 @@ impl<R: PartialRange<usize>> DimIndex for R {
         let range = slice::range(self, ..size);
         let layout = Layout::<U0, F, O>::default().add_dim(range.end - range.start, stride);
 
-        (stride * range.start as isize, layout, layout.to_non_uniform())
+        (stride * range.start as isize, layout, layout.reformat())
     }
 
     fn next_dim_info<D: Dim, F: Format, O: Order>(
@@ -185,7 +185,7 @@ impl<R: PartialRange<usize>> DimIndex for R {
         let range = slice::range(self, ..size);
         let layout = inner.add_dim(range.end - range.start, stride);
 
-        (offset.wrapping_add(stride * range.start as isize), layout, layout.to_non_uniform())
+        (offset.wrapping_add(stride * range.start as isize), layout, layout.reformat())
     }
 }
 
@@ -214,7 +214,7 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
             range.start
         };
 
-        (stride.wrapping_mul(delta as isize), layout, layout.to_strided())
+        (stride.wrapping_mul(delta as isize), layout, layout.reformat())
     }
 
     fn next_dim_info<D: Dim, F: Format, O: Order>(
@@ -226,7 +226,7 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
     ) -> (isize, Layout<D::Higher, F::NonUniform, O>, Layout<D::Higher, F::NonUniform, O>) {
         let range = slice::range(self.range, ..size);
         let len = (range.end - range.start).div_ceil(self.step.abs_diff(0));
-        let layout = inner.to_non_uniform().add_dim(len, stride * self.step);
+        let layout = inner.reformat().add_dim(len, stride * self.step);
 
         // Note that the offset may become invalid if the length is zero.
         let delta = if self.step < 0 {

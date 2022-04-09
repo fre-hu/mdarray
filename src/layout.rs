@@ -23,11 +23,8 @@ pub struct Layout<D: Dim, F: Format, O: Order> {
 }
 
 pub(crate) type DenseLayout<D, O> = Layout<D, Dense, O>;
-
 pub(crate) type GeneralLayout<D, O> = Layout<D, General, O>;
-
 pub(crate) type LinearLayout<D, O> = Layout<D, Linear, O>;
-
 pub(crate) type StridedLayout<D, O> = Layout<D, Strided, O>;
 
 pub(crate) trait StaticLayout<D: Dim, O: Order> {
@@ -122,6 +119,10 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         self.map.offset(index)
     }
 
+    pub(crate) fn reformat<G: Format>(self) -> Layout<D, G, O> {
+        G::Mapping::reformat(self)
+    }
+
     pub(crate) fn remove_dim(self, dim: usize) -> Layout<D::Lower, F, O> {
         self.map.remove_dim(dim)
     }
@@ -132,36 +133,6 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
 
     pub(crate) fn resize_dim(self, dim: usize, size: usize) -> Self {
         self.map.resize_dim(dim, size)
-    }
-
-    pub(crate) fn to_dense(self) -> DenseLayout<D, O> {
-        assert!(self.is_contiguous(), "array layout not contiguous");
-
-        DenseLayout::new(self.shape())
-    }
-
-    pub(crate) fn to_general(self) -> GeneralLayout<D, O> {
-        assert!(self.rank() == 0 || self.stride(self.dim(0)) == 1, "inner stride not unitary");
-
-        let mut outer_strides = <D::Lower as Dim>::Strides::default();
-
-        if self.rank() > 1 {
-            outer_strides[..].copy_from_slice(&self.strides()[self.dims(1..)]);
-        }
-
-        GeneralLayout::new(self.shape(), outer_strides)
-    }
-
-    pub(crate) fn to_non_uniform(self) -> Layout<D, F::NonUniform, O> {
-        self.map.to_non_uniform()
-    }
-
-    pub(crate) fn to_non_unit_strided(self) -> Layout<D, F::NonUnitStrided, O> {
-        self.map.to_non_unit_strided()
-    }
-
-    pub(crate) fn to_strided(self) -> StridedLayout<D, O> {
-        StridedLayout::new(self.shape(), self.strides())
     }
 }
 

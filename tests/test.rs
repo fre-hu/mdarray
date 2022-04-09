@@ -62,7 +62,7 @@ fn test_base() {
     assert!(a == Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
     assert!(c == CGrid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
 
-    let mut r = a.clone().reshape([5, 4, 3]);
+    let mut r = a.clone().into_shape([5, 4, 3]);
     let mut s = c.clone();
 
     unsafe {
@@ -72,8 +72,8 @@ fn test_base() {
     a.resize([4, 4, 4], 9999);
     c.resize_with([4, 4, 4], || 9999);
 
-    assert_eq!(a.flat_iter().sum::<usize>(), 213576);
-    assert_eq!(c.flat_iter().sum::<usize>(), 213576);
+    assert_eq!(a.flatten().iter().sum::<usize>(), 213576);
+    assert_eq!(c.flatten().iter().sum::<usize>(), 213576);
 
     assert_eq!(r.view((1.., 1.., 1..)).shape(), [4, 3, 2]);
     assert_eq!(s.view((1.., 1.., 1..)).shape(), [4, 3, 2]);
@@ -99,10 +99,10 @@ fn test_base() {
 
     assert_eq!(to_slice!(a.view((..2, ..2, ..))), [1000, 1100, 1010, 1110, 1001, 1101, 1011, 1111]);
 
-    r.flat_iter_mut().for_each(|x| *x *= 2);
+    r.flatten_mut().iter_mut().for_each(|x| *x *= 2);
     s.as_mut_slice().iter_mut().for_each(|x| *x *= 2);
 
-    assert_eq!(r.flat_iter().sum::<usize>(), 134040);
+    assert_eq!(r.flatten().iter().sum::<usize>(), 134040);
     assert_eq!(s.as_slice().iter().sum::<usize>(), 134040);
 
     r.clear();
@@ -132,7 +132,7 @@ fn test_base() {
     s.append(&mut t.clone());
     t.extend_from_span(&s.view((5.., .., ..)));
 
-    assert_eq!(Grid::from_iter(s.reshape([120])).as_ref(), t.into_vec());
+    assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
     let u = Grid::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 

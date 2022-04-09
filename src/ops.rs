@@ -46,7 +46,7 @@ impl<T: Ord, F: Format, O: Order> Ord for SpanBase<T, Layout<U1, F, O>> {
         if self.has_slice_indexing() {
             self.as_slice().cmp(rhs.as_slice())
         } else {
-            self.flat_iter().cmp(rhs.flat_iter())
+            self.flatten().iter().cmp(rhs.flatten().iter())
         }
     }
 }
@@ -88,7 +88,7 @@ where
     T: PartialOrd<U>,
 {
     fn partial_cmp(&self, rhs: &SpanBase<U, Layout<U1, G, O>>) -> Option<Ordering> {
-        self.flat_iter().partial_cmp(rhs.flat_iter())
+        self.flatten().iter().partial_cmp(rhs.flatten().iter())
     }
 }
 
@@ -133,7 +133,7 @@ where
         if self.has_slice_indexing() && rhs.has_slice_indexing() {
             self.shape()[..] == rhs.shape()[..] && self.as_slice().eq(rhs.as_slice())
         } else if self.has_linear_indexing() && rhs.has_linear_indexing() {
-            self.shape()[..] == rhs.shape()[..] && self.flat_iter().eq(rhs.flat_iter())
+            self.shape()[..] == rhs.shape()[..] && self.flatten().iter().eq(rhs.flatten().iter())
         } else {
             self.outer_iter().eq(rhs.outer_iter())
         }
@@ -428,7 +428,7 @@ unsafe fn from_binary_op<T, U, V, D: Dim, O: Order, F: Fn(&T, &U) -> V>(
     if lhs.has_linear_indexing() && rhs.has_linear_indexing() {
         assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
-        for (x, y) in lhs.flat_iter().zip(rhs.flat_iter()) {
+        for (x, y) in lhs.flatten().iter().zip(rhs.flatten().iter()) {
             vec.as_mut_ptr().add(vec.len()).write(f(x, y));
             vec.set_len(vec.len() + 1);
         }
@@ -449,7 +449,7 @@ unsafe fn from_unary_op<T, U, F: Fn(&T) -> U>(
     f: &F,
 ) {
     if span.has_linear_indexing() {
-        for x in span.flat_iter() {
+        for x in span.flatten().iter() {
             vec.as_mut_ptr().add(vec.len()).write(f(x));
             vec.set_len(vec.len() + 1);
         }
@@ -468,7 +468,7 @@ fn map_binary_op<T, U, D: Dim, O: Order, F: Fn((&mut T, &U))>(
     if lhs.has_linear_indexing() && rhs.has_linear_indexing() {
         assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
-        lhs.flat_iter_mut().zip(rhs.flat_iter()).for_each(f);
+        lhs.flatten_mut().iter_mut().zip(rhs.flatten().iter()).for_each(f);
     } else {
         let dim = lhs.dim(lhs.rank() - 1);
 
@@ -485,7 +485,7 @@ fn map_unary_op<T>(
     f: &impl Fn(&mut T),
 ) {
     if span.has_linear_indexing() {
-        span.flat_iter_mut().for_each(f);
+        span.flatten_mut().iter_mut().for_each(f);
     } else {
         for mut x in span.outer_iter_mut() {
             map_unary_op(&mut x, f);

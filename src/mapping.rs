@@ -20,6 +20,7 @@ pub trait Mapping<D: Dim, F: Format, O: Order>: Copy + Debug + Default {
     fn iter<T>(span: &SpanBase<T, Layout<D, F, O>>) -> F::Iter<'_, T>;
     fn iter_mut<T>(span: &mut SpanBase<T, Layout<D, F, O>>) -> F::IterMut<'_, T>;
     fn offset(&self, index: D::Shape) -> isize;
+    fn reformat<G: Format>(layout: Layout<D, G, O>) -> Layout<D, F, O>;
     fn remove_dim(self, dim: usize) -> Layout<D::Lower, F, O>;
     fn reshape<S: Shape>(self, shape: S) -> Layout<S::Dim, F, O>;
     fn resize_dim(self, dim: usize, size: usize) -> Layout<D, F, O>;
@@ -27,8 +28,6 @@ pub trait Mapping<D: Dim, F: Format, O: Order>: Copy + Debug + Default {
     fn size(&self, dim: usize) -> usize;
     fn stride(&self, dim: usize) -> isize;
     fn strides(&self) -> D::Strides;
-    fn to_non_uniform(self) -> Layout<D, F::NonUniform, O>;
-    fn to_non_unit_strided(self) -> Layout<D, F::NonUnitStrided, O>;
 
     fn dim(&self, index: usize) -> usize {
         O::select(index, D::RANK - 1 - index)
@@ -135,6 +134,12 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         offset as isize
     }
 
+    fn reformat<F: Format>(layout: Layout<D, F, O>) -> DenseLayout<D, O> {
+        assert!(layout.is_contiguous(), "array layout not contiguous");
+
+        DenseLayout::new(layout.shape())
+    }
+
     fn remove_dim(self, dim: usize) -> DenseLayout<D::Lower, O> {
         assert!(D::RANK > 0, "invalid rank");
         assert!(dim == self.dim(D::RANK - 1), "invalid dimension");
@@ -190,20 +195,6 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
 
         strides
     }
-
-    fn to_non_uniform(self) -> GeneralLayout<D, O> {
-        StridedLayout::new(self.shape, self.strides()).to_general()
-    }
-
-    fn to_non_unit_strided(self) -> LinearLayout<D, O> {
-        let mut inner_stride = <D::MaxOne as Dim>::Strides::default();
-
-        if D::RANK > 0 {
-            inner_stride[0] = 1;
-        }
-
-        LinearLayout::new(self.shape, inner_stride)
-    }
 }
 
 impl<D: Dim, O: Order> GeneralMapping<D, O> {
@@ -214,7 +205,7 @@ impl<D: Dim, O: Order> GeneralMapping<D, O> {
 
 impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     fn add_dim(self, size: usize, stride: isize) -> GeneralLayout<D::Higher, O> {
-        StridedMapping::<D, O>::new(self.shape, self.strides()).add_dim(size, stride).to_general()
+        StridedMapping::<D, O>::new(self.shape, self.strides()).add_dim(size, stride).reformat()
     }
 
     fn flatten(self) -> DenseLayout<U1, O> {
@@ -259,6 +250,18 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
         span.as_mut_slice().iter_mut()
     }
 
+    fn reformat<F: Format>(layout: Layout<D, F, O>) -> GeneralLayout<D, O> {
+        assert!(D::RANK == 0 || layout.stride(layout.dim(0)) == 1, "inner stride not unitary");
+
+        let mut outer_strides = <D::Lower as Dim>::Strides::default();
+
+        if D::RANK > 1 {
+            outer_strides[..].copy_from_slice(&layout.strides()[layout.dims(1..)]);
+        }
+
+        GeneralLayout::new(layout.shape(), outer_strides)
+    }
+
     fn offset(&self, index: D::Shape) -> isize {
         let mut offset = 0;
 
@@ -276,11 +279,11 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     fn remove_dim(self, dim: usize) -> GeneralLayout<D::Lower, O> {
         assert!(D::RANK == 1 || dim != self.dim(0), "invalid dimension");
 
-        StridedMapping::<D, O>::new(self.shape, self.strides()).remove_dim(dim).to_general()
+        StridedMapping::<D, O>::new(self.shape, self.strides()).remove_dim(dim).reformat()
     }
 
     fn reshape<S: Shape>(self, shape: S) -> GeneralLayout<S::Dim, O> {
-        StridedMapping::<D, O>::new(self.shape, self.strides()).reshape(shape).to_general()
+        StridedMapping::<D, O>::new(self.shape, self.strides()).reshape(shape).reformat()
     }
 
     fn resize_dim(mut self, dim: usize, size: usize) -> GeneralLayout<D, O> {
@@ -312,14 +315,6 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
         }
 
         strides
-    }
-
-    fn to_non_uniform(self) -> GeneralLayout<D, O> {
-        GeneralLayout::new(self.shape, self.outer_strides)
-    }
-
-    fn to_non_unit_strided(self) -> StridedLayout<D, O> {
-        StridedLayout::new(self.shape, self.strides())
     }
 }
 
@@ -382,6 +377,18 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         let layout = span.layout().flatten();
 
         unsafe { LinearIterMut::new_unchecked(span.as_mut_ptr(), layout.size(0), layout.stride(0)) }
+    }
+
+    fn reformat<F: Format>(layout: Layout<D, F, O>) -> LinearLayout<D, O> {
+        assert!(layout.is_uniformly_strided(), "array layout not uniformly strided");
+
+        let mut inner_stride = <D::MaxOne as Dim>::Strides::default();
+
+        if D::RANK > 0 {
+            inner_stride[0] = layout.stride(layout.dim(0));
+        }
+
+        LinearLayout::new(layout.shape(), inner_stride)
     }
 
     fn offset(&self, index: D::Shape) -> isize {
@@ -469,14 +476,6 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         }
 
         strides
-    }
-
-    fn to_non_uniform(self) -> StridedLayout<D, O> {
-        StridedLayout::new(self.shape, self.strides())
-    }
-
-    fn to_non_unit_strided(self) -> LinearLayout<D, O> {
-        LinearLayout::new(self.shape, self.inner_stride)
     }
 }
 
@@ -582,6 +581,10 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         offset
     }
 
+    fn reformat<F: Format>(layout: Layout<D, F, O>) -> StridedLayout<D, O> {
+        StridedLayout::new(layout.shape(), layout.strides())
+    }
+
     fn remove_dim(self, dim: usize) -> StridedLayout<D::Lower, O> {
         assert!(D::RANK > 0, "invalid rank");
 
@@ -679,14 +682,6 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
 
     fn strides(&self) -> D::Strides {
         self.strides
-    }
-
-    fn to_non_uniform(self) -> StridedLayout<D, O> {
-        StridedLayout::new(self.shape, self.strides)
-    }
-
-    fn to_non_unit_strided(self) -> StridedLayout<D, O> {
-        StridedLayout::new(self.shape, self.strides)
     }
 }
 

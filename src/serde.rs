@@ -43,7 +43,7 @@ where
 
                 shape[0] = vec.len();
 
-                Ok(DenseGrid::from(vec).reshape(shape))
+                Ok(DenseGrid::from(vec).into_shape(shape))
             } else {
                 Ok(DenseGrid::new())
             }
@@ -60,14 +60,14 @@ where
                 larger[grid.dims(..D::RANK - 1)].copy_from_slice(&shape[..]);
                 larger[grid.dim(D::RANK - 1)] = 1;
 
-                grid.append(&mut value.reshape(larger));
+                grid.append(&mut value.into_shape(larger));
 
                 while let Some(value) = seq.next_element::<DenseGrid<T, D::Lower, O>>()? {
                     if value.shape()[..] != shape[..] {
                         return Err(A::Error::invalid_value(Unexpected::Seq, &self));
                     }
 
-                    grid.append(&mut value.reshape(larger));
+                    grid.append(&mut value.into_shape(larger));
                 }
 
                 Ok(grid)
@@ -104,7 +104,7 @@ impl<T: Serialize, D: Dim, F: Format, O: Order> Serialize for SpanBase<T, Layout
             let mut seq = serializer.serialize_seq(Some(self.size(self.dim(self.rank() - 1))))?;
 
             if self.rank() == 1 {
-                for x in self.flat_iter() {
+                for x in self.flatten().iter() {
                     seq.serialize_element(x)?;
                 }
             } else {

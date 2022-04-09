@@ -34,7 +34,7 @@ pub trait Format: Copy + Debug + Default {
         + FusedIterator
         + Iterator<Item = &'a mut T>;
 
-    /// Array mapping type.
+    #[doc(hidden)]
     type Mapping<D: Dim, O: Order>: Mapping<D, Self, O>;
 }
 

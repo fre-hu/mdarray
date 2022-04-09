@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::{Range, RangeBounds};
 use std::{mem, ptr, slice};
 
-use crate::dim::{Const, Dim, U1};
+use crate::dim::{Const, Dim, Shape, U1};
 use crate::format::Format;
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
 use crate::index::{panic_bounds_check, SpanIndex};
@@ -107,7 +107,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().to_non_uniform().remove_dim(dim),
+                self.layout().reformat().remove_dim(dim),
                 self.size(dim),
                 self.stride(dim),
             )
@@ -129,7 +129,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().to_non_uniform().remove_dim(dim),
+                self.layout().reformat().remove_dim(dim),
                 self.size(dim),
                 self.stride(dim),
             )
@@ -169,18 +169,18 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         fill_with(self, &mut f);
     }
 
-    /// Returns an iterator over the flattened array span.
+    /// Returns a one-dimensional array view of the array span.
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
-    pub fn flat_iter(&self) -> F::Iter<'_, T> {
-        F::Mapping::iter(self)
+    pub fn flatten(&self) -> SubGrid<T, Layout<U1, F::Uniform, O>> {
+        self.to_view().into_flattened()
     }
 
-    /// Returns a mutable iterator over the flattened array span.
+    /// Returns a mutable one-dimensional array view over the array span.
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
-    pub fn flat_iter_mut(&mut self) -> F::IterMut<'_, T> {
-        F::Mapping::iter_mut(self)
+    pub fn flatten_mut(&mut self) -> SubGridMut<T, Layout<U1, F::Uniform, O>> {
+        self.to_view_mut().into_flattened()
     }
 
     /// Copies the specified subarray into a new array.
@@ -222,7 +222,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().to_non_unit_strided().remove_dim(self.dim(0)),
+                self.layout().reformat().remove_dim(self.dim(0)),
                 self.size(self.dim(0)),
                 self.stride(self.dim(0)),
             )
@@ -241,7 +241,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().to_non_unit_strided().remove_dim(self.dim(0)),
+                self.layout().reformat().remove_dim(self.dim(0)),
                 self.size(self.dim(0)),
                 self.stride(self.dim(0)),
             )
@@ -271,6 +271,22 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
     pub fn is_uniformly_strided(&self) -> bool {
         self.layout().is_uniformly_strided()
+    }
+
+    /// Returns an iterator over the array span, which must support linear indexing.
+    pub fn iter(&self) -> F::Iter<'_, T>
+    where
+        Layout<D, F, O>: HasLinearIndexing,
+    {
+        F::Mapping::iter(self)
+    }
+
+    /// Returns a mutable iterator over the array span, which must support linear indexing.
+    pub fn iter_mut(&mut self) -> F::IterMut<'_, T>
+    where
+        Layout<D, F, O>: HasLinearIndexing,
+    {
+        F::Mapping::iter_mut(self)
     }
 
     /// Returns the number of elements in the array.
@@ -323,6 +339,34 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns the rank of the array.
     pub fn rank(&self) -> usize {
         self.layout().rank()
+    }
+
+    /// Returns a reformatted array view of the array span.
+    /// # Panics
+    /// Panics if the array layout is not compatible with the new format.
+    pub fn reformat<G: Format>(&self) -> SubGrid<T, Layout<D, G, O>> {
+        self.to_view().into_format()
+    }
+
+    /// Returns a mutable reformatted array view of the array span.
+    /// # Panics
+    /// Panics if the array layout is not compatible with the new format.
+    pub fn reformat_mut<G: Format>(&mut self) -> SubGridMut<T, Layout<D, G, O>> {
+        self.to_view_mut().into_format()
+    }
+
+    /// Returns a reshaped array view of the array span, with similar layout.
+    /// # Panics
+    /// Panics if the array length is changed, or the memory layout is not compatible.
+    pub fn reshape<S: Shape>(&self, shape: S) -> SubGrid<T, Layout<S::Dim, F, O>> {
+        self.to_view().into_shape(shape)
+    }
+
+    /// Returns a mutable reshaped array view of the array span, with similar layout.
+    /// # Panics
+    /// Panics if the array length is changed, or the memory layout is not compatible.
+    pub fn reshape_mut<S: Shape>(&mut self, shape: S) -> SubGridMut<T, Layout<S::Dim, F, O>> {
+        self.to_view_mut().into_shape(shape)
     }
 
     /// Returns the shape of the array.
@@ -438,6 +482,16 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         self.to_grid_in(alloc).into_vec()
     }
 
+    /// Returns an array view of the entire array span.
+    pub fn to_view(&self) -> SubGrid<T, Layout<D, F, O>> {
+        unsafe { SubGrid::new_unchecked(self.as_ptr(), self.layout()) }
+    }
+
+    /// Returns a mutable array view of the entire array span.
+    pub fn to_view_mut(&mut self) -> SubGridMut<T, Layout<D, F, O>> {
+        unsafe { SubGridMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
+    }
+
     /// Returns an array view for the specified subarray.
     pub fn view<I>(&self, index: I) -> SubGrid<T, Layout<I::Dim, I::Format<F>, O>>
     where
@@ -458,31 +512,6 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty view.
 
         unsafe { SubGridMut::new_unchecked(self.as_mut_ptr().offset(count), layout) }
-    }
-
-    /// Returns an array view of the entire array span.
-    pub fn to_view(&self) -> SubGrid<T, Layout<D, F, O>> {
-        unsafe { SubGrid::new_unchecked(self.as_ptr(), self.layout()) }
-    }
-
-    /// Returns a mutable array view of the entire array span.
-    pub fn to_view_mut(&mut self) -> SubGridMut<T, Layout<D, F, O>> {
-        unsafe { SubGridMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
-    }
-}
-
-impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasLinearIndexing,
-{
-    /// Returns an iterator over the array span, which must support linear indexing.
-    pub fn iter(&self) -> F::Iter<'_, T> {
-        F::Mapping::iter(self)
-    }
-
-    /// Returns a mutable iterator over the array span, which must support linear indexing.
-    pub fn iter_mut(&mut self) -> F::IterMut<'_, T> {
-        F::Mapping::iter_mut(self)
     }
 }
 
@@ -564,7 +593,7 @@ impl<T: Debug, D: Dim, F: Format, O: Order> Debug for SpanBase<T, Layout<D, F, O
         if self.rank() == 0 {
             self[D::Shape::default()].fmt(fmt)
         } else if self.rank() == 1 {
-            fmt.debug_list().entries(self.flat_iter()).finish()
+            fmt.debug_list().entries(self.flatten().iter()).finish()
         } else {
             fmt.debug_list().entries(self.outer_iter()).finish()
         }
@@ -613,7 +642,7 @@ fn clone_span<T: Clone, D: Dim, O: Order>(
         if src.has_slice_indexing() && dst.has_slice_indexing() {
             dst.as_mut_slice().clone_from_slice(src.as_slice());
         } else {
-            for (x, y) in dst.flat_iter_mut().zip(src.flat_iter()) {
+            for (x, y) in dst.flatten_mut().iter_mut().zip(src.flatten().iter()) {
                 x.clone_from(y);
             }
         }
@@ -633,7 +662,7 @@ fn fill_with<T>(
     f: &mut impl FnMut() -> T,
 ) {
     if span.has_linear_indexing() {
-        for x in span.flat_iter_mut() {
+        for x in span.flatten_mut().iter_mut() {
             *x = f();
         }
     } else {

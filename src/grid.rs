@@ -126,13 +126,6 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         }
     }
 
-    /// Converts the array into a one-dimensional array.
-    pub fn flatten(self) -> DenseGrid<T, U1, O, A> {
-        let layout = DenseLayout::new([self.len()]);
-
-        unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
-    }
-
     /// Creates an array with the results from the given function with the specified allocator.
     pub fn from_fn_in<F: FnMut(D::Shape) -> T>(shape: D::Shape, mut f: F, alloc: A) -> Self {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
@@ -152,9 +145,25 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         Self { buffer: DenseBuffer::from_parts(vec, layout), phantom: PhantomData }
     }
 
+    /// Converts the array into a one-dimensional array.
+    pub fn into_flattened(self) -> DenseGrid<T, U1, O, A> {
+        let layout = DenseLayout::new([self.len()]);
+
+        unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
+    }
+
     /// Decomposes an array into a vector and layout.
     pub fn into_parts(self) -> (Vec<T, A>, DenseLayout<D, O>) {
         self.buffer.into_parts()
+    }
+
+    /// Converts the array into a reshaped array, which must have the same length.
+    /// # Panics
+    /// Panics if the array length is changed.
+    pub fn into_shape<S: Shape>(self, shape: S) -> DenseGrid<T, S::Dim, O, A> {
+        let layout = self.layout().reshape(shape);
+
+        unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
     }
 
     /// Converts the array into a vector.
@@ -191,15 +200,6 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         unsafe {
             self.buffer.vec_mut().reserve_exact(additional);
         }
-    }
-
-    /// Converts the array into a reshaped array, which must have the same length.
-    /// # Panics
-    /// Panics if the array length is changed.
-    pub fn reshape<S: Shape>(self, shape: S) -> DenseGrid<T, S::Dim, O, A> {
-        let layout = self.layout().reshape(shape);
-
-        unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
     }
 
     /// Resizes the array to the given shape, creating new elements with the given value.
@@ -304,21 +304,23 @@ macro_rules! impl_sub_grid {
             /// Converts the array view into a one-dimensional array view.
             /// # Panics
             /// Panics if the array layout is not uniformly strided.
-            pub fn flatten($($mut)? self) -> $type<'a, T, Layout<U1, F::Uniform, O>> {
+            pub fn into_flattened($($mut)? self) -> $type<'a, T, Layout<U1, F::Uniform, O>> {
                 unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().flatten()) }
             }
 
-            /// Converts the array view into a dense array view.
+            /// Converts the array view into a reformatted array view.
             /// # Panics
-            /// Panics if the array layout is not contiguous.
-            pub fn into_dense($($mut)? self) -> $type<'a, T, DenseLayout<D, O>> {
-                unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().to_dense()) }
+            /// Panics if the array layout is not compatible with the new format.
+            pub fn into_format<G: Format>($($mut)? self) -> $type<'a, T, Layout<D, G, O>> {
+                unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().reformat()) }
             }
 
             /// Converts the array view into a reshaped array view with similar layout.
             /// # Panics
             /// Panics if the array length is changed, or the memory layout is not compatible.
-            pub fn reshape<S: Shape>($($mut)? self, shape: S) -> $type<'a, T, Layout<S::Dim, F, O>>
+            pub fn into_shape<S>($($mut)? self, shape: S) -> $type<'a, T, Layout<S::Dim, F, O>>
+            where
+                S: Shape,
             {
                 unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
@@ -497,7 +499,7 @@ unsafe fn extend_from_span<T: Clone>(
     span: &SpanBase<T, Layout<impl Dim, impl Format, impl Order>>,
 ) {
     if span.has_linear_indexing() {
-        for x in span.flat_iter() {
+        for x in span.flatten().iter() {
             vec.as_mut_ptr().add(vec.len()).write(x.clone());
             vec.set_len(vec.len() + 1);
         }
@@ -533,7 +535,7 @@ fn map<T: Default>(
     f: &mut impl FnMut(T) -> T,
 ) {
     if span.has_linear_indexing() {
-        for x in span.flat_iter_mut() {
+        for x in span.flatten_mut().iter_mut() {
             *x = f(mem::take(x));
         }
     } else {
