@@ -61,12 +61,16 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
 
     /// Returns the number of elements in the specified dimension.
     pub fn size(self, dim: usize) -> usize {
-        self.map.size(dim)
+        assert!(dim < D::RANK, "invalid dimension");
+
+        self.map.shape()[dim]
     }
 
     /// Returns the distance between elements in the specified dimension.
     pub fn stride(self, dim: usize) -> isize {
-        self.map.stride(dim)
+        assert!(dim < D::RANK, "invalid dimension");
+
+        self.map.strides()[dim]
     }
 
     /// Returns the distance between elements in each dimension.
@@ -83,7 +87,16 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     }
 
     pub(crate) fn offset(self, index: D::Shape) -> isize {
-        self.map.offset(index)
+        let mut offset = 0;
+        let strides = self.map.strides();
+
+        for i in 0..D::RANK {
+            debug_assert!(index[i] < self.map.shape()[i], "index out of bounds");
+
+            offset += strides[i] * index[i] as isize;
+        }
+
+        offset
     }
 
     pub(crate) fn reformat<G: Format>(self) -> Layout<D, G, O> {

@@ -14,10 +14,7 @@ pub trait Mapping<D: Dim, F: Format, O: Order>: Copy + Debug + Default {
     fn has_slice_indexing(self) -> bool;
     fn is_contiguous(self) -> bool;
     fn is_uniformly_strided(self) -> bool;
-    fn offset(self, index: D::Shape) -> isize;
     fn shape(self) -> D::Shape;
-    fn size(self, dim: usize) -> usize;
-    fn stride(self, dim: usize) -> isize;
     fn strides(self) -> D::Strides;
 
     fn add_dim(self, size: usize, stride: isize) -> Layout<D::Higher, F, O>;
@@ -85,30 +82,8 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         true
     }
 
-    fn offset(self, index: D::Shape) -> isize {
-        let mut offset = 0;
-        let mut stride = 1;
-
-        for i in 0..D::RANK {
-            offset += stride * index[D::dim::<O>(i)];
-            stride *= self.size(D::dim::<O>(i));
-        }
-
-        offset as isize
-    }
-
     fn shape(self) -> D::Shape {
         self.shape
-    }
-
-    fn size(self, dim: usize) -> usize {
-        self.shape[dim]
-    }
-
-    fn stride(self, dim: usize) -> isize {
-        let inner_dims = D::dims::<O>(..D::dim::<O>(dim));
-
-        self.shape[inner_dims].iter().product::<usize>() as isize
     }
 
     fn strides(self) -> D::Strides {
@@ -117,7 +92,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
 
         for i in 0..D::RANK {
             strides[D::dim::<O>(i)] = stride as isize;
-            stride *= self.size(D::dim::<O>(i));
+            stride *= self.shape[D::dim::<O>(i)];
         }
 
         strides
@@ -219,34 +194,8 @@ impl<D: Dim, O: Order> Mapping<D, Flat, O> for FlatMapping<D, O> {
         true
     }
 
-    fn offset(self, index: D::Shape) -> isize {
-        let mut offset = 0;
-
-        if D::RANK > 0 {
-            let mut stride = self.inner_stride[0];
-
-            for i in 0..D::RANK {
-                offset += stride * index[D::dim::<O>(i)] as isize;
-                stride *= self.size(D::dim::<O>(i)) as isize;
-            }
-        }
-
-        offset
-    }
-
     fn shape(self) -> D::Shape {
         self.shape
-    }
-
-    fn size(self, dim: usize) -> usize {
-        self.shape[dim]
-    }
-
-    fn stride(self, dim: usize) -> isize {
-        let inner_dims = D::dims::<O>(..D::dim::<O>(dim));
-        let inner_stride = self.inner_stride[0];
-
-        self.shape[inner_dims].iter().fold(inner_stride, |acc, &x| acc * x as isize)
     }
 
     fn strides(self) -> D::Strides {
@@ -257,7 +206,7 @@ impl<D: Dim, O: Order> Mapping<D, Flat, O> for FlatMapping<D, O> {
 
             for i in 0..D::RANK {
                 strides[D::dim::<O>(i)] = stride;
-                stride *= self.size(D::dim::<O>(i)) as isize;
+                stride *= self.shape[D::dim::<O>(i)] as isize;
             }
         }
 
@@ -313,7 +262,7 @@ impl<D: Dim, O: Order> Mapping<D, Flat, O> for FlatMapping<D, O> {
             shape[..dim].copy_from_slice(&self.shape[..dim]);
             shape[dim..].copy_from_slice(&self.shape[dim + 1..]);
 
-            let size = if dim == D::dim::<O>(0) { self.size(dim) } else { 1 };
+            let size = if dim == D::dim::<O>(0) { self.shape[dim] } else { 1 };
 
             inner_stride[0] = self.inner_stride[0] * size as isize;
         }
@@ -374,14 +323,14 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
 
     fn is_contiguous(self) -> bool {
         if D::RANK > 1 {
-            let mut stride = self.size(D::dim::<O>(0));
+            let mut stride = self.shape[D::dim::<O>(0)];
 
             for i in 1..D::RANK {
-                if self.stride(D::dim::<O>(i)) != stride as isize {
+                if self.outer_strides[D::dim::<O>(i) - O::select(1, 0)] != stride as isize {
                     return false;
                 }
 
-                stride *= self.size(D::dim::<O>(i))
+                stride *= self.shape[D::dim::<O>(i)]
             }
         }
 
@@ -392,30 +341,8 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
         self.is_contiguous()
     }
 
-    fn offset(self, index: D::Shape) -> isize {
-        let mut offset = 0;
-
-        if D::RANK > 0 {
-            offset = index[D::dim::<O>(0)] as isize;
-
-            for i in 1..D::RANK {
-                offset += self.stride(D::dim::<O>(i)) * index[D::dim::<O>(i)] as isize;
-            }
-        }
-
-        offset
-    }
-
     fn shape(self) -> D::Shape {
         self.shape
-    }
-
-    fn size(self, dim: usize) -> usize {
-        self.shape[dim]
-    }
-
-    fn stride(self, dim: usize) -> isize {
-        if dim == D::dim::<O>(0) { 1 } else { self.outer_strides[dim - O::select(1, 0)] }
     }
 
     fn strides(self) -> D::Strides {
@@ -506,27 +433,17 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
     }
 
     fn is_contiguous(self) -> bool {
-        let mut stride = 1;
-
-        for i in 0..D::RANK {
-            if self.stride(D::dim::<O>(i)) != stride as isize {
-                return false;
-            }
-
-            stride *= self.size(D::dim::<O>(i))
-        }
-
-        true
+        self.strides[D::dim::<O>(0)] == 1 && self.is_uniformly_strided()
     }
 
     fn is_uniformly_strided(self) -> bool {
         if D::RANK > 1 {
-            let mut stride = self.stride(D::dim::<O>(0));
+            let mut stride = self.strides[D::dim::<O>(0)];
 
             for i in 1..D::RANK {
-                stride *= self.size(D::dim::<O>(i - 1)) as isize;
+                stride *= self.shape[D::dim::<O>(i - 1)] as isize;
 
-                if self.stride(D::dim::<O>(i)) != stride {
+                if self.strides[D::dim::<O>(i)] != stride {
                     return false;
                 }
             }
@@ -535,26 +452,8 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         true
     }
 
-    fn offset(self, index: D::Shape) -> isize {
-        let mut offset = 0;
-
-        for i in 0..D::RANK {
-            offset += self.stride(i) * index[i] as isize;
-        }
-
-        offset
-    }
-
     fn shape(self) -> D::Shape {
         self.shape
-    }
-
-    fn size(self, dim: usize) -> usize {
-        self.shape[dim]
-    }
-
-    fn stride(self, dim: usize) -> isize {
-        self.strides[dim]
     }
 
     fn strides(self) -> D::Strides {
@@ -579,7 +478,7 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
     fn flatten(self) -> FlatLayout<U1, O> {
         assert!(self.is_uniformly_strided(), "array layout not uniformly strided");
 
-        let inner_stride = if D::RANK > 0 { self.stride(D::dim::<O>(0)) } else { 1 };
+        let inner_stride = if D::RANK > 0 { self.strides[D::dim::<O>(0)] } else { 1 };
 
         FlatLayout::new([self.len()], [inner_stride])
     }
@@ -619,14 +518,14 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         for i in 0..D::RANK {
             // Set strides for the next region or extend the current region.
             if old_len == new_len {
-                old_stride = self.stride(D::dim::<O>(i));
+                old_stride = self.strides[D::dim::<O>(i)];
                 new_stride = old_stride;
             } else {
-                assert!(old_stride == self.stride(D::dim::<O>(i)), "memory layout not compatible");
+                assert!(old_stride == self.strides[D::dim::<O>(i)], "memory layout not compatible");
             }
 
-            old_len *= self.size(D::dim::<O>(i));
-            old_stride *= self.size(D::dim::<O>(i)) as isize;
+            old_len *= self.shape[D::dim::<O>(i)];
+            old_stride *= self.shape[D::dim::<O>(i)] as isize;
 
             // Add dimensions within the current region.
             while k < S::Dim::RANK {
