@@ -236,7 +236,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns an iterator that gives array views over the inner dimension.
     ///
     /// Iterating over the inner dimension maintains the uniform stride property however not
-    /// unit inner stride, so that the resulting array views have linear or strided format.
+    /// unit inner stride, so that the resulting array views have flat or strided format.
     /// # Panics
     /// Panics if the rank is not 2 or higher.
     pub fn inner_iter(&self) -> AxisIter<T, Layout<D::Lower, F::NonUnitStrided, O>> {
@@ -255,7 +255,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns a mutable iterator that gives array views over the inner dimension.
     ///
     /// Iterating over the inner dimension maintains the uniform stride property however not
-    /// unit inner stride, so that the resulting array views have linear or strided format.
+    /// unit inner stride, so that the resulting array views have flat or strided format.
     /// # Panics
     /// Panics if the rank is not 2 or higher.
     pub fn inner_iter_mut(&mut self) -> AxisIterMut<T, Layout<D::Lower, F::NonUnitStrided, O>> {

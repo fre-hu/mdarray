@@ -46,7 +46,7 @@
 //! arbitrary stride except for the innermost one, which has unit stride. It is
 //! compatible with the BLAS/LAPACK general matrix storage.
 //!
-//! The format is `Linear` if the innermost dimension can have arbitrary stride
+//! The format is `Flat` if the innermost dimension can have arbitrary stride
 //! and the other dimensions must follow in order, allowing for linear indexing.
 //! The format is `Strided` if all dimensions can have arbitrary strides.
 //!
@@ -167,8 +167,8 @@ mod serde;
 use std::alloc::Global;
 
 pub use dim::{Const, Dim, Shape, Strides};
-pub use format::{Dense, Format, General, Linear, Strided};
-pub use format::{NonUniform, NonUnitStrided, Uniform, UnitStrided};
+pub use format::{Dense, Flat, General, Strided};
+pub use format::{Format, NonUniform, NonUnitStrided, Uniform, UnitStrided};
 pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
 pub use index::{step, DimIndex, PartialRange, SpanIndex, StepRange};
 pub use layout::{HasLinearIndexing, HasSliceIndexing, Layout};

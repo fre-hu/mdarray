@@ -4,7 +4,7 @@ use std::slice::{Iter, IterMut};
 
 use crate::dim::Dim;
 use crate::iter::{LinearIter, LinearIterMut};
-use crate::mapping::{DenseMapping, GeneralMapping, LinearMapping, Mapping, StridedMapping};
+use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 use crate::order::Order;
 
 /// Array format trait for memory layout.
@@ -60,13 +60,13 @@ pub trait UnitStrided: Format {}
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Dense;
 
+/// Flat array format type.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Flat;
+
 /// General array format type.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct General;
-
-/// Linear array format type.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Linear;
 
 /// Strided array format type.
 #[derive(Clone, Copy, Debug, Default)]
@@ -74,7 +74,7 @@ pub struct Strided;
 
 impl Format for Dense {
     type NonUniform = General;
-    type NonUnitStrided = Linear;
+    type NonUnitStrided = Flat;
     type Uniform = Self;
     type UnitStrided = Self;
 
@@ -85,6 +85,21 @@ impl Format for Dense {
 
     const IS_UNIFORM: bool = true;
     const IS_UNIT_STRIDED: bool = true;
+}
+
+impl Format for Flat {
+    type NonUniform = Strided;
+    type NonUnitStrided = Self;
+    type Uniform = Self;
+    type UnitStrided = Dense;
+
+    type Iter<'a, T: 'a> = LinearIter<'a, T>;
+    type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
+
+    type Mapping<D: Dim, O: Order> = FlatMapping<D, O>;
+
+    const IS_UNIFORM: bool = true;
+    const IS_UNIT_STRIDED: bool = false;
 }
 
 impl Format for General {
@@ -102,25 +117,10 @@ impl Format for General {
     const IS_UNIT_STRIDED: bool = true;
 }
 
-impl Format for Linear {
-    type NonUniform = Strided;
-    type NonUnitStrided = Self;
-    type Uniform = Self;
-    type UnitStrided = Dense;
-
-    type Iter<'a, T: 'a> = LinearIter<'a, T>;
-    type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
-
-    type Mapping<D: Dim, O: Order> = LinearMapping<D, O>;
-
-    const IS_UNIFORM: bool = true;
-    const IS_UNIT_STRIDED: bool = false;
-}
-
 impl Format for Strided {
     type NonUniform = Self;
     type NonUnitStrided = Self;
-    type Uniform = Linear;
+    type Uniform = Flat;
     type UnitStrided = General;
 
     type Iter<'a, T: 'a> = LinearIter<'a, T>;
@@ -135,11 +135,11 @@ impl Format for Strided {
 impl NonUniform for General {}
 impl NonUniform for Strided {}
 
-impl NonUnitStrided for Linear {}
+impl NonUnitStrided for Flat {}
 impl NonUnitStrided for Strided {}
 
 impl Uniform for Dense {}
-impl Uniform for Linear {}
+impl Uniform for Flat {}
 
 impl UnitStrided for Dense {}
 impl UnitStrided for General {}

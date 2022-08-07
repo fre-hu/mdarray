@@ -1,8 +1,8 @@
 use crate::dim::{Dim, Shape, U0, U1};
-use crate::format::{Dense, Format, General, Linear, Strided, Uniform, UnitStrided};
+use crate::format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
 use crate::order::Order;
 
-use crate::mapping::{DenseMapping, GeneralMapping, LinearMapping, Mapping, StridedMapping};
+use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Marker trait for layout types that support linear indexing.
 #[marker]
@@ -19,8 +19,8 @@ pub struct Layout<D: Dim, F: Format, O: Order> {
 }
 
 pub(crate) type DenseLayout<D, O> = Layout<D, Dense, O>;
+pub(crate) type FlatLayout<D, O> = Layout<D, Flat, O>;
 pub(crate) type GeneralLayout<D, O> = Layout<D, General, O>;
-pub(crate) type LinearLayout<D, O> = Layout<D, Linear, O>;
 pub(crate) type StridedLayout<D, O> = Layout<D, Strided, O>;
 
 impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
@@ -110,17 +110,17 @@ impl<D: Dim, O: Order> DenseLayout<D, O> {
     }
 }
 
+impl<D: Dim, O: Order> FlatLayout<D, O> {
+    /// Creates a new, flat array layout with the specified shape and inner stride.
+    pub fn new(shape: D::Shape, inner_stride: <D::MaxOne as Dim>::Strides) -> Self {
+        Self { map: FlatMapping::new(shape, inner_stride) }
+    }
+}
+
 impl<D: Dim, O: Order> GeneralLayout<D, O> {
     /// Creates a new, general array layout with the specified shape and outer strides.
     pub fn new(shape: D::Shape, outer_strides: <D::Lower as Dim>::Strides) -> Self {
         Self { map: GeneralMapping::new(shape, outer_strides) }
-    }
-}
-
-impl<D: Dim, O: Order> LinearLayout<D, O> {
-    /// Creates a new, linear array layout with the specified shape and inner stride.
-    pub fn new(shape: D::Shape, inner_stride: <D::MaxOne as Dim>::Strides) -> Self {
-        Self { map: LinearMapping::new(shape, inner_stride) }
     }
 }
 
