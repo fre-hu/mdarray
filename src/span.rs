@@ -2,7 +2,6 @@ use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter, Result};
 use std::marker::PhantomData;
-use std::ops::{Range, RangeBounds};
 use std::{mem, ptr, slice};
 
 use crate::dim::{Dim, Shape, U1};
@@ -130,8 +129,8 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// # Panics
     /// Panics if the inner dimension is specified, as that would affect the return type.
     pub fn axis_iter(&self, dim: usize) -> AxisIter<T, Layout<D::Lower, F::NonUniform, O>> {
-        assert!(self.rank() > 0, "invalid rank");
-        assert!(dim != self.dim(0), "inner dimension not allowed");
+        assert!(D::RANK > 0, "invalid rank");
+        assert!(dim != D::dim::<O>(0), "inner dimension not allowed");
 
         unsafe {
             AxisIter::new_unchecked(
@@ -153,8 +152,8 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         &mut self,
         dim: usize,
     ) -> AxisIterMut<T, Layout<D::Lower, F::NonUniform, O>> {
-        assert!(self.rank() > 0, "invalid rank");
-        assert!(dim != self.dim(0), "inner dimension not allowed");
+        assert!(D::RANK > 0, "invalid rank");
+        assert!(dim != D::dim::<O>(0), "inner dimension not allowed");
 
         unsafe {
             AxisIterMut::new_unchecked(
@@ -174,16 +173,6 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         T: Clone,
     {
         clone_span(span, self);
-    }
-
-    /// Returns the dimension with the specified index, counted from the innermost dimension.
-    pub fn dim(&self, index: usize) -> usize {
-        self.layout().dim(index)
-    }
-
-    /// Returns the dimensions with the specified indicies, counted from the innermost dimension.
-    pub fn dims(&self, indices: impl RangeBounds<usize>) -> Range<usize> {
-        self.layout().dims(indices)
     }
 
     /// Fills the array span with elements by cloning `value`.
@@ -251,14 +240,14 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// # Panics
     /// Panics if the rank is not 2 or higher.
     pub fn inner_iter(&self) -> AxisIter<T, Layout<D::Lower, F::NonUnitStrided, O>> {
-        assert!(self.rank() > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 1, "rank must be 2 or higher");
 
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().reformat().remove_dim(self.dim(0)),
-                self.size(self.dim(0)),
-                self.stride(self.dim(0)),
+                self.layout().reformat().remove_dim(D::dim::<O>(0)),
+                self.size(D::dim::<O>(0)),
+                self.stride(D::dim::<O>(0)),
             )
         }
     }
@@ -270,21 +259,16 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// # Panics
     /// Panics if the rank is not 2 or higher.
     pub fn inner_iter_mut(&mut self) -> AxisIterMut<T, Layout<D::Lower, F::NonUnitStrided, O>> {
-        assert!(self.rank() > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 1, "rank must be 2 or higher");
 
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().reformat().remove_dim(self.dim(0)),
-                self.size(self.dim(0)),
-                self.stride(self.dim(0)),
+                self.layout().reformat().remove_dim(D::dim::<O>(0)),
+                self.size(D::dim::<O>(0)),
+                self.stride(D::dim::<O>(0)),
             )
         }
-    }
-
-    /// Returns true if the array has column-major element order.
-    pub fn is_column_major(&self) -> bool {
-        self.layout().is_column_major()
     }
 
     /// Returns true if the array strides are consistent with contiguous memory layout.
@@ -295,11 +279,6 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns true if the array contains no elements.
     pub fn is_empty(&self) -> bool {
         self.layout().is_empty()
-    }
-
-    /// Returns true if the array has row-major element order.
-    pub fn is_row_major(&self) -> bool {
-        self.layout().is_row_major()
     }
 
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
@@ -335,9 +314,9 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// # Panics
     /// Panics if the rank is not 2 or higher.
     pub fn outer_iter(&self) -> AxisIter<T, Layout<D::Lower, F, O>> {
-        assert!(self.rank() > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 1, "rank must be 2 or higher");
 
-        let dim = self.dim(self.rank() - 1);
+        let dim = D::dim::<O>(D::RANK - 1);
 
         unsafe {
             AxisIter::new_unchecked(
@@ -356,9 +335,9 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// # Panics
     /// Panics if the rank is not 2 or higher.
     pub fn outer_iter_mut(&mut self) -> AxisIterMut<T, Layout<D::Lower, F, O>> {
-        assert!(self.rank() > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 1, "rank must be 2 or higher");
 
-        let dim = self.dim(self.rank() - 1);
+        let dim = D::dim::<O>(D::RANK - 1);
 
         unsafe {
             AxisIterMut::new_unchecked(
@@ -368,11 +347,6 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
                 self.stride(dim),
             )
         }
-    }
-
-    /// Returns the rank of the array.
-    pub fn rank(&self) -> usize {
-        self.layout().rank()
     }
 
     /// Returns a reformatted array view of the array span.
@@ -541,9 +515,9 @@ where
 
 impl<T: Debug, D: Dim, F: Format, O: Order> Debug for SpanBase<T, Layout<D, F, O>> {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {
-        if self.rank() == 0 {
+        if D::RANK == 0 {
             self[D::Shape::default()].fmt(fmt)
-        } else if self.rank() == 1 {
+        } else if D::RANK == 1 {
             fmt.debug_list().entries(self.flatten().iter()).finish()
         } else {
             fmt.debug_list().entries(self.outer_iter()).finish()
@@ -598,7 +572,7 @@ fn clone_span<T: Clone, D: Dim, O: Order>(
             }
         }
     } else {
-        let dim = src.dim(src.rank() - 1);
+        let dim = D::dim::<O>(D::RANK - 1);
 
         assert!(src.size(dim) == dst.size(dim), "shape mismatch");
 

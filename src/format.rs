@@ -36,6 +36,12 @@ pub trait Format: Copy + Debug + Default {
 
     #[doc(hidden)]
     type Mapping<D: Dim, O: Order>: Mapping<D, Self, O>;
+
+    /// True if the format type has uniform stride.
+    const IS_UNIFORM: bool;
+
+    /// True if the format type has unit inner stride.
+    const IS_UNIT_STRIDED: bool;
 }
 
 /// Trait for format types which may have non-uniform stride.
@@ -76,6 +82,9 @@ impl Format for Dense {
     type IterMut<'a, T: 'a> = IterMut<'a, T>;
 
     type Mapping<D: Dim, O: Order> = DenseMapping<D, O>;
+
+    const IS_UNIFORM: bool = true;
+    const IS_UNIT_STRIDED: bool = true;
 }
 
 impl Format for General {
@@ -88,6 +97,9 @@ impl Format for General {
     type IterMut<'a, T: 'a> = IterMut<'a, T>;
 
     type Mapping<D: Dim, O: Order> = GeneralMapping<D, O>;
+
+    const IS_UNIFORM: bool = false;
+    const IS_UNIT_STRIDED: bool = true;
 }
 
 impl Format for Linear {
@@ -100,6 +112,9 @@ impl Format for Linear {
     type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
 
     type Mapping<D: Dim, O: Order> = LinearMapping<D, O>;
+
+    const IS_UNIFORM: bool = true;
+    const IS_UNIT_STRIDED: bool = false;
 }
 
 impl Format for Strided {
@@ -112,6 +127,9 @@ impl Format for Strided {
     type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
 
     type Mapping<D: Dim, O: Order> = StridedMapping<D, O>;
+
+    const IS_UNIFORM: bool = false;
+    const IS_UNIT_STRIDED: bool = false;
 }
 
 impl NonUniform for General {}

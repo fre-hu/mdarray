@@ -45,7 +45,7 @@ struct VecGuard<'a, T, A: Allocator> {
 impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
     pub(crate) unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D, O>) -> Self {
         assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-        assert!(layout.rank() > 0, "invalid rank");
+        assert!(D::RANK > 0, "invalid rank");
 
         Self { vec, layout }
     }
@@ -66,7 +66,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
         if len == 0 {
             self.vec.clear();
         } else {
-            let inner_dims = self.layout.dims(..self.layout.rank() - 1);
+            let inner_dims = D::dims::<O>(..D::RANK - 1);
             let old_shape = self.layout.shape();
 
             if shape[inner_dims.clone()] != old_shape[inner_dims] {

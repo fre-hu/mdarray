@@ -402,7 +402,7 @@ unsafe fn from_binary_op<T, U, V, D: Dim, O: Order, F: Fn(&T, &U) -> V>(
             vec.set_len(vec.len() + 1);
         }
     } else {
-        let dim = lhs.dim(lhs.rank() - 1);
+        let dim = D::dim::<O>(D::RANK - 1);
 
         assert!(lhs.size(dim) == rhs.size(dim), "shape mismatch");
 
@@ -439,7 +439,7 @@ fn map_binary_op<T, U, D: Dim, O: Order, F: Fn((&mut T, &U))>(
 
         lhs.flatten_mut().iter_mut().zip(rhs.flatten().iter()).for_each(f);
     } else {
-        let dim = lhs.dim(lhs.rank() - 1);
+        let dim = D::dim::<O>(D::RANK - 1);
 
         assert!(lhs.size(dim) == rhs.size(dim), "shape mismatch");
 

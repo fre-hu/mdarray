@@ -60,8 +60,8 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         } else {
             let mut shape = self.shape();
 
-            let dim = self.dim(self.rank() - 1);
-            let inner_dims = self.dims(..self.rank() - 1);
+            let dim = D::dim::<O>(D::RANK - 1);
+            let inner_dims = D::dims::<O>(..D::RANK - 1);
 
             assert!(
                 grid.shape()[inner_dims.clone()] == shape[inner_dims],
@@ -104,8 +104,8 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         } else {
             let mut shape = self.shape();
 
-            let dim = self.dim(self.rank() - 1);
-            let inner_dims = self.dims(..self.rank() - 1);
+            let dim = D::dim::<O>(D::RANK - 1);
+            let inner_dims = D::dims::<O>(..D::RANK - 1);
 
             assert!(
                 span.shape()[inner_dims.clone()] == shape[inner_dims],
@@ -243,7 +243,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
 
     /// Shortens the array along the outer dimension, keeping the first `size` elements.
     pub fn truncate(&mut self, size: usize) {
-        let dim = self.dim(self.rank() - 1);
+        let dim = D::dim::<O>(D::RANK - 1);
 
         if size < self.size(dim) {
             let len = size * self.stride(dim) as usize;
@@ -332,7 +332,7 @@ macro_rules! impl_sub_grid {
                 dim: usize,
                 mid: usize,
             ) -> ($name<'a, T, Layout<D, F, O>>, $name<'a, T, Layout<D, F::NonUniform, O>>) {
-                assert!(self.rank() > 0, "invalid rank");
+                assert!(D::RANK > 0, "invalid rank");
 
                 if mid > self.size(dim) {
                     panic_bounds_check(mid, self.size(dim));
@@ -359,9 +359,9 @@ macro_rules! impl_sub_grid {
                 $($mut)? self,
                 mid: usize,
             ) -> ($name<'a, T, Layout<D, F, O>>, $name<'a, T, Layout<D, F, O>>) {
-                assert!(self.rank() > 0, "invalid rank");
+                assert!(D::RANK > 0, "invalid rank");
 
-                let dim = self.dim(self.rank() - 1);
+                let dim = D::dim::<O>(D::RANK - 1);
 
                 if mid > self.size(dim) {
                     panic_bounds_check(mid, self.size(dim));

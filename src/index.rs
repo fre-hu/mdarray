@@ -280,14 +280,13 @@ macro_rules! impl_view_index_cm {
                 Layout<Self::Dim, Self::Format<F>, ColumnMajor>,
                 Layout<Self::Dim, Self::Outer<F>, ColumnMajor>
             ) {
-                let dim = layout.dim($m);
                 let (offset, _, inner) =
                     <($($xy),+) as SpanIndex<Const<$m>, ColumnMajor>>::span_info(
                         ($(self.$idx),+),
-                        layout.remove_dim(layout.dim(layout.rank() - 1))
+                        layout.remove_dim($m),
                     );
 
-                self.$m.next_dim_info(offset, inner, layout.size(dim), layout.stride(dim))
+                self.$m.next_dim_info(offset, inner, layout.size($m), layout.stride($m))
             }
         }
     };
@@ -318,14 +317,13 @@ macro_rules! impl_view_index_rm {
                 Layout<Self::Dim, Self::Format<F>, RowMajor>,
                 Layout<Self::Dim, Self::Outer<F>, RowMajor>
             ) {
-                let dim = layout.dim($m);
                 let (offset, _, inner) =
                     <($($yz),+) as SpanIndex<Const<$m>, RowMajor>>::span_info(
                         ($(self.$idx),+),
-                        layout.remove_dim(layout.dim(layout.rank() - 1))
+                        layout.remove_dim(0),
                     );
 
-                self.0.next_dim_info(offset, inner, layout.size(dim), layout.stride(dim))
+                self.0.next_dim_info(offset, inner, layout.size(0), layout.stride(0))
             }
         }
     };
@@ -343,7 +341,7 @@ impl<T, S: Shape, F: Format, O: Order> Index<S> for SpanBase<T, Layout<S::Dim, F
     fn index(&self, index: S) -> &T {
         let layout = self.layout();
 
-        for i in 0..self.rank() {
+        for i in 0..S::Dim::RANK {
             if index[i] >= layout.size(i) {
                 panic_bounds_check(index[i], layout.size(i))
             }
@@ -357,7 +355,7 @@ impl<T, S: Shape, F: Format, O: Order> IndexMut<S> for SpanBase<T, Layout<S::Dim
     fn index_mut(&mut self, index: S) -> &mut T {
         let layout = self.layout();
 
-        for i in 0..self.rank() {
+        for i in 0..S::Dim::RANK {
             if index[i] >= layout.size(i) {
                 panic_bounds_check(index[i], layout.size(i))
             }
@@ -378,7 +376,7 @@ where
             panic_bounds_check(index, self.size(0))
         }
 
-        unsafe { &*self.as_ptr().offset(self.stride(self.dim(0)) * index as isize) }
+        unsafe { &*self.as_ptr().offset(self.stride(D::dim::<O>(0)) * index as isize) }
     }
 }
 
@@ -391,7 +389,7 @@ where
             panic_bounds_check(index, self.size(0))
         }
 
-        unsafe { &mut *self.as_mut_ptr().offset(self.stride(self.dim(0)) * index as isize) }
+        unsafe { &mut *self.as_mut_ptr().offset(self.stride(D::dim::<O>(0)) * index as isize) }
     }
 }
 

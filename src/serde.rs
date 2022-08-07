@@ -57,8 +57,8 @@ where
                 let mut grid = DenseGrid::with_capacity(capacity);
                 let mut larger = D::Shape::default();
 
-                larger[grid.dims(..D::RANK - 1)].copy_from_slice(&shape[..]);
-                larger[grid.dim(D::RANK - 1)] = 1;
+                larger[D::dims::<O>(..D::RANK - 1)].copy_from_slice(&shape[..]);
+                larger[D::dim::<O>(D::RANK - 1)] = 1;
 
                 grid.append(&mut value.into_shape(larger));
 
@@ -97,14 +97,14 @@ where
 
 impl<T: Serialize, D: Dim, F: Format, O: Order> Serialize for SpanBase<T, Layout<D, F, O>> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if self.rank() == 0 {
+        if D::RANK == 0 {
             self[D::Shape::default()].serialize(serializer)
         } else if self.is_empty() {
             serializer.serialize_seq(Some(0))?.end()
         } else {
-            let mut seq = serializer.serialize_seq(Some(self.size(self.dim(self.rank() - 1))))?;
+            let mut seq = serializer.serialize_seq(Some(self.size(D::dim::<O>(D::RANK - 1))))?;
 
-            if self.rank() == 1 {
+            if D::RANK == 1 {
                 for x in self.flatten().iter() {
                     seq.serialize_element(x)?;
                 }

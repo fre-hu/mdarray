@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::{Range, RangeBounds};
-use std::slice::{self, Iter, IterMut};
+use std::slice::{Iter, IterMut};
 
 use crate::dim::{Dim, Shape, U1};
 use crate::format::{Dense, Format, General, Linear, Strided};
@@ -28,16 +27,6 @@ pub trait Mapping<D: Dim, F: Format, O: Order>: Copy + Debug + Default {
     fn size(&self, dim: usize) -> usize;
     fn stride(&self, dim: usize) -> isize;
     fn strides(&self) -> D::Strides;
-
-    fn dim(&self, index: usize) -> usize {
-        O::select(index, D::RANK - 1 - index)
-    }
-
-    fn dims(&self, indices: impl RangeBounds<usize>) -> Range<usize> {
-        let range = slice::range(indices, ..D::RANK);
-
-        O::select(range.clone(), D::RANK - range.end..D::RANK - range.start)
-    }
 
     fn len(&self) -> usize {
         self.shape()[..].iter().product()
@@ -123,8 +112,8 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         let mut stride = 1;
 
         for i in 0..D::RANK {
-            offset += stride * index[self.dim(i)];
-            stride *= self.size(self.dim(i));
+            offset += stride * index[D::dim::<O>(i)];
+            stride *= self.size(D::dim::<O>(i));
         }
 
         offset as isize
@@ -138,12 +127,12 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
 
     fn remove_dim(self, dim: usize) -> DenseLayout<D::Lower, O> {
         assert!(D::RANK > 0, "invalid rank");
-        assert!(dim == self.dim(D::RANK - 1), "invalid dimension");
+        assert!(dim == D::dim::<O>(D::RANK - 1), "invalid dimension");
 
         let mut shape = <D::Lower as Dim>::Shape::default();
 
         if D::RANK > 1 {
-            shape[..].copy_from_slice(&self.shape[self.dims(..D::RANK - 1)]);
+            shape[..].copy_from_slice(&self.shape[D::dims::<O>(..D::RANK - 1)]);
         }
 
         DenseLayout::new(shape)
@@ -159,7 +148,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
 
     fn resize_dim(mut self, dim: usize, size: usize) -> DenseLayout<D, O> {
         assert!(D::RANK > 0, "invalid rank");
-        assert!(dim == self.dim(D::RANK - 1), "invalid dimension");
+        assert!(dim == D::dim::<O>(D::RANK - 1), "invalid dimension");
 
         self.shape[dim] = size;
 
@@ -175,7 +164,7 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
     }
 
     fn stride(&self, dim: usize) -> isize {
-        let inner_dims = self.dims(..self.dim(dim));
+        let inner_dims = D::dims::<O>(..D::dim::<O>(dim));
 
         self.shape[inner_dims].iter().product::<usize>() as isize
     }
@@ -185,8 +174,8 @@ impl<D: Dim, O: Order> Mapping<D, Dense, O> for DenseMapping<D, O> {
         let mut stride = 1;
 
         for i in 0..D::RANK {
-            strides[self.dim(i)] = stride as isize;
-            stride *= self.size(self.dim(i));
+            strides[D::dim::<O>(i)] = stride as isize;
+            stride *= self.size(D::dim::<O>(i));
         }
 
         strides
@@ -220,14 +209,14 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
 
     fn is_contiguous(&self) -> bool {
         if D::RANK > 1 {
-            let mut stride = self.size(self.dim(0));
+            let mut stride = self.size(D::dim::<O>(0));
 
             for i in 1..D::RANK {
-                if self.stride(self.dim(i)) != stride as isize {
+                if self.stride(D::dim::<O>(i)) != stride as isize {
                     return false;
                 }
 
-                stride *= self.size(self.dim(i))
+                stride *= self.size(D::dim::<O>(i))
             }
         }
 
@@ -247,12 +236,12 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     }
 
     fn reformat<F: Format>(layout: Layout<D, F, O>) -> GeneralLayout<D, O> {
-        assert!(D::RANK == 0 || layout.stride(layout.dim(0)) == 1, "inner stride not unitary");
+        assert!(D::RANK == 0 || layout.stride(D::dim::<O>(0)) == 1, "inner stride not unitary");
 
         let mut outer_strides = <D::Lower as Dim>::Strides::default();
 
         if D::RANK > 1 {
-            outer_strides[..].copy_from_slice(&layout.strides()[layout.dims(1..)]);
+            outer_strides[..].copy_from_slice(&layout.strides()[D::dims::<O>(1..)]);
         }
 
         GeneralLayout::new(layout.shape(), outer_strides)
@@ -262,10 +251,10 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
         let mut offset = 0;
 
         if D::RANK > 0 {
-            offset = index[self.dim(0)] as isize;
+            offset = index[D::dim::<O>(0)] as isize;
 
             for i in 1..D::RANK {
-                offset += self.stride(self.dim(i)) * index[self.dim(i)] as isize;
+                offset += self.stride(D::dim::<O>(i)) * index[D::dim::<O>(i)] as isize;
             }
         }
 
@@ -273,7 +262,7 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     }
 
     fn remove_dim(self, dim: usize) -> GeneralLayout<D::Lower, O> {
-        assert!(D::RANK == 1 || dim != self.dim(0), "invalid dimension");
+        assert!(D::RANK == 1 || dim != D::dim::<O>(0), "invalid dimension");
 
         StridedMapping::<D, O>::new(self.shape, self.strides()).remove_dim(dim).reformat()
     }
@@ -299,15 +288,15 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
     }
 
     fn stride(&self, dim: usize) -> isize {
-        if dim == self.dim(0) { 1 } else { self.outer_strides[dim - O::select(1, 0)] }
+        if dim == D::dim::<O>(0) { 1 } else { self.outer_strides[dim - O::select(1, 0)] }
     }
 
     fn strides(&self) -> D::Strides {
         let mut strides = D::Strides::default();
 
         if D::RANK > 0 {
-            strides[self.dim(0)] = 1;
-            strides[self.dims(1..)].copy_from_slice(&self.outer_strides[..]);
+            strides[D::dim::<O>(0)] = 1;
+            strides[D::dims::<O>(1..)].copy_from_slice(&self.outer_strides[..]);
         }
 
         strides
@@ -381,7 +370,7 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
         let mut inner_stride = <D::MaxOne as Dim>::Strides::default();
 
         if D::RANK > 0 {
-            inner_stride[0] = layout.stride(layout.dim(0));
+            inner_stride[0] = layout.stride(D::dim::<O>(0));
         }
 
         LinearLayout::new(layout.shape(), inner_stride)
@@ -394,8 +383,8 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
             let mut stride = self.inner_stride[0];
 
             for i in 0..D::RANK {
-                offset += stride * index[self.dim(i)] as isize;
-                stride *= self.size(self.dim(i)) as isize;
+                offset += stride * index[D::dim::<O>(i)] as isize;
+                stride *= self.size(D::dim::<O>(i)) as isize;
             }
         }
 
@@ -413,7 +402,7 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
             shape[..dim].copy_from_slice(&self.shape[..dim]);
             shape[dim..].copy_from_slice(&self.shape[dim + 1..]);
 
-            let size = if dim == self.dim(0) { self.size(dim) } else { 1 };
+            let size = if dim == D::dim::<O>(0) { self.size(dim) } else { 1 };
 
             inner_stride[0] = self.inner_stride[0] * size as isize;
         }
@@ -437,7 +426,7 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
 
     fn resize_dim(mut self, dim: usize, size: usize) -> LinearLayout<D, O> {
         assert!(D::RANK > 0, "invalid rank");
-        assert!(dim == self.dim(D::RANK - 1), "invalid dimension");
+        assert!(dim == D::dim::<O>(D::RANK - 1), "invalid dimension");
 
         self.shape[dim] = size;
 
@@ -453,7 +442,7 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
     }
 
     fn stride(&self, dim: usize) -> isize {
-        let inner_dims = self.dims(..self.dim(dim));
+        let inner_dims = D::dims::<O>(..D::dim::<O>(dim));
         let inner_stride = self.inner_stride[0];
 
         self.shape[inner_dims].iter().fold(inner_stride, |acc, &x| acc * x as isize)
@@ -466,8 +455,8 @@ impl<D: Dim, O: Order> Mapping<D, Linear, O> for LinearMapping<D, O> {
             let mut stride = self.inner_stride[0];
 
             for i in 0..D::RANK {
-                strides[self.dim(i)] = stride;
-                stride *= self.size(self.dim(i)) as isize;
+                strides[D::dim::<O>(i)] = stride;
+                stride *= self.size(D::dim::<O>(i)) as isize;
             }
         }
 
@@ -512,7 +501,7 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
     fn flatten(self) -> LinearLayout<U1, O> {
         assert!(self.is_uniformly_strided(), "array layout not uniformly strided");
 
-        let inner_stride = if D::RANK > 0 { self.stride(self.dim(0)) } else { 1 };
+        let inner_stride = if D::RANK > 0 { self.stride(D::dim::<O>(0)) } else { 1 };
 
         LinearLayout::new([self.len()], [inner_stride])
     }
@@ -529,11 +518,11 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         let mut stride = 1;
 
         for i in 0..D::RANK {
-            if self.stride(self.dim(i)) != stride as isize {
+            if self.stride(D::dim::<O>(i)) != stride as isize {
                 return false;
             }
 
-            stride *= self.size(self.dim(i))
+            stride *= self.size(D::dim::<O>(i))
         }
 
         true
@@ -541,12 +530,12 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
 
     fn is_uniformly_strided(&self) -> bool {
         if D::RANK > 1 {
-            let mut stride = self.stride(self.dim(0));
+            let mut stride = self.stride(D::dim::<O>(0));
 
             for i in 1..D::RANK {
-                stride *= self.size(self.dim(i - 1)) as isize;
+                stride *= self.size(D::dim::<O>(i - 1)) as isize;
 
-                if self.stride(self.dim(i)) != stride {
+                if self.stride(D::dim::<O>(i)) != stride {
                     return false;
                 }
             }
@@ -612,14 +601,14 @@ impl<D: Dim, O: Order> Mapping<D, Strided, O> for StridedMapping<D, O> {
         for i in 0..D::RANK {
             // Set strides for the next region or extend the current region.
             if old_len == new_len {
-                old_stride = self.stride(self.dim(i));
+                old_stride = self.stride(D::dim::<O>(i));
                 new_stride = old_stride;
             } else {
-                assert!(old_stride == self.stride(self.dim(i)), "memory layout not compatible");
+                assert!(old_stride == self.stride(D::dim::<O>(i)), "memory layout not compatible");
             }
 
-            old_len *= self.size(self.dim(i));
-            old_stride *= self.size(self.dim(i)) as isize;
+            old_len *= self.size(D::dim::<O>(i));
+            old_stride *= self.size(D::dim::<O>(i)) as isize;
 
             // Add dimensions within the current region.
             while k < S::Dim::RANK {

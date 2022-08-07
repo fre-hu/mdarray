@@ -1,8 +1,12 @@
 use std::fmt::Debug;
+use std::slice;
 
 use std::ops::{
-    Bound, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
+    Bound, IndexMut, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo,
+    RangeToInclusive,
 };
+
+use crate::order::Order;
 
 /// Array dimension trait for rank, shape and strides.
 pub trait Dim: Copy + Debug + Default {
@@ -21,8 +25,22 @@ pub trait Dim: Copy + Debug + Default {
     /// Array strides type.
     type Strides: Strides<Dim = Self>;
 
-    /// Array rank.
+    /// Array rank, i.e. the number of dimensions.
     const RANK: usize;
+
+    /// Returns the dimension with the specified index, counted from the innermost dimension.
+    fn dim<O: Order>(index: usize) -> usize {
+        assert!(index < Self::RANK, "invalid dimension");
+
+        O::select(index, Self::RANK - 1 - index)
+    }
+
+    /// Returns the dimensions with the specified indices, counted from the innermost dimension.
+    fn dims<O: Order>(indices: impl RangeBounds<usize>) -> Range<usize> {
+        let range = slice::range(indices, ..Self::RANK);
+
+        O::select(range.clone(), Self::RANK - range.end..Self::RANK - range.start)
+    }
 }
 
 /// Array shape trait.

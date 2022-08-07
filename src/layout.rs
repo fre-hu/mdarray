@@ -1,5 +1,3 @@
-use std::ops::{Range, RangeBounds};
-
 use crate::dim::{Dim, Shape, U0, U1};
 use crate::format::{Dense, Format, General, Linear, Strided, Uniform, UnitStrided};
 use crate::order::Order;
@@ -26,16 +24,6 @@ pub(crate) type LinearLayout<D, O> = Layout<D, Linear, O>;
 pub(crate) type StridedLayout<D, O> = Layout<D, Strided, O>;
 
 impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
-    /// Returns the dimension with the specified index, counted from the innermost dimension.
-    pub fn dim(&self, index: usize) -> usize {
-        self.map.dim(index)
-    }
-
-    /// Returns the dimensions with the specified indicies, counted from the innermost dimension.
-    pub fn dims(&self, indices: impl RangeBounds<usize>) -> Range<usize> {
-        self.map.dims(indices)
-    }
-
     /// Returns true if the array layout type supports linear indexing.
     pub fn has_linear_indexing(&self) -> bool {
         self.map.has_linear_indexing()
@@ -44,11 +32,6 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     /// Returns true if the array layout type supports slice indexing.
     pub fn has_slice_indexing(&self) -> bool {
         self.map.has_slice_indexing()
-    }
-
-    /// Returns true if the array has column-major element order.
-    pub fn is_column_major(&self) -> bool {
-        O::select(true, false)
     }
 
     /// Returns true if the array strides are consistent with contiguous memory layout.
@@ -61,11 +44,6 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         self.len() == 0
     }
 
-    /// Returns true if the array has row-major element order.
-    pub fn is_row_major(&self) -> bool {
-        O::select(false, true)
-    }
-
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
     pub fn is_uniformly_strided(&self) -> bool {
         self.map.is_uniformly_strided()
@@ -74,11 +52,6 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     /// Returns the number of elements in the array.
     pub fn len(&self) -> usize {
         self.map.len()
-    }
-
-    /// Returns the rank of the array.
-    pub fn rank(&self) -> usize {
-        D::RANK
     }
 
     /// Returns the shape of the array.
