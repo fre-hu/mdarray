@@ -86,8 +86,9 @@ impl<'a, T: Deserialize<'a>, D: Dim, O: Order> Deserialize<'a> for DenseGrid<T, 
     }
 }
 
-impl<T: Serialize, D: Dim, F: Format, O: Order, B: Buffer<T, Layout = Layout<D, F, O>>> Serialize
-    for GridBase<T, B>
+impl<B: Buffer> Serialize for GridBase<B>
+where
+    SpanBase<B::Item, B::Layout>: Serialize,
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.as_span().serialize(serializer)

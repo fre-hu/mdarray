@@ -3,7 +3,6 @@ use std::borrow::{Borrow, BorrowMut};
 use std::collections::TryReserveError;
 use std::fmt::{self, Debug, Formatter};
 use std::iter::FromIterator;
-use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::result::Result;
@@ -17,30 +16,29 @@ use crate::order::Order;
 use crate::span::SpanBase;
 
 /// Multidimensional array with static rank and element order.
-pub struct GridBase<T, B: Buffer<T>> {
+pub struct GridBase<B: Buffer> {
     buffer: B,
-    phantom: PhantomData<T>,
 }
 
 /// Dense multidimensional array with static rank and element order.
-pub type DenseGrid<T, D, O, A = Global> = GridBase<T, DenseBuffer<T, D, O, A>>;
+pub type DenseGrid<T, D, O, A = Global> = GridBase<DenseBuffer<T, D, O, A>>;
 
 /// Multidimensional array view with static rank and element order.
-pub type SubGrid<'a, T, L> = GridBase<T, SubBuffer<'a, T, L>>;
+pub type SubGrid<'a, T, L> = GridBase<SubBuffer<'a, T, L>>;
 
 /// Mutable multidimensional array view with static rank and element order.
-pub type SubGridMut<'a, T, L> = GridBase<T, SubBufferMut<'a, T, L>>;
+pub type SubGridMut<'a, T, L> = GridBase<SubBufferMut<'a, T, L>>;
 
-impl<T, B: Buffer<T>> GridBase<T, B> {
+impl<B: Buffer> GridBase<B> {
     /// Returns an array span of the entire array.
-    pub fn as_span(&self) -> &SpanBase<T, B::Layout> {
+    pub fn as_span(&self) -> &SpanBase<B::Item, B::Layout> {
         unsafe { &*SpanBase::from_raw_parts(self.buffer.as_ptr(), self.buffer.layout()) }
     }
 }
 
-impl<T, B: BufferMut<T>> GridBase<T, B> {
+impl<B: BufferMut> GridBase<B> {
     /// Returns a mutable array span of the entire array.
-    pub fn as_mut_span(&mut self) -> &mut SpanBase<T, B::Layout> {
+    pub fn as_mut_span(&mut self) -> &mut SpanBase<B::Item, B::Layout> {
         unsafe {
             &mut *SpanBase::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.buffer.layout())
         }
@@ -143,7 +141,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
     /// # Safety
     /// The vector length must match the given layout.
     pub unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D, O>) -> Self {
-        Self { buffer: DenseBuffer::from_parts(vec, layout), phantom: PhantomData }
+        Self { buffer: DenseBuffer::from_parts(vec, layout) }
     }
 
     /// Converts the array into a one-dimensional array.
@@ -291,39 +289,39 @@ impl<T, D: Dim, O: Order> DenseGrid<T, D, O, Global> {
 }
 
 macro_rules! impl_sub_grid {
-    ($type:tt, $buffer:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
-        impl<'a, T, L: Copy> $type<'a, T, L> {
+    ($name:tt, $buffer:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
+        impl<'a, T, L: Copy> $name<'a, T, L> {
             /// Creates an array view from a raw pointer and layout.
             /// # Safety
             /// The pointer must be non-null and a valid array view for the given layout.
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
-                Self { buffer: $buffer::new_unchecked(ptr, layout), phantom: PhantomData }
+                Self { buffer: $buffer::new_unchecked(ptr, layout) }
             }
         }
 
-        impl<'a, T, D: Dim, F: Format, O: Order> $type<'a, T, Layout<D, F, O>> {
+        impl<'a, T, D: Dim, F: Format, O: Order> $name<'a, T, Layout<D, F, O>> {
             /// Converts the array view into a one-dimensional array view.
             /// # Panics
             /// Panics if the array layout is not uniformly strided.
-            pub fn into_flattened($($mut)? self) -> $type<'a, T, Layout<U1, F::Uniform, O>> {
-                unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().flatten()) }
+            pub fn into_flattened($($mut)? self) -> $name<'a, T, Layout<U1, F::Uniform, O>> {
+                unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().flatten()) }
             }
 
             /// Converts the array view into a reformatted array view.
             /// # Panics
             /// Panics if the array layout is not compatible with the new format.
-            pub fn into_format<G: Format>($($mut)? self) -> $type<'a, T, Layout<D, G, O>> {
-                unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().reformat()) }
+            pub fn into_format<G: Format>($($mut)? self) -> $name<'a, T, Layout<D, G, O>> {
+                unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reformat()) }
             }
 
             /// Converts the array view into a reshaped array view with similar layout.
             /// # Panics
             /// Panics if the array length is changed, or the memory layout is not compatible.
-            pub fn into_shape<S>($($mut)? self, shape: S) -> $type<'a, T, Layout<S::Dim, F, O>>
+            pub fn into_shape<S>($($mut)? self, shape: S) -> $name<'a, T, Layout<S::Dim, F, O>>
             where
                 S: Shape,
             {
-                unsafe { $type::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
+                unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
 
             /// Divides an array view into two at an index along the specified dimension.
@@ -333,7 +331,7 @@ macro_rules! impl_sub_grid {
                 $($mut)? self,
                 dim: usize,
                 mid: usize,
-            ) -> ($type<'a, T, Layout<D, F, O>>, $type<'a, T, Layout<D, F::NonUniform, O>>) {
+            ) -> ($name<'a, T, Layout<D, F, O>>, $name<'a, T, Layout<D, F::NonUniform, O>>) {
                 assert!(self.rank() > 0, "invalid rank");
 
                 if mid > self.size(dim) {
@@ -348,8 +346,8 @@ macro_rules! impl_sub_grid {
 
                 unsafe {
                     (
-                        $type::new_unchecked(self.$as_ptr(), first_layout),
-                        $type::new_unchecked(self.$as_ptr().offset(count), second_layout),
+                        $name::new_unchecked(self.$as_ptr(), first_layout),
+                        $name::new_unchecked(self.$as_ptr().offset(count), second_layout),
                     )
                 }
             }
@@ -360,7 +358,7 @@ macro_rules! impl_sub_grid {
             pub fn into_split_outer(
                 $($mut)? self,
                 mid: usize,
-            ) -> ($type<'a, T, Layout<D, F, O>>, $type<'a, T, Layout<D, F, O>>) {
+            ) -> ($name<'a, T, Layout<D, F, O>>, $name<'a, T, Layout<D, F, O>>) {
                 assert!(self.rank() > 0, "invalid rank");
 
                 let dim = self.dim(self.rank() - 1);
@@ -377,8 +375,8 @@ macro_rules! impl_sub_grid {
 
                 unsafe {
                     (
-                        $type::new_unchecked(self.$as_ptr(), first_layout),
-                        $type::new_unchecked(self.$as_ptr().offset(count), second_layout),
+                        $name::new_unchecked(self.$as_ptr(), first_layout),
+                        $name::new_unchecked(self.$as_ptr().offset(count), second_layout),
                     )
                 }
             }
@@ -389,11 +387,11 @@ macro_rules! impl_sub_grid {
             pub fn into_view<I: SpanIndex<D, O>>(
                 $($mut)? self,
                 index: I
-            ) -> $type<'a, T, Layout<I::Dim, I::Format<F>, O>> {
+            ) -> $name<'a, T, Layout<I::Dim, I::Format<F>, O>> {
                 let (offset, layout, _) = I::span_info(index, self.layout());
                 let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty.
 
-                unsafe { $type::new_unchecked(self.$as_ptr().offset(count), layout) }
+                unsafe { $name::new_unchecked(self.$as_ptr().offset(count), layout) }
             }
         }
     };
@@ -418,9 +416,9 @@ impl<T, D: Dim, O: Order, A: Allocator> BorrowMut<SpanBase<T, DenseLayout<D, O>>
     }
 }
 
-impl<T, B: Buffer<T> + Clone> Clone for GridBase<T, B> {
+impl<B: Buffer + Clone> Clone for GridBase<B> {
     fn clone(&self) -> Self {
-        Self { buffer: self.buffer.clone(), phantom: PhantomData }
+        Self { buffer: self.buffer.clone() }
     }
 
     fn clone_from(&mut self, src: &Self) {
@@ -428,9 +426,9 @@ impl<T, B: Buffer<T> + Clone> Clone for GridBase<T, B> {
     }
 }
 
-impl<T: Debug, B: Buffer<T>> Debug for GridBase<T, B>
+impl<B: Buffer> Debug for GridBase<B>
 where
-    SpanBase<T, B::Layout>: Debug,
+    SpanBase<B::Item, B::Layout>: Debug,
 {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
         self.as_span().fmt(fmt)
@@ -443,15 +441,15 @@ impl<T, D: Dim, O: Order> Default for DenseGrid<T, D, O> {
     }
 }
 
-impl<T, B: Buffer<T>> Deref for GridBase<T, B> {
-    type Target = SpanBase<T, B::Layout>;
+impl<B: Buffer> Deref for GridBase<B> {
+    type Target = SpanBase<B::Item, B::Layout>;
 
     fn deref(&self) -> &Self::Target {
         self.as_span()
     }
 }
 
-impl<T, B: BufferMut<T>> DerefMut for GridBase<T, B> {
+impl<B: BufferMut> DerefMut for GridBase<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_span()
     }
@@ -571,24 +569,24 @@ impl<T, O: Order> FromIterator<T> for DenseGrid<T, U1, O> {
     }
 }
 
-impl<'a, T, B: Buffer<T>> IntoIterator for &'a GridBase<T, B>
+impl<'a, B: Buffer> IntoIterator for &'a GridBase<B>
 where
-    &'a SpanBase<T, B::Layout>: IntoIterator<Item = &'a T>,
+    &'a SpanBase<B::Item, B::Layout>: IntoIterator<Item = &'a B::Item>,
 {
-    type Item = &'a T;
-    type IntoIter = <&'a SpanBase<T, B::Layout> as IntoIterator>::IntoIter;
+    type Item = &'a B::Item;
+    type IntoIter = <&'a SpanBase<B::Item, B::Layout> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.as_span().into_iter()
     }
 }
 
-impl<'a, T, B: BufferMut<T>> IntoIterator for &'a mut GridBase<T, B>
+impl<'a, B: BufferMut> IntoIterator for &'a mut GridBase<B>
 where
-    &'a mut SpanBase<T, B::Layout>: IntoIterator<Item = &'a mut T>,
+    &'a mut SpanBase<B::Item, B::Layout>: IntoIterator<Item = &'a mut B::Item>,
 {
-    type Item = &'a mut T;
-    type IntoIter = <&'a mut SpanBase<T, B::Layout> as IntoIterator>::IntoIter;
+    type Item = &'a mut B::Item;
+    type IntoIter = <&'a mut SpanBase<B::Item, B::Layout> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.as_mut_span().into_iter()

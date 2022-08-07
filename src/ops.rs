@@ -28,14 +28,12 @@ pub fn fill<T: Copy>(value: T) -> Fill<T> {
     Fill { value }
 }
 
-impl<T: Eq, D: Dim, F: Format, O: Order, B: Buffer<T, Layout = Layout<D, F, O>>> Eq
-    for GridBase<T, B>
+impl<T: Eq, B: Buffer<Item = T>> Eq for GridBase<B> where GridBase<B>: PartialEq {}
+impl<T: Eq, L: Copy> Eq for SpanBase<T, L> where SpanBase<T, L>: PartialEq {}
+
+impl<T: Ord, B: Buffer<Item = T, Layout = Layout<U1, impl Format, impl Order>>> Ord
+    for GridBase<B>
 {
-}
-
-impl<T: Eq, D: Dim, F: Format, O: Order> Eq for SpanBase<T, Layout<D, F, O>> {}
-
-impl<T: Ord, F: Format, O: Order, B: Buffer<T, Layout = Layout<U1, F, O>>> Ord for GridBase<T, B> {
     fn cmp(&self, rhs: &Self) -> Ordering {
         self.as_span().cmp(rhs.as_span())
     }
@@ -51,33 +49,21 @@ impl<T: Ord, F: Format, O: Order> Ord for SpanBase<T, Layout<U1, F, O>> {
     }
 }
 
-impl<T, U, F: Format, G: Format, O: Order, B, C> PartialOrd<GridBase<U, C>> for GridBase<T, B>
+impl<B: Buffer, X: ?Sized> PartialOrd<X> for GridBase<B>
 where
-    T: PartialOrd<U>,
-    B: Buffer<T, Layout = Layout<U1, F, O>>,
-    C: Buffer<U, Layout = Layout<U1, G, O>>,
+    SpanBase<B::Item, B::Layout>: PartialOrd<X>,
 {
-    fn partial_cmp(&self, rhs: &GridBase<U, C>) -> Option<Ordering> {
-        self.as_span().partial_cmp(rhs.as_span())
+    fn partial_cmp(&self, other: &X) -> Option<Ordering> {
+        self.as_span().partial_cmp(other)
     }
 }
 
-impl<T, U, F: Format, G: Format, O: Order, B: Buffer<T, Layout = Layout<U1, F, O>>>
-    PartialOrd<SpanBase<U, Layout<U1, G, O>>> for GridBase<T, B>
+impl<T, F: Format, O: Order, B: Buffer<Layout = Layout<U1, impl Format, O>>> PartialOrd<GridBase<B>>
+    for SpanBase<T, Layout<U1, F, O>>
 where
-    T: PartialOrd<U>,
+    T: PartialOrd<B::Item>,
 {
-    fn partial_cmp(&self, rhs: &SpanBase<U, Layout<U1, G, O>>) -> Option<Ordering> {
-        self.as_span().partial_cmp(rhs)
-    }
-}
-
-impl<T, U, F: Format, G: Format, O: Order, B: Buffer<U, Layout = Layout<U1, G, O>>>
-    PartialOrd<GridBase<U, B>> for SpanBase<T, Layout<U1, F, O>>
-where
-    T: PartialOrd<U>,
-{
-    fn partial_cmp(&self, rhs: &GridBase<U, B>) -> Option<Ordering> {
+    fn partial_cmp(&self, rhs: &GridBase<B>) -> Option<Ordering> {
         self.partial_cmp(rhs.as_span())
     }
 }
@@ -92,34 +78,21 @@ where
     }
 }
 
-impl<T, U, D: Dim, F: Format, G: Format, O: Order, B, C> PartialEq<GridBase<U, C>>
-    for GridBase<T, B>
+impl<B: Buffer, X: ?Sized> PartialEq<X> for GridBase<B>
 where
-    T: PartialEq<U>,
-    B: Buffer<T, Layout = Layout<D, F, O>>,
-    C: Buffer<U, Layout = Layout<D, G, O>>,
+    SpanBase<B::Item, B::Layout>: PartialEq<X>,
 {
-    fn eq(&self, rhs: &GridBase<U, C>) -> bool {
-        self.as_span().eq(rhs.as_span())
+    fn eq(&self, other: &X) -> bool {
+        self.as_span().eq(other)
     }
 }
 
-impl<T, U, D: Dim, F: Format, G: Format, O: Order, B: Buffer<T, Layout = Layout<D, F, O>>>
-    PartialEq<SpanBase<U, Layout<D, G, O>>> for GridBase<T, B>
+impl<T, D: Dim, F: Format, O: Order, B: Buffer<Layout = Layout<D, impl Format, O>>>
+    PartialEq<GridBase<B>> for SpanBase<T, Layout<D, F, O>>
 where
-    T: PartialEq<U>,
+    T: PartialEq<B::Item>,
 {
-    fn eq(&self, rhs: &SpanBase<U, Layout<D, G, O>>) -> bool {
-        self.as_span().eq(rhs)
-    }
-}
-
-impl<T, U, D: Dim, F: Format, G: Format, O: Order, B: Buffer<U, Layout = Layout<D, G, O>>>
-    PartialEq<GridBase<U, B>> for SpanBase<T, Layout<D, F, O>>
-where
-    T: PartialEq<U>,
-{
-    fn eq(&self, rhs: &GridBase<U, B>) -> bool {
+    fn eq(&self, rhs: &GridBase<B>) -> bool {
         self.eq(rhs.as_span())
     }
 }
@@ -142,26 +115,25 @@ where
 
 macro_rules! impl_binary_op {
     ($trt:tt, $fn:tt) => {
-        impl<'a, T, B: Buffer<T>, X> $trt<X> for &'a GridBase<T, B>
+        impl<'a, B: Buffer, X> $trt<X> for &'a GridBase<B>
         where
-            &'a SpanBase<T, B::Layout>: $trt<X>,
+            &'a SpanBase<B::Item, B::Layout>: $trt<X>,
         {
-            type Output = <&'a SpanBase<T, B::Layout> as $trt<X>>::Output;
+            type Output = <&'a SpanBase<B::Item, B::Layout> as $trt<X>>::Output;
 
             fn $fn(self, rhs: X) -> Self::Output {
                 self.as_span().$fn(rhs)
             }
         }
 
-        impl<T, U, V, D: Dim, F: Format, G: Format, O: Order, B> $trt<&GridBase<U, B>>
-            for &SpanBase<T, Layout<D, F, O>>
+        impl<T, U, D: Dim, F: Format, O: Order, B: Buffer<Layout = Layout<D, impl Format, O>>>
+            $trt<&GridBase<B>> for &SpanBase<T, Layout<D, F, O>>
         where
-            for<'a> &'a T: $trt<&'a U, Output = V>,
-            B: Buffer<U, Layout = Layout<D, G, O>>,
+            for<'a, 'b> &'a T: $trt<&'b B::Item, Output = U>,
         {
-            type Output = DenseGrid<V, D, O>;
+            type Output = DenseGrid<U, D, O>;
 
-            fn $fn(self, rhs: &GridBase<U, B>) -> Self::Output {
+            fn $fn(self, rhs: &GridBase<B>) -> Self::Output {
                 self.$fn(rhs.as_span())
             }
         }
@@ -169,7 +141,7 @@ macro_rules! impl_binary_op {
         impl<T, U, V, D: Dim, F: Format, G: Format, O: Order> $trt<&SpanBase<U, Layout<D, G, O>>>
             for &SpanBase<T, Layout<D, F, O>>
         where
-            for<'a> &'a T: $trt<&'a U, Output = V>,
+            for<'a, 'b> &'a T: $trt<&'b U, Output = V>,
         {
             type Output = DenseGrid<V, D, O>;
 
@@ -184,14 +156,14 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T: Copy, U, V, D: Dim, F: Format, O: Order, B> $trt<&GridBase<U, B>> for Fill<T>
+        impl<T: Copy, U, D: Dim, O: Order, B: Buffer<Layout = Layout<D, impl Format, O>>>
+            $trt<&GridBase<B>> for Fill<T>
         where
-            for<'a> T: $trt<&'a U, Output = V>,
-            B: Buffer<U, Layout = Layout<D, F, O>>,
+            for<'a> T: $trt<&'a B::Item, Output = U>,
         {
-            type Output = DenseGrid<V, D, O>;
+            type Output = DenseGrid<U, D, O>;
 
-            fn $fn(self, rhs: &GridBase<U, B>) -> Self::Output {
+            fn $fn(self, rhs: &GridBase<B>) -> Self::Output {
                 self.$fn(rhs.as_span())
             }
         }
@@ -232,15 +204,15 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T: Default, U, D: Dim, O: Order, F: Format, B, A: Allocator> $trt<&GridBase<U, B>>
-            for DenseGrid<T, D, O, A>
+        impl<T: Default, D: Dim, O: Order, B: Buffer<Layout = Layout<D, impl Format, O>>, A>
+            $trt<&GridBase<B>> for DenseGrid<T, D, O, A>
         where
-            for<'a> T: $trt<&'a U, Output = T>,
-            B: Buffer<U, Layout = Layout<D, F, O>>,
+            for<'a> T: $trt<&'a B::Item, Output = T>,
+            A: Allocator,
         {
             type Output = Self;
 
-            fn $fn(self, rhs: &GridBase<U, B>) -> Self {
+            fn $fn(self, rhs: &GridBase<B>) -> Self {
                 self.$fn(rhs.as_span())
             }
         }
@@ -317,23 +289,21 @@ impl_binary_op!(Shr, shr);
 
 macro_rules! impl_op_assign {
     ($trt:tt, $fn:tt) => {
-        impl<T, D: Dim, F: Format, O: Order, B: BufferMut<T, Layout = Layout<D, F, O>>, X> $trt<X>
-            for GridBase<T, B>
+        impl<B: BufferMut, X> $trt<X> for GridBase<B>
         where
-            SpanBase<T, Layout<D, F, O>>: $trt<X>,
+            SpanBase<B::Item, B::Layout>: $trt<X>,
         {
             fn $fn(&mut self, rhs: X) {
                 self.as_mut_span().$fn(rhs);
             }
         }
 
-        impl<T, U, D: Dim, F: Format, G: Format, O: Order, B> $trt<&GridBase<U, B>>
-            for SpanBase<T, Layout<D, F, O>>
+        impl<T, D: Dim, F: Format, O: Order, B: Buffer<Layout = Layout<D, impl Format, O>>>
+            $trt<&GridBase<B>> for SpanBase<T, Layout<D, F, O>>
         where
-            for<'a> T: $trt<&'a U>,
-            B: Buffer<U, Layout = Layout<D, G, O>>,
+            for<'a> T: $trt<&'a B::Item>,
         {
-            fn $fn(&mut self, rhs: &GridBase<U, B>) {
+            fn $fn(&mut self, rhs: &GridBase<B>) {
                 self.$fn(rhs.as_span());
             }
         }
@@ -372,12 +342,11 @@ impl_op_assign!(ShrAssign, shr_assign);
 
 macro_rules! impl_unary_op {
     ($trt:tt, $fn:tt) => {
-        impl<T, D: Dim, F: Format, O: Order, B: Buffer<T, Layout = Layout<D, F, O>>> $trt
-            for &GridBase<T, B>
+        impl<D: Dim, O: Order, B: Buffer<Layout = Layout<D, impl Format, O>>> $trt for &GridBase<B>
         where
-            for<'a> &'a T: $trt<Output = T>,
+            for<'a> &'a B::Item: $trt<Output = B::Item>,
         {
-            type Output = DenseGrid<T, D, O>;
+            type Output = DenseGrid<B::Item, D, O>;
 
             fn $fn(self) -> Self::Output {
                 self.as_span().$fn()

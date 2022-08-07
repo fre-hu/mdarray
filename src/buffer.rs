@@ -7,15 +7,16 @@ use crate::dim::Dim;
 use crate::layout::{DenseLayout, Layout};
 use crate::order::Order;
 
-pub trait Buffer<T> {
+pub trait Buffer {
+    type Item;
     type Layout: Copy;
 
-    fn as_ptr(&self) -> *const T;
+    fn as_ptr(&self) -> *const Self::Item;
     fn layout(&self) -> &Self::Layout;
 }
 
-pub trait BufferMut<T>: Buffer<T> {
-    fn as_mut_ptr(&mut self) -> *mut T;
+pub trait BufferMut: Buffer {
+    fn as_mut_ptr(&mut self) -> *mut Self::Item;
 }
 
 pub struct DenseBuffer<T, D: Dim, O: Order, A: Allocator> {
@@ -105,7 +106,8 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> Buffer<T> for DenseBuffer<T, D, O, A> {
+impl<T, D: Dim, O: Order, A: Allocator> Buffer for DenseBuffer<T, D, O, A> {
+    type Item = T;
     type Layout = DenseLayout<D, O>;
 
     fn as_ptr(&self) -> *const T {
@@ -117,7 +119,7 @@ impl<T, D: Dim, O: Order, A: Allocator> Buffer<T> for DenseBuffer<T, D, O, A> {
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> BufferMut<T> for DenseBuffer<T, D, O, A> {
+impl<T, D: Dim, O: Order, A: Allocator> BufferMut for DenseBuffer<T, D, O, A> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.vec.as_mut_ptr()
     }
@@ -136,8 +138,8 @@ impl<T: Clone, D: Dim, O: Order, A: Allocator + Clone> Clone for DenseBuffer<T, 
 }
 
 macro_rules! impl_sub_buffer {
-    ($type:tt, $raw_mut:tt) => {
-        impl<'a, T, L: Copy> $type<'a, T, L> {
+    ($name:tt, $raw_mut:tt) => {
+        impl<'a, T, L: Copy> $name<'a, T, L> {
             pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
                 assert!(mem::size_of::<T>() != 0, "ZST not allowed");
 
@@ -149,7 +151,8 @@ macro_rules! impl_sub_buffer {
             }
         }
 
-        impl<'a, T, L: Copy> Buffer<T> for $type<'a, T, L> {
+        impl<'a, T, L: Copy> Buffer for $name<'a, T, L> {
+            type Item = T;
             type Layout = L;
 
             fn as_ptr(&self) -> *const T {
@@ -166,7 +169,7 @@ macro_rules! impl_sub_buffer {
 impl_sub_buffer!(SubBuffer, const);
 impl_sub_buffer!(SubBufferMut, mut);
 
-impl<'a, T, L: Copy> BufferMut<T> for SubBufferMut<'a, T, L> {
+impl<'a, T, L: Copy> BufferMut for SubBufferMut<'a, T, L> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr.as_ptr()
     }
