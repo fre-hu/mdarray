@@ -25,52 +25,52 @@ pub(crate) type StridedLayout<D, O> = Layout<D, Strided, O>;
 
 impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     /// Returns true if the array layout type supports linear indexing.
-    pub fn has_linear_indexing(&self) -> bool {
+    pub fn has_linear_indexing(self) -> bool {
         self.map.has_linear_indexing()
     }
 
     /// Returns true if the array layout type supports slice indexing.
-    pub fn has_slice_indexing(&self) -> bool {
+    pub fn has_slice_indexing(self) -> bool {
         self.map.has_slice_indexing()
     }
 
     /// Returns true if the array strides are consistent with contiguous memory layout.
-    pub fn is_contiguous(&self) -> bool {
+    pub fn is_contiguous(self) -> bool {
         self.map.is_contiguous()
     }
 
     /// Returns true if the array contains no elements.
-    pub fn is_empty(&self) -> bool {
+    pub fn is_empty(self) -> bool {
         self.len() == 0
     }
 
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
-    pub fn is_uniformly_strided(&self) -> bool {
+    pub fn is_uniformly_strided(self) -> bool {
         self.map.is_uniformly_strided()
     }
 
     /// Returns the number of elements in the array.
-    pub fn len(&self) -> usize {
+    pub fn len(self) -> usize {
         self.map.len()
     }
 
     /// Returns the shape of the array.
-    pub fn shape(&self) -> D::Shape {
+    pub fn shape(self) -> D::Shape {
         self.map.shape()
     }
 
     /// Returns the number of elements in the specified dimension.
-    pub fn size(&self, dim: usize) -> usize {
+    pub fn size(self, dim: usize) -> usize {
         self.map.size(dim)
     }
 
     /// Returns the distance between elements in the specified dimension.
-    pub fn stride(&self, dim: usize) -> isize {
+    pub fn stride(self, dim: usize) -> isize {
         self.map.stride(dim)
     }
 
     /// Returns the distance between elements in each dimension.
-    pub fn strides(&self) -> D::Strides {
+    pub fn strides(self) -> D::Strides {
         self.map.strides()
     }
 
@@ -82,7 +82,7 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         self.map.flatten()
     }
 
-    pub(crate) fn offset(&self, index: D::Shape) -> isize {
+    pub(crate) fn offset(self, index: D::Shape) -> isize {
         self.map.offset(index)
     }
 
