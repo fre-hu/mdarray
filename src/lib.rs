@@ -116,7 +116,7 @@ in `A` and `C`. By using iterators the array bounds checking is avoided, and
 the compiler is able to vectorize the inner loop.
 
 ```
-use mdarray::{Grid, Span};
+use mdarray::{Grid, Span, SubGrid};
 
 fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
     assert!(c.shape() == [a.size(0), b.size(1)] && a.size(1) == b.size(0), "shape mismatch");
@@ -124,21 +124,21 @@ fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
     for (mut cj, bj) in c.outer_iter_mut().zip(b.outer_iter()) {
         for (ak, bkj) in a.outer_iter().zip(bj.iter()) {
             for (cij, aik) in cj.iter_mut().zip(ak.iter()) {
-                *cij += aik * bkj;
+                *cij = aik.mul_add(*bkj, *cij);
             }
         }
     }
 }
 
-let a = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]].as_ref();
-let b = [[0.0, 1.0], [1.0, 1.0]].as_ref();
+let a = SubGrid::from(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+let b = SubGrid::from(&[[0.0, 1.0], [1.0, 1.0]]);
 
 let mut c = Grid::from([[0.0; 3]; 2]);
 
-matmul(a, b, &mut c);
+matmul(&a, &b, &mut c);
 
 println!("{c:?}");
-# assert!(&c == AsRef::<Span<f64, 2>>::as_ref(&[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]));
+# assert!(c == SubGrid::from(&[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]));
 ```
 
 This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
@@ -148,7 +148,6 @@ This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 #![feature(generic_associated_types)]
 #![feature(int_roundings)]
 #![feature(marker_trait_attr)]
-#![feature(ptr_metadata)]
 #![feature(slice_range)]
 #![warn(missing_docs)]
 

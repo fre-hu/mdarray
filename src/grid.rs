@@ -12,7 +12,7 @@ use crate::buffer::{Buffer, BufferMut, DenseBuffer, SubBuffer, SubBufferMut};
 use crate::dim::{Const, Dim, Shape, U1};
 use crate::format::Format;
 use crate::index::{panic_bounds_check, SpanIndex};
-use crate::layout::{DenseLayout, Layout, StaticLayout};
+use crate::layout::{DenseLayout, Layout};
 use crate::order::Order;
 use crate::span::SpanBase;
 
@@ -481,20 +481,59 @@ impl<T: Clone, O: Order> From<&[T]> for DenseGrid<T, U1, O> {
     }
 }
 
+impl<'a, T, O: Order> From<&'a [T]> for SubGrid<'a, T, DenseLayout<U1, O>> {
+    fn from(slice: &'a [T]) -> Self {
+        unsafe { SubGrid::new_unchecked(slice.as_ptr(), DenseLayout::new([slice.len()])) }
+    }
+}
+
+impl<'a, T, O: Order> From<&'a mut [T]> for SubGridMut<'a, T, DenseLayout<U1, O>> {
+    fn from(slice: &'a mut [T]) -> Self {
+        unsafe { SubGridMut::new_unchecked(slice.as_mut_ptr(), DenseLayout::new([slice.len()])) }
+    }
+}
+
+macro_rules! impl_from_array_ref {
+    ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
+        impl<'a, T, O: Order, $(const $xyz: usize),+> From<&'a $array>
+            for SubGrid<'a, T, DenseLayout<Const<$n>, O>>
+        {
+            fn from(array: &'a $array) -> Self {
+                let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
+
+                unsafe { Self::new_unchecked(array.as_ptr().cast(), layout) }
+            }
+        }
+
+        impl<'a, T, O: Order, $(const $xyz: usize),+> From<&'a mut $array>
+            for SubGridMut<'a, T, DenseLayout<Const<$n>, O>>
+        {
+            fn from(array: &'a mut $array) -> Self {
+                let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
+
+                unsafe { Self::new_unchecked(array.as_mut_ptr().cast(), layout) }
+            }
+        }
+    };
+}
+
+impl_from_array_ref!(1, (X), (X), [T; X]);
+impl_from_array_ref!(2, (X, Y), (Y, X), [[T; X]; Y]);
+impl_from_array_ref!(3, (X, Y, Z), (Z, Y, X), [[[T; X]; Y]; Z]);
+impl_from_array_ref!(4, (X, Y, Z, W), (W, Z, Y, X), [[[[T; X]; Y]; Z]; W]);
+impl_from_array_ref!(5, (X, Y, Z, W, U), (U, W, Z, Y, X), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_from_array_ref!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+
 macro_rules! impl_from_array {
     ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
         #[allow(unused_parens)]
         impl<T, O: Order, $(const $xyz: usize),+> From<$array> for DenseGrid<T, Const<$n>, O> {
             fn from(array: $array) -> Self {
                 let (ptr, _, mut capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
-
-                let layout = O::select(
-                    <($(Const<$xyz>),+) as StaticLayout<Const<$n>, O>>::LAYOUT,
-                    <($(Const<$zyx>),+) as StaticLayout<Const<$n>, O>>::LAYOUT,
-                );
+                let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
 
                 unsafe {
-                    capacity *= (mem::size_of_val(&*ptr) / mem::size_of::<T>());
+                    capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
 
                     let vec = Vec::from_raw_parts_in(ptr as *mut T, layout.len(), capacity, alloc);
 

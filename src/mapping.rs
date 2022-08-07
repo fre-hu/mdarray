@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use std::ops::{Range, RangeBounds};
 use std::slice::{self, Iter, IterMut};
 
-use crate::dim::{Const, Dim, Shape, U1};
+use crate::dim::{Dim, Shape, U1};
 use crate::format::{Dense, Format, General, Linear, Strided};
 use crate::iter::{LinearIter, LinearIterMut};
 use crate::layout::{DenseLayout, GeneralLayout, Layout, LinearLayout, StridedLayout};
@@ -69,10 +69,6 @@ pub struct StridedMapping<D: Dim, O: Order> {
     shape: D::Shape,
     strides: D::Strides,
     phantom: PhantomData<O>,
-}
-
-pub(crate) trait StaticMapping<D: Dim, O: Order> {
-    const MAP: DenseMapping<D, O>;
 }
 
 impl<D: Dim, O: Order> DenseMapping<D, O> {
@@ -696,20 +692,3 @@ impl<D: Dim, O: Order> Default for StridedMapping<D, O> {
         Self { shape: D::Shape::default(), strides, phantom: PhantomData }
     }
 }
-
-macro_rules! impl_static_mapping {
-    ($n:tt, ($($xyz:tt),+)) => {
-        #[allow(unused_parens)]
-        impl<O: Order, $(const $xyz: usize),+> StaticMapping<Const<$n>, O> for ($(Const<$xyz>),+) {
-            const MAP: DenseMapping<Const<$n>, O> =
-                DenseMapping { shape: [$($xyz),+], phantom: PhantomData };
-        }
-    };
-}
-
-impl_static_mapping!(1, (X));
-impl_static_mapping!(2, (X, Y));
-impl_static_mapping!(3, (X, Y, Z));
-impl_static_mapping!(4, (X, Y, Z, W));
-impl_static_mapping!(5, (X, Y, Z, W, U));
-impl_static_mapping!(6, (X, Y, Z, W, U, V));

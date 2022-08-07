@@ -12,3 +12,7 @@ serde = { version = "1.0", optional = true }
 
 [dev-dependencies]
 serde_test = "1.0"
+
+[features]
+permissive-provenance = [] # Required for testing in Miri, see the issue:
+                           # https://github.com/rust-lang/unsafe-code-guidelines/issues/256

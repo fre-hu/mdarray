@@ -1,12 +1,10 @@
 use std::ops::{Range, RangeBounds};
 
-use crate::dim::{Const, Dim, Shape, U0, U1};
+use crate::dim::{Dim, Shape, U0, U1};
 use crate::format::{Dense, Format, General, Linear, Strided, Uniform, UnitStrided};
 use crate::order::Order;
 
-use crate::mapping::{
-    DenseMapping, GeneralMapping, LinearMapping, Mapping, StaticMapping, StridedMapping,
-};
+use crate::mapping::{DenseMapping, GeneralMapping, LinearMapping, Mapping, StridedMapping};
 
 /// Marker trait for layout types that support linear indexing.
 #[marker]
@@ -26,10 +24,6 @@ pub(crate) type DenseLayout<D, O> = Layout<D, Dense, O>;
 pub(crate) type GeneralLayout<D, O> = Layout<D, General, O>;
 pub(crate) type LinearLayout<D, O> = Layout<D, Linear, O>;
 pub(crate) type StridedLayout<D, O> = Layout<D, Strided, O>;
-
-pub(crate) trait StaticLayout<D: Dim, O: Order> {
-    const LAYOUT: DenseLayout<D, O>;
-}
 
 impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     /// Returns the dimension with the specified index, counted from the innermost dimension.
@@ -174,20 +168,3 @@ impl<F: Format, O: Order> HasLinearIndexing for Layout<U1, F, O> {}
 impl<F: Format, O: Order> HasSliceIndexing for Layout<U0, F, O> {}
 
 impl<F: UnitStrided, O: Order> HasSliceIndexing for Layout<U1, F, O> {}
-
-macro_rules! impl_static_layout {
-    ($n:tt, ($($xyz:tt),+)) => {
-        #[allow(unused_parens)]
-        impl<O: Order, $(const $xyz: usize),+> StaticLayout<Const<$n>, O> for ($(Const<$xyz>),+) {
-            const LAYOUT: DenseLayout<Const<$n>, O> =
-                Layout { map: <($(Const<$xyz>),+) as StaticMapping<Const<$n>, O>>::MAP };
-        }
-    };
-}
-
-impl_static_layout!(1, (X));
-impl_static_layout!(2, (X, Y));
-impl_static_layout!(3, (X, Y, Z));
-impl_static_layout!(4, (X, Y, Z, W));
-impl_static_layout!(5, (X, Y, Z, W, U));
-impl_static_layout!(6, (X, Y, Z, W, U, V));

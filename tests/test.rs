@@ -2,7 +2,6 @@
 #![feature(generic_associated_types)]
 #![feature(int_roundings)]
 #![feature(marker_trait_attr)]
-#![feature(ptr_metadata)]
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
@@ -15,7 +14,7 @@ use std::cmp::Ordering;
 use serde_test::{assert_tokens, Token};
 
 use aligned_alloc::AlignedAlloc;
-use mdarray::{fill, step, CGrid, CSpan, Dense, Grid, Layout, Span};
+use mdarray::{fill, step, CGrid, Dense, Grid, Layout, SubGrid, SubGridMut};
 
 macro_rules! to_slice {
     ($span:expr) => {
@@ -55,9 +54,11 @@ fn test_base() {
     assert!(format!("{:?}", a.view((2, 1..3, ..2))) == "[[1210, 1220], [1211, 1221]]");
     assert!(format!("{:?}", c.view((2, 1..3, ..2))) == "[[1210, 1211], [1220, 1221]]");
 
-    assert!(&a.view((.., 1, 2)) == AsRef::<Span<usize, 1>>::as_ref(&[1012, 1112, 1212]));
-    assert!(&a.view((1, 2..3, 3..)) == AsRef::<Span<usize, 2>>::as_ref(&[[1123], [1124]]));
-    assert!(&c.view((1, 2..3, 3..)) == AsRef::<CSpan<usize, 2>>::as_ref(&[[1123, 1124]]));
+    assert_eq!(a.view((2, 1, ..)), SubGrid::from([1210, 1211, 1212, 1213, 1214].as_slice()));
+    assert_eq!(c.view((.., 1, 2)), SubGridMut::from([1012, 1112, 1212].as_mut_slice()));
+
+    assert_eq!(a.view((1, 2..3, 3..)), SubGrid::from(&[[1123], [1124]]));
+    assert_eq!(c.view((1, 2..3, 3..)), SubGridMut::from(&mut [[1123, 1124]]));
 
     assert!(a == Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
     assert!(c == CGrid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
