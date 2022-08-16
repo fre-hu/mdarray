@@ -7,7 +7,7 @@ use std::{mem, ptr, slice};
 use crate::dim::{Dim, Shape, U1};
 use crate::format::Format;
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
-use crate::index::SpanIndex;
+use crate::index::ViewIndex;
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{DenseLayout, HasLinearIndexing, HasSliceIndexing, Layout};
 use crate::mapping::Mapping;
@@ -205,7 +205,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Copies the specified subarray into a new array.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    pub fn grid<I: SpanIndex<D, O>>(&self, index: I) -> DenseGrid<T, I::Dim, O>
+    pub fn grid<I: ViewIndex<D, O>>(&self, index: I) -> DenseGrid<T, I::Dim, O>
     where
         T: Clone,
     {
@@ -215,7 +215,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Copies the specified subarray into a new array with the specified allocator.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    pub fn grid_in<I: SpanIndex<D, O>, A>(&self, index: I, alloc: A) -> DenseGrid<T, I::Dim, O, A>
+    pub fn grid_in<I: ViewIndex<D, O>, A>(&self, index: I, alloc: A) -> DenseGrid<T, I::Dim, O, A>
     where
         T: Clone,
         A: Allocator,
@@ -479,7 +479,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Panics if the subarray is out of bounds.
     pub fn view<I>(&self, index: I) -> SubGrid<T, Layout<I::Dim, I::Format<F>, O>>
     where
-        I: SpanIndex<D, O>,
+        I: ViewIndex<D, O>,
     {
         self.to_view().into_view(index)
     }
@@ -489,7 +489,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Panics if the subarray is out of bounds.
     pub fn view_mut<I>(&mut self, index: I) -> SubGridMut<T, Layout<I::Dim, I::Format<F>, O>>
     where
-        I: SpanIndex<D, O>,
+        I: ViewIndex<D, O>,
     {
         self.to_view_mut().into_view(index)
     }

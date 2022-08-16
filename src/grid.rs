@@ -10,8 +10,8 @@ use std::result::Result;
 use crate::buffer::{Buffer, BufferMut, DenseBuffer, SubBuffer, SubBufferMut};
 use crate::dim::{Const, Dim, Shape, U1};
 use crate::format::Format;
-use crate::index::{panic_bounds_check, SpanIndex};
-use crate::layout::{DenseLayout, Layout};
+use crate::index::ViewIndex;
+use crate::layout::{panic_bounds_check, DenseLayout, Layout};
 use crate::order::Order;
 use crate::span::SpanBase;
 
@@ -384,11 +384,11 @@ macro_rules! impl_sub_grid {
             /// Converts an array view into a new array view for the specified subarray.
             /// # Panics
             /// Panics if the subarray is out of bounds.
-            pub fn into_view<I: SpanIndex<D, O>>(
+            pub fn into_view<I: ViewIndex<D, O>>(
                 $($mut)? self,
                 index: I
             ) -> $name<'a, T, Layout<I::Dim, I::Format<F>, O>> {
-                let (offset, layout, _) = I::span_info(index, self.layout());
+                let (offset, layout, _) = I::view_info(index, self.layout());
                 let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty.
 
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), layout) }

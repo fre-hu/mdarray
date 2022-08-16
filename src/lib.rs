@@ -149,11 +149,18 @@
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
+/// Module for array span and view indexing.
+pub mod index {
+    mod span;
+    mod view;
+
+    pub use view::{DimIndex, PartialRange, ViewIndex};
+}
+
 mod buffer;
 mod dim;
 mod format;
 mod grid;
-mod index;
 mod iter;
 mod layout;
 mod mapping;
@@ -170,9 +177,8 @@ pub use dim::{Const, Dim, Shape, Strides};
 pub use format::{Dense, Flat, General, Strided};
 pub use format::{Format, NonUniform, NonUnitStrided, Uniform, UnitStrided};
 pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
-pub use index::{step, DimIndex, PartialRange, SpanIndex, StepRange};
 pub use layout::{HasLinearIndexing, HasSliceIndexing, Layout};
-pub use ops::{fill, Fill};
+pub use ops::{fill, step, Fill, StepRange};
 pub use order::{ColumnMajor, Order, RowMajor};
 pub use span::SpanBase;
 

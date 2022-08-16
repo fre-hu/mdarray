@@ -16,9 +16,20 @@ use crate::order::Order;
 use crate::span::SpanBase;
 
 /// Fill value to be used as scalar operand for array operators.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Fill<T: Copy> {
-    value: T,
+    /// Fill value.
+    pub value: T,
+}
+
+/// Range constructed from a unit spaced range with the given step size.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct StepRange<R, S> {
+    /// Unit spaced range.
+    pub range: R,
+
+    /// Step size.
+    pub step: S,
 }
 
 /// Returns a fill value to be used as scalar operand for array operators.
@@ -26,6 +37,17 @@ pub struct Fill<T: Copy> {
 /// If the type does not implement the `Copy` trait, a reference must be passed as input.
 pub fn fill<T: Copy>(value: T) -> Fill<T> {
     Fill { value }
+}
+
+/// Returns a range with the given step size from a unit spaced range.
+///
+/// If the step size is negative, the result is the reverse of the corresponding range
+/// with step size as the absolute value of the given step size.
+///
+/// For example, `step(0..10, 2)` gives the values `0, 2, 4, 6, 8` and `step(0..10, -2)`
+/// gives the values `8, 6, 4, 2, 0`.
+pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
+    StepRange { range, step }
 }
 
 impl<T: Eq, B: Buffer<Item = T>> Eq for GridBase<B> where GridBase<B>: PartialEq {}

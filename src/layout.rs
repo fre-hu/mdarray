@@ -154,3 +154,10 @@ impl<F: Format, O: Order> HasLinearIndexing for Layout<U1, F, O> {}
 impl<F: Format, O: Order> HasSliceIndexing for Layout<U0, F, O> {}
 
 impl<F: UnitStrided, O: Order> HasSliceIndexing for Layout<U1, F, O> {}
+
+#[cold]
+#[inline(never)]
+#[track_caller]
+pub(crate) fn panic_bounds_check(index: usize, len: usize) -> ! {
+    panic!("index out of bounds: the len is {len} but the index is {index}")
+}
