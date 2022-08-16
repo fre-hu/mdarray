@@ -50,8 +50,8 @@ pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }
 
-impl<T: Eq, B: Buffer<Item = T>> Eq for GridBase<B> where GridBase<B>: PartialEq {}
-impl<T: Eq, L: Copy> Eq for SpanBase<T, L> where SpanBase<T, L>: PartialEq {}
+impl<T: Eq, B: Buffer<Item = T>> Eq for GridBase<B> where Self: PartialEq {}
+impl<T: Eq, L: Copy> Eq for SpanBase<T, L> where Self: PartialEq {}
 
 impl<T: Ord, B: Buffer<Item = T, Layout = Layout<U1, impl Format, impl Order>>> Ord
     for GridBase<B>

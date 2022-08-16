@@ -83,8 +83,8 @@ pub trait Strides:
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Const<const N: usize>;
 
-pub(crate) type U0 = Const<0>;
-pub(crate) type U1 = Const<1>;
+pub type U0 = Const<0>;
+pub type U1 = Const<1>;
 
 macro_rules! impl_dimension {
     ($($n:tt),*) => {

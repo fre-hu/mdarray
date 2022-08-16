@@ -69,7 +69,9 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
             let inner_dims = D::dims::<O>(..D::RANK - 1);
             let old_shape = self.layout.shape();
 
-            if shape[inner_dims.clone()] != old_shape[inner_dims] {
+            if shape[inner_dims.clone()] == old_shape[inner_dims] {
+                self.vec.resize_with(len, f);
+            } else {
                 let mut vec = Vec::with_capacity_in(len, self.vec.allocator().clone());
 
                 self.layout = Layout::default(); // Remove contents in case of exception.
@@ -85,8 +87,6 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseBuffer<T, D, O, A> {
                 }
 
                 self.vec = vec;
-            } else {
-                self.vec.resize_with(len, f);
             }
         }
 

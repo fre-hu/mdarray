@@ -330,7 +330,7 @@ impl<D: Dim, O: Order> Mapping<D, General, O> for GeneralMapping<D, O> {
                     return false;
                 }
 
-                stride *= self.shape[D::dim::<O>(i)]
+                stride *= self.shape[D::dim::<O>(i)];
             }
         }
 

@@ -18,10 +18,10 @@ pub struct Layout<D: Dim, F: Format, O: Order> {
     map: F::Mapping<D, O>,
 }
 
-pub(crate) type DenseLayout<D, O> = Layout<D, Dense, O>;
-pub(crate) type FlatLayout<D, O> = Layout<D, Flat, O>;
-pub(crate) type GeneralLayout<D, O> = Layout<D, General, O>;
-pub(crate) type StridedLayout<D, O> = Layout<D, Strided, O>;
+pub type DenseLayout<D, O> = Layout<D, Dense, O>;
+pub type FlatLayout<D, O> = Layout<D, Flat, O>;
+pub type GeneralLayout<D, O> = Layout<D, General, O>;
+pub type StridedLayout<D, O> = Layout<D, Strided, O>;
 
 impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     /// Returns true if the array layout type supports linear indexing.
@@ -60,6 +60,8 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     }
 
     /// Returns the number of elements in the specified dimension.
+    /// # Panics
+    /// Panics if the dimension is out of bounds.
     pub fn size(self, dim: usize) -> usize {
         assert!(dim < D::RANK, "invalid dimension");
 
@@ -67,6 +69,8 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     }
 
     /// Returns the distance between elements in the specified dimension.
+    /// # Panics
+    /// Panics if the dimension is out of bounds.
     pub fn stride(self, dim: usize) -> isize {
         assert!(dim < D::RANK, "invalid dimension");
 
@@ -158,6 +162,6 @@ impl<F: UnitStrided, O: Order> HasSliceIndexing for Layout<U1, F, O> {}
 #[cold]
 #[inline(never)]
 #[track_caller]
-pub(crate) fn panic_bounds_check(index: usize, len: usize) -> ! {
+pub fn panic_bounds_check(index: usize, len: usize) -> ! {
     panic!("index out of bounds: the len is {len} but the index is {index}")
 }

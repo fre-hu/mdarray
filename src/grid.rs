@@ -256,11 +256,15 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
     }
 
     /// Tries to reserve capacity for at least the additional number of elements in the array.
+    /// # Errors
+    /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
         unsafe { self.buffer.vec_mut().try_reserve(additional) }
     }
 
     /// Tries to reserve the minimum capacity for the additional number of elements in the array.
+    /// # Errors
+    /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
         unsafe { self.buffer.vec_mut().try_reserve_exact(additional) }
     }

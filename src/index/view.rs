@@ -44,7 +44,7 @@ pub trait DimIndex {
     ) -> (isize, Layout<Self::Dim<D>, Self::Next<F>, O>, Layout<Self::Dim<D>, Self::Outer<F>, O>);
 }
 
-/// Trait for built-in range types except RangeFull.
+/// Trait for built-in range types except `RangeFull`.
 pub trait PartialRange<T>: RangeBounds<T> {}
 
 /// Array span index trait for a tuple of indices.
