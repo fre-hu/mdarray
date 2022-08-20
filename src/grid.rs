@@ -11,9 +11,9 @@ use crate::buffer::{Buffer, BufferMut, DenseBuffer, SubBuffer, SubBufferMut};
 use crate::dim::{Const, Dim, Shape, U1};
 use crate::format::Format;
 use crate::index::ViewIndex;
-use crate::layout::{panic_bounds_check, DenseLayout, Layout};
+use crate::layout::{panic_bounds_check, DenseLayout, Layout, ValidLayout, ViewLayout};
 use crate::order::Order;
-use crate::span::SpanBase;
+use crate::span::{DenseSpan, SpanBase};
 
 /// Multidimensional array with static rank and element order.
 pub struct GridBase<B: Buffer> {
@@ -321,10 +321,10 @@ macro_rules! impl_sub_grid {
             /// Converts the array view into a reshaped array view with similar layout.
             /// # Panics
             /// Panics if the array length is changed, or the memory layout is not compatible.
-            pub fn into_shape<S>($($mut)? self, shape: S) -> $name<'a, T, Layout<S::Dim, F, O>>
-            where
-                S: Shape,
-            {
+            pub fn into_shape<S: Shape>(
+                $($mut)? self,
+                shape: S
+            ) -> $name<'a, T, ValidLayout<S::Dim, F, O>> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
 
@@ -335,7 +335,10 @@ macro_rules! impl_sub_grid {
                 $($mut)? self,
                 dim: usize,
                 mid: usize,
-            ) -> ($name<'a, T, Layout<D, F, O>>, $name<'a, T, Layout<D, F::NonUniform, O>>) {
+            ) -> (
+                $name<'a, T, ValidLayout<D, F::NonUniform, O>>,
+                $name<'a, T, ValidLayout<D, F::NonUniform, O>>
+            ) {
                 assert!(D::RANK > 0, "invalid rank");
 
                 if mid > self.size(dim) {
@@ -388,11 +391,11 @@ macro_rules! impl_sub_grid {
             /// Converts an array view into a new array view for the specified subarray.
             /// # Panics
             /// Panics if the subarray is out of bounds.
-            pub fn into_view<I: ViewIndex<D, O>>(
+            pub fn into_view<I: ViewIndex<D, F, O>>(
                 $($mut)? self,
                 index: I
-            ) -> $name<'a, T, Layout<I::Dim, I::Format<F>, O>> {
-                let (offset, layout, _) = I::view_info(index, self.layout());
+            ) -> $name<'a, T, ViewLayout<I::Params, O>> {
+                let (offset, layout) = I::view_index(index, self.layout());
                 let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty.
 
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), layout) }
@@ -404,18 +407,14 @@ macro_rules! impl_sub_grid {
 impl_sub_grid!(SubGrid, SubBuffer, as_ptr, const, {});
 impl_sub_grid!(SubGridMut, SubBufferMut, as_mut_ptr, mut, {mut});
 
-impl<T, D: Dim, O: Order, A: Allocator> Borrow<SpanBase<T, DenseLayout<D, O>>>
-    for DenseGrid<T, D, O, A>
-{
-    fn borrow(&self) -> &SpanBase<T, DenseLayout<D, O>> {
+impl<T, D: Dim, O: Order, A: Allocator> Borrow<DenseSpan<T, D, O>> for DenseGrid<T, D, O, A> {
+    fn borrow(&self) -> &DenseSpan<T, D, O> {
         self.as_span()
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> BorrowMut<SpanBase<T, DenseLayout<D, O>>>
-    for DenseGrid<T, D, O, A>
-{
-    fn borrow_mut(&mut self) -> &mut SpanBase<T, DenseLayout<D, O>> {
+impl<T, D: Dim, O: Order, A: Allocator> BorrowMut<DenseSpan<T, D, O>> for DenseGrid<T, D, O, A> {
+    fn borrow_mut(&mut self) -> &mut DenseSpan<T, D, O> {
         self.as_mut_span()
     }
 }
@@ -606,11 +605,11 @@ impl<T, D: Dim, O: Order, A: Allocator> IntoIterator for DenseGrid<T, D, O, A> {
     }
 }
 
-unsafe fn extend_from_span<T: Clone>(
+unsafe fn extend_from_span<T: Clone, F: Format>(
     vec: &mut Vec<T, impl Allocator>,
-    span: &SpanBase<T, Layout<impl Dim, impl Format, impl Order>>,
+    span: &SpanBase<T, Layout<impl Dim, F, impl Order>>,
 ) {
-    if span.has_linear_indexing() {
+    if F::IS_UNIFORM {
         for x in span.flatten().iter() {
             vec.as_mut_ptr().add(vec.len()).write(x.clone());
             vec.set_len(vec.len() + 1);
@@ -642,11 +641,11 @@ unsafe fn from_fn<T, D: Dim, O: Order, A: Allocator, I: Dim, F: FnMut(D::Shape) 
     }
 }
 
-fn map<T: Default>(
-    span: &mut SpanBase<T, Layout<impl Dim, impl Format, impl Order>>,
+fn map<T: Default, F: Format>(
+    span: &mut SpanBase<T, Layout<impl Dim, F, impl Order>>,
     f: &mut impl FnMut(T) -> T,
 ) {
-    if span.has_linear_indexing() {
+    if F::IS_UNIFORM {
         for x in span.flatten_mut().iter_mut() {
             *x = f(mem::take(x));
         }

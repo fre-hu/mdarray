@@ -89,8 +89,10 @@
 //! the remaining dimensions.
 //!
 //! If linear indexing is possible but the array layout type is not known, the
-//! `flat_iter` and `flat_iter_mut` methods can be used instead of `iter` and
-//! `iter_mut`. The methods will check at runtime that the layout is valid.
+//! `reformat`, `reformat_mut` and `into_format` methods can be used to change
+//! format with runtime checking. Alternatively, the `flatten`, `flatten_mut`
+//! and `into_flattened` methods can be used to change to a one-dimensional
+//! array.
 //!
 //! ## Operators
 //!
@@ -145,7 +147,6 @@
 #![feature(allocator_api)]
 #![feature(generic_associated_types)]
 #![feature(int_roundings)]
-#![feature(marker_trait_attr)]
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
@@ -154,7 +155,7 @@ pub mod index {
     mod span;
     mod view;
 
-    pub use view::{DimIndex, PartialRange, ViewIndex};
+    pub use view::{DimIndex, Params, ViewIndex};
 }
 
 mod buffer;
@@ -174,10 +175,9 @@ mod serde;
 use std::alloc::Global;
 
 pub use dim::{Const, Dim, Shape, Strides};
-pub use format::{Dense, Flat, General, Strided};
-pub use format::{Format, NonUniform, NonUnitStrided, Uniform, UnitStrided};
+pub use format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
 pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
-pub use layout::{HasLinearIndexing, HasSliceIndexing, Layout};
+pub use layout::Layout;
 pub use ops::{fill, step, Fill, StepRange};
 pub use order::{ColumnMajor, Order, RowMajor};
 pub use span::SpanBase;

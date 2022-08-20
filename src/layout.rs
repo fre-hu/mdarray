@@ -1,16 +1,8 @@
-use crate::dim::{Dim, Shape, U0, U1};
-use crate::format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
-use crate::order::Order;
-
+use crate::dim::{Dim, Shape, U1};
+use crate::format::{Dense, Flat, Format, General, Strided};
+use crate::index::Params;
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-
-/// Marker trait for layout types that support linear indexing.
-#[marker]
-pub trait HasLinearIndexing {}
-
-/// Marker trait for layout types that support slice indexing.
-#[marker]
-pub trait HasSliceIndexing {}
+use crate::order::Order;
 
 /// Array layout, including rank, shape, strides and element order.
 #[derive(Clone, Copy, Debug, Default)]
@@ -23,17 +15,10 @@ pub type FlatLayout<D, O> = Layout<D, Flat, O>;
 pub type GeneralLayout<D, O> = Layout<D, General, O>;
 pub type StridedLayout<D, O> = Layout<D, Strided, O>;
 
+pub type ValidLayout<D, F, O> = Layout<D, <D as Dim>::Format<F>, O>;
+pub type ViewLayout<P, O> = Layout<<P as Params>::Dim, <P as Params>::Format, O>;
+
 impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
-    /// Returns true if the array layout type supports linear indexing.
-    pub fn has_linear_indexing(self) -> bool {
-        self.map.has_linear_indexing()
-    }
-
-    /// Returns true if the array layout type supports slice indexing.
-    pub fn has_slice_indexing(self) -> bool {
-        self.map.has_slice_indexing()
-    }
-
     /// Returns true if the array strides are consistent with contiguous memory layout.
     pub fn is_contiguous(self) -> bool {
         self.map.is_contiguous()
@@ -82,8 +67,8 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         self.map.strides()
     }
 
-    pub(crate) fn add_dim(self, size: usize, stride: isize) -> Layout<D::Higher, F, O> {
-        self.map.add_dim(size, stride)
+    pub(crate) fn add_dim<G: Format>(self, size: usize, stride: isize) -> Layout<D::Higher, G, O> {
+        G::Mapping::add_dim(self, size, stride)
     }
 
     pub(crate) fn flatten(self) -> Layout<U1, F::Uniform, O> {
@@ -107,16 +92,16 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         G::Mapping::reformat(self)
     }
 
-    pub(crate) fn remove_dim(self, dim: usize) -> Layout<D::Lower, F, O> {
-        self.map.remove_dim(dim)
+    pub(crate) fn remove_dim<G: Format>(self, dim: usize) -> Layout<D::Lower, G, O> {
+        G::Mapping::remove_dim(self, dim)
     }
 
-    pub(crate) fn reshape<S: Shape>(self, shape: S) -> Layout<S::Dim, F, O> {
-        self.map.reshape(shape)
+    pub(crate) fn reshape<S: Shape, G: Format>(self, new_shape: S) -> Layout<S::Dim, G, O> {
+        G::Mapping::reshape(self, new_shape)
     }
 
-    pub(crate) fn resize_dim(self, dim: usize, size: usize) -> Self {
-        self.map.resize_dim(dim, size)
+    pub(crate) fn resize_dim(self, dim: usize, new_size: usize) -> Self {
+        self.map.resize_dim(dim, new_size)
     }
 }
 
@@ -129,7 +114,7 @@ impl<D: Dim, O: Order> DenseLayout<D, O> {
 
 impl<D: Dim, O: Order> FlatLayout<D, O> {
     /// Creates a new, flat array layout with the specified shape and inner stride.
-    pub fn new(shape: D::Shape, inner_stride: <D::MaxOne as Dim>::Strides) -> Self {
+    pub fn new(shape: D::Shape, inner_stride: isize) -> Self {
         Self { map: FlatMapping::new(shape, inner_stride) }
     }
 }
@@ -147,17 +132,6 @@ impl<D: Dim, O: Order> StridedLayout<D, O> {
         Self { map: StridedMapping::new(shape, strides) }
     }
 }
-
-impl<D: Dim, F: Uniform, O: Order> HasLinearIndexing for Layout<D, F, O> {}
-
-impl<D: Dim, O: Order> HasSliceIndexing for DenseLayout<D, O> {}
-
-impl<F: Format, O: Order> HasLinearIndexing for Layout<U0, F, O> {}
-impl<F: Format, O: Order> HasLinearIndexing for Layout<U1, F, O> {}
-
-impl<F: Format, O: Order> HasSliceIndexing for Layout<U0, F, O> {}
-
-impl<F: UnitStrided, O: Order> HasSliceIndexing for Layout<U1, F, O> {}
 
 #[cold]
 #[inline(never)]

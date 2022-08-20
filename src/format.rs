@@ -10,16 +10,19 @@ use crate::order::Order;
 /// Array format trait for memory layout.
 pub trait Format: Copy + Debug + Default {
     /// Corresponding format which may have non-uniform stride.
-    type NonUniform: NonUniform;
+    type NonUniform: Format;
 
     /// Corresponding format which may have non-unit inner stride.
-    type NonUnitStrided: NonUnitStrided;
+    type NonUnitStrided: Format;
 
     /// Corresponding format with uniform stride.
     type Uniform: Uniform;
 
     /// Corresponding format with unit inner stride.
     type UnitStrided: UnitStrided;
+
+    /// Combined format based on the dimension.
+    type Format<D: Dim, F: Format>: Format;
 
     /// Array iterator type.
     type Iter<'a, T: 'a>: Clone
@@ -35,7 +38,7 @@ pub trait Format: Copy + Debug + Default {
         + Iterator<Item = &'a mut T>;
 
     #[doc(hidden)]
-    type Mapping<D: Dim, O: Order>: Mapping<D, Self, O>;
+    type Mapping<D: Dim, O: Order>: Mapping<Dim = D, Format = Self, Order = O>;
 
     /// True if the format type has uniform stride.
     const IS_UNIFORM: bool;
@@ -43,12 +46,6 @@ pub trait Format: Copy + Debug + Default {
     /// True if the format type has unit inner stride.
     const IS_UNIT_STRIDED: bool;
 }
-
-/// Trait for format types which may have non-uniform stride.
-pub trait NonUniform: Format {}
-
-/// Trait for format types which may have non-unit inner stride.
-pub trait NonUnitStrided: Format {}
 
 /// Trait for format types with uniform stride.
 pub trait Uniform: Format {}
@@ -78,6 +75,8 @@ impl Format for Dense {
     type Uniform = Self;
     type UnitStrided = Self;
 
+    type Format<D: Dim, F: Format> = D::Format<F>;
+
     type Iter<'a, T: 'a> = Iter<'a, T>;
     type IterMut<'a, T: 'a> = IterMut<'a, T>;
 
@@ -92,6 +91,8 @@ impl Format for Flat {
     type NonUnitStrided = Self;
     type Uniform = Self;
     type UnitStrided = Dense;
+
+    type Format<D: Dim, F: Format> = D::Format<F::NonUnitStrided>;
 
     type Iter<'a, T: 'a> = LinearIter<'a, T>;
     type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
@@ -108,6 +109,8 @@ impl Format for General {
     type Uniform = Dense;
     type UnitStrided = Self;
 
+    type Format<D: Dim, F: Format> = D::Format<F::NonUniform>;
+
     type Iter<'a, T: 'a> = Iter<'a, T>;
     type IterMut<'a, T: 'a> = IterMut<'a, T>;
 
@@ -123,6 +126,8 @@ impl Format for Strided {
     type Uniform = Flat;
     type UnitStrided = General;
 
+    type Format<D: Dim, F: Format> = D::Format<Self>;
+
     type Iter<'a, T: 'a> = LinearIter<'a, T>;
     type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
 
@@ -131,12 +136,6 @@ impl Format for Strided {
     const IS_UNIFORM: bool = false;
     const IS_UNIT_STRIDED: bool = false;
 }
-
-impl NonUniform for General {}
-impl NonUniform for Strided {}
-
-impl NonUnitStrided for Flat {}
-impl NonUnitStrided for Strided {}
 
 impl Uniform for Dense {}
 impl Uniform for Flat {}

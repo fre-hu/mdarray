@@ -63,7 +63,7 @@ impl<T: Ord, B: Buffer<Item = T, Layout = Layout<U1, impl Format, impl Order>>> 
 
 impl<T: Ord, F: Format, O: Order> Ord for SpanBase<T, Layout<U1, F, O>> {
     fn cmp(&self, rhs: &Self) -> Ordering {
-        if self.has_slice_indexing() {
+        if F::IS_UNIFORM && F::IS_UNIT_STRIDED {
             self.as_slice().cmp(rhs.as_slice())
         } else {
             self.flatten().iter().cmp(rhs.flatten().iter())
@@ -125,10 +125,16 @@ where
     T: PartialEq<U>,
 {
     fn eq(&self, rhs: &SpanBase<U, Layout<D, G, O>>) -> bool {
-        if self.has_slice_indexing() && rhs.has_slice_indexing() {
-            self.shape()[..] == rhs.shape()[..] && self.as_slice().eq(rhs.as_slice())
-        } else if self.has_linear_indexing() && rhs.has_linear_indexing() {
-            self.shape()[..] == rhs.shape()[..] && self.flatten().iter().eq(rhs.flatten().iter())
+        if F::IS_UNIFORM && G::IS_UNIFORM {
+            if self.shape()[..] == rhs.shape()[..] {
+                if F::IS_UNIT_STRIDED && G::IS_UNIT_STRIDED {
+                    self.as_slice().eq(rhs.as_slice())
+                } else {
+                    self.flatten().iter().eq(rhs.flatten().iter())
+                }
+            } else {
+                false
+            }
         } else {
             self.outer_iter().eq(rhs.outer_iter())
         }
@@ -410,13 +416,13 @@ macro_rules! impl_unary_op {
 impl_unary_op!(Neg, neg);
 impl_unary_op!(Not, not);
 
-unsafe fn from_binary_op<T, U, V, D: Dim, O: Order, F: Fn(&T, &U) -> V>(
-    lhs: &SpanBase<T, Layout<D, impl Format, O>>,
-    rhs: &SpanBase<U, Layout<D, impl Format, O>>,
+unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim, O: Order>(
+    lhs: &SpanBase<T, Layout<D, F, O>>,
+    rhs: &SpanBase<U, Layout<D, G, O>>,
     vec: &mut Vec<V>,
-    f: &F,
+    f: &impl Fn(&T, &U) -> V,
 ) {
-    if lhs.has_linear_indexing() && rhs.has_linear_indexing() {
+    if F::IS_UNIFORM && G::IS_UNIFORM {
         assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
         for (x, y) in lhs.flatten().iter().zip(rhs.flatten().iter()) {
@@ -434,12 +440,12 @@ unsafe fn from_binary_op<T, U, V, D: Dim, O: Order, F: Fn(&T, &U) -> V>(
     }
 }
 
-unsafe fn from_unary_op<T, U, F: Fn(&T) -> U>(
-    span: &SpanBase<T, Layout<impl Dim, impl Format, impl Order>>,
+unsafe fn from_unary_op<T, F: Format, U>(
+    span: &SpanBase<T, Layout<impl Dim, F, impl Order>>,
     vec: &mut Vec<U>,
-    f: &F,
+    f: &impl Fn(&T) -> U,
 ) {
-    if span.has_linear_indexing() {
+    if F::IS_UNIFORM {
         for x in span.flatten().iter() {
             vec.as_mut_ptr().add(vec.len()).write(f(x));
             vec.set_len(vec.len() + 1);
@@ -451,12 +457,12 @@ unsafe fn from_unary_op<T, U, F: Fn(&T) -> U>(
     }
 }
 
-fn map_binary_op<T, U, D: Dim, O: Order, F: Fn((&mut T, &U))>(
-    lhs: &mut SpanBase<T, Layout<D, impl Format, O>>,
-    rhs: &SpanBase<U, Layout<D, impl Format, O>>,
-    f: &F,
+fn map_binary_op<T, F: Format, G: Format, U, D: Dim, O: Order>(
+    lhs: &mut SpanBase<T, Layout<D, F, O>>,
+    rhs: &SpanBase<U, Layout<D, G, O>>,
+    f: &impl Fn((&mut T, &U)),
 ) {
-    if lhs.has_linear_indexing() && rhs.has_linear_indexing() {
+    if F::IS_UNIFORM && G::IS_UNIFORM {
         assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
         lhs.flatten_mut().iter_mut().zip(rhs.flatten().iter()).for_each(f);
@@ -471,11 +477,11 @@ fn map_binary_op<T, U, D: Dim, O: Order, F: Fn((&mut T, &U))>(
     }
 }
 
-fn map_unary_op<T>(
-    span: &mut SpanBase<T, Layout<impl Dim, impl Format, impl Order>>,
+fn map_unary_op<T, F: Format>(
+    span: &mut SpanBase<T, Layout<impl Dim, F, impl Order>>,
     f: &impl Fn(&mut T),
 ) {
-    if span.has_linear_indexing() {
+    if F::IS_UNIFORM {
         span.flatten_mut().iter_mut().for_each(f);
     } else {
         for mut x in span.outer_iter_mut() {

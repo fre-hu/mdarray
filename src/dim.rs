@@ -6,6 +6,7 @@ use std::ops::{
     RangeToInclusive,
 };
 
+use crate::format::{Dense, Format};
 use crate::order::Order;
 
 /// Array dimension trait for rank, shape and strides.
@@ -16,8 +17,8 @@ pub trait Dim: Copy + Debug + Default {
     /// Next lower dimension.
     type Lower: Dim;
 
-    /// One if non-zero dimension and zero otherwise.
-    type MaxOne: Dim;
+    /// Corresponding format based on the dimension.
+    type Format<F: Format>: Format;
 
     /// Array shape type.
     type Shape: Shape<Dim = Self>;
@@ -86,13 +87,14 @@ pub struct Const<const N: usize>;
 pub type U0 = Const<0>;
 pub type U1 = Const<1>;
 
-macro_rules! impl_dimension {
-    ($($n:tt),*) => {
+macro_rules! impl_dim {
+    (($($n:tt),*), ($($format:ty),*)) => {
         $(
             impl Dim for Const<$n> {
                 type Higher = Const<{ $n + ($n < 6) as usize }>;
                 type Lower = Const<{ $n - ($n > 0) as usize }>;
-                type MaxOne = Const<{ ($n > 0) as usize }>;
+
+                type Format<F: Format> = $format;
 
                 type Shape = [usize; $n];
                 type Strides = [isize; $n];
@@ -111,4 +113,4 @@ macro_rules! impl_dimension {
     }
 }
 
-impl_dimension!(0, 1, 2, 3, 4, 5, 6);
+impl_dim!((0, 1, 2, 3, 4, 5, 6), (Dense, F::Uniform, F, F, F, F, F));

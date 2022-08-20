@@ -5,11 +5,11 @@ use std::marker::PhantomData;
 use std::{mem, ptr, slice};
 
 use crate::dim::{Dim, Shape, U1};
-use crate::format::Format;
+use crate::format::{Format, Uniform};
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
-use crate::index::ViewIndex;
+use crate::index::{Params, ViewIndex};
 use crate::iter::{AxisIter, AxisIterMut};
-use crate::layout::{DenseLayout, HasLinearIndexing, HasSliceIndexing, Layout};
+use crate::layout::{DenseLayout, Layout, ValidLayout, ViewLayout};
 use crate::mapping::Mapping;
 use crate::order::Order;
 
@@ -19,6 +19,8 @@ pub struct SpanBase<T, L: Copy> {
     phantom: PhantomData<(T, L)>,
     slice: [()],
 }
+
+pub type DenseSpan<T, D, O> = SpanBase<T, DenseLayout<D, O>>;
 
 impl<T, L: Copy> SpanBase<T, L> {
     /// Returns a mutable pointer to the array buffer.
@@ -128,14 +130,14 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// uniform stride, so that the resulting array views have general or strided format.
     /// # Panics
     /// Panics if the inner dimension is specified, as that would affect the return type.
-    pub fn axis_iter(&self, dim: usize) -> AxisIter<T, Layout<D::Lower, F::NonUniform, O>> {
+    pub fn axis_iter(&self, dim: usize) -> AxisIter<T, ValidLayout<D::Lower, F::NonUniform, O>> {
         assert!(D::RANK > 0, "invalid rank");
         assert!(dim != D::dim::<O>(0), "inner dimension not allowed");
 
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().reformat().remove_dim(dim),
+                self.layout().remove_dim(dim),
                 self.size(dim),
                 self.stride(dim),
             )
@@ -151,14 +153,14 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     pub fn axis_iter_mut(
         &mut self,
         dim: usize,
-    ) -> AxisIterMut<T, Layout<D::Lower, F::NonUniform, O>> {
+    ) -> AxisIterMut<T, ValidLayout<D::Lower, F::NonUniform, O>> {
         assert!(D::RANK > 0, "invalid rank");
         assert!(dim != D::dim::<O>(0), "inner dimension not allowed");
 
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().reformat().remove_dim(dim),
+                self.layout().remove_dim(dim),
                 self.size(dim),
                 self.stride(dim),
             )
@@ -205,9 +207,10 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Copies the specified subarray into a new array.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    pub fn grid<I: ViewIndex<D, O>>(&self, index: I) -> DenseGrid<T, I::Dim, O>
+    pub fn grid<P: Params, I>(&self, index: I) -> DenseGrid<T, P::Dim, O>
     where
         T: Clone,
+        I: ViewIndex<D, F, O, Params = P>,
     {
         self.view(index).to_grid()
     }
@@ -215,22 +218,13 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Copies the specified subarray into a new array with the specified allocator.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    pub fn grid_in<I: ViewIndex<D, O>, A>(&self, index: I, alloc: A) -> DenseGrid<T, I::Dim, O, A>
+    pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> DenseGrid<T, P::Dim, O, A>
     where
         T: Clone,
+        I: ViewIndex<D, F, O, Params = P>,
         A: Allocator,
     {
         self.view(index).to_grid_in(alloc)
-    }
-
-    /// Returns true if the array layout type supports linear indexing.
-    pub fn has_linear_indexing(&self) -> bool {
-        self.layout().has_linear_indexing()
-    }
-
-    /// Returns true if the array layout type supports slice indexing.
-    pub fn has_slice_indexing(&self) -> bool {
-        self.layout().has_slice_indexing()
     }
 
     /// Returns an iterator that gives array views over the inner dimension.
@@ -239,13 +233,13 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// unit inner stride, so that the resulting array views have flat or strided format.
     /// # Panics
     /// Panics if the rank is not 2 or higher.
-    pub fn inner_iter(&self) -> AxisIter<T, Layout<D::Lower, F::NonUnitStrided, O>> {
+    pub fn inner_iter(&self) -> AxisIter<T, ValidLayout<D::Lower, F::NonUnitStrided, O>> {
         assert!(D::RANK > 1, "rank must be 2 or higher");
 
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().reformat().remove_dim(D::dim::<O>(0)),
+                self.layout().remove_dim(D::dim::<O>(0)),
                 self.size(D::dim::<O>(0)),
                 self.stride(D::dim::<O>(0)),
             )
@@ -258,13 +252,15 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// unit inner stride, so that the resulting array views have flat or strided format.
     /// # Panics
     /// Panics if the rank is not 2 or higher.
-    pub fn inner_iter_mut(&mut self) -> AxisIterMut<T, Layout<D::Lower, F::NonUnitStrided, O>> {
+    pub fn inner_iter_mut(
+        &mut self,
+    ) -> AxisIterMut<T, ValidLayout<D::Lower, F::NonUnitStrided, O>> {
         assert!(D::RANK > 1, "rank must be 2 or higher");
 
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().reformat().remove_dim(D::dim::<O>(0)),
+                self.layout().remove_dim(D::dim::<O>(0)),
                 self.size(D::dim::<O>(0)),
                 self.stride(D::dim::<O>(0)),
             )
@@ -289,7 +285,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns an iterator over the array span, which must support linear indexing.
     pub fn iter(&self) -> F::Iter<'_, T>
     where
-        Layout<D, F, O>: HasLinearIndexing,
+        F: Uniform,
     {
         F::Mapping::iter(self)
     }
@@ -297,7 +293,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns a mutable iterator over the array span, which must support linear indexing.
     pub fn iter_mut(&mut self) -> F::IterMut<'_, T>
     where
-        Layout<D, F, O>: HasLinearIndexing,
+        F: Uniform,
     {
         F::Mapping::iter_mut(self)
     }
@@ -313,7 +309,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// uniform stride properties, and the resulting array views have the same format.
     /// # Panics
     /// Panics if the rank is not 2 or higher.
-    pub fn outer_iter(&self) -> AxisIter<T, Layout<D::Lower, F, O>> {
+    pub fn outer_iter(&self) -> AxisIter<T, ValidLayout<D::Lower, F, O>> {
         assert!(D::RANK > 1, "rank must be 2 or higher");
 
         let dim = D::dim::<O>(D::RANK - 1);
@@ -334,7 +330,7 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// uniform stride properties, and the resulting array views have the same format.
     /// # Panics
     /// Panics if the rank is not 2 or higher.
-    pub fn outer_iter_mut(&mut self) -> AxisIterMut<T, Layout<D::Lower, F, O>> {
+    pub fn outer_iter_mut(&mut self) -> AxisIterMut<T, ValidLayout<D::Lower, F, O>> {
         assert!(D::RANK > 1, "rank must be 2 or higher");
 
         let dim = D::dim::<O>(D::RANK - 1);
@@ -366,14 +362,14 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns a reshaped array view of the array span, with similar layout.
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
-    pub fn reshape<S: Shape>(&self, shape: S) -> SubGrid<T, Layout<S::Dim, F, O>> {
+    pub fn reshape<S: Shape>(&self, shape: S) -> SubGrid<T, ValidLayout<S::Dim, F, O>> {
         self.to_view().into_shape(shape)
     }
 
     /// Returns a mutable reshaped array view of the array span, with similar layout.
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
-    pub fn reshape_mut<S: Shape>(&mut self, shape: S) -> SubGridMut<T, Layout<S::Dim, F, O>> {
+    pub fn reshape_mut<S: Shape>(&mut self, shape: S) -> SubGridMut<T, ValidLayout<S::Dim, F, O>> {
         self.to_view_mut().into_shape(shape)
     }
 
@@ -394,7 +390,8 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         &self,
         dim: usize,
         mid: usize,
-    ) -> (SubGrid<T, Layout<D, F, O>>, SubGrid<T, Layout<D, F::NonUniform, O>>) {
+    ) -> (SubGrid<T, ValidLayout<D, F::NonUniform, O>>, SubGrid<T, ValidLayout<D, F::NonUniform, O>>)
+    {
         self.to_view().into_split_axis(dim, mid)
     }
 
@@ -405,7 +402,10 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
         &mut self,
         dim: usize,
         mid: usize,
-    ) -> (SubGridMut<T, Layout<D, F, O>>, SubGridMut<T, Layout<D, F::NonUniform, O>>) {
+    ) -> (
+        SubGridMut<T, ValidLayout<D, F::NonUniform, O>>,
+        SubGridMut<T, ValidLayout<D, F::NonUniform, O>>,
+    ) {
         self.to_view_mut().into_split_axis(dim, mid)
     }
 
@@ -477,9 +477,9 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns an array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    pub fn view<I>(&self, index: I) -> SubGrid<T, Layout<I::Dim, I::Format<F>, O>>
+    pub fn view<I>(&self, index: I) -> SubGrid<T, ViewLayout<I::Params, O>>
     where
-        I: ViewIndex<D, O>,
+        I: ViewIndex<D, F, O>,
     {
         self.to_view().into_view(index)
     }
@@ -487,27 +487,21 @@ impl<T, D: Dim, F: Format, O: Order> SpanBase<T, Layout<D, F, O>> {
     /// Returns a mutable array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    pub fn view_mut<I>(&mut self, index: I) -> SubGridMut<T, Layout<I::Dim, I::Format<F>, O>>
+    pub fn view_mut<I>(&mut self, index: I) -> SubGridMut<T, ViewLayout<I::Params, O>>
     where
-        I: ViewIndex<D, O>,
+        I: ViewIndex<D, F, O>,
     {
         self.to_view_mut().into_view(index)
     }
 }
 
-impl<T, D: Dim, F: Format, O: Order> AsMut<[T]> for SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasSliceIndexing,
-{
+impl<T, D: Dim, O: Order> AsMut<[T]> for DenseSpan<T, D, O> {
     fn as_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }
 }
 
-impl<T, D: Dim, F: Format, O: Order> AsRef<[T]> for SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasSliceIndexing,
-{
+impl<T, D: Dim, O: Order> AsRef<[T]> for DenseSpan<T, D, O> {
     fn as_ref(&self) -> &[T] {
         self.as_slice()
     }
@@ -525,10 +519,7 @@ impl<T: Debug, D: Dim, F: Format, O: Order> Debug for SpanBase<T, Layout<D, F, O
     }
 }
 
-impl<'a, T, D: Dim, F: Format, O: Order> IntoIterator for &'a SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasLinearIndexing,
-{
+impl<'a, T, D: Dim, F: Uniform, O: Order> IntoIterator for &'a SpanBase<T, Layout<D, F, O>> {
     type Item = &'a T;
     type IntoIter = F::Iter<'a, T>;
 
@@ -537,10 +528,7 @@ where
     }
 }
 
-impl<'a, T, D: Dim, F: Format, O: Order> IntoIterator for &'a mut SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasLinearIndexing,
-{
+impl<'a, T, D: Dim, F: Uniform, O: Order> IntoIterator for &'a mut SpanBase<T, Layout<D, F, O>> {
     type Item = &'a mut T;
     type IntoIter = F::IterMut<'a, T>;
 
@@ -549,7 +537,7 @@ where
     }
 }
 
-impl<T: Clone, D: Dim, O: Order> ToOwned for SpanBase<T, DenseLayout<D, O>> {
+impl<T: Clone, D: Dim, O: Order> ToOwned for DenseSpan<T, D, O> {
     type Owned = DenseGrid<T, D, O>;
 
     fn to_owned(&self) -> Self::Owned {
@@ -557,14 +545,14 @@ impl<T: Clone, D: Dim, O: Order> ToOwned for SpanBase<T, DenseLayout<D, O>> {
     }
 }
 
-fn clone_span<T: Clone, D: Dim, O: Order>(
-    src: &SpanBase<T, Layout<D, impl Format, O>>,
-    dst: &mut SpanBase<T, Layout<D, impl Format, O>>,
+fn clone_span<T: Clone, D: Dim, F: Format, G: Format, O: Order>(
+    src: &SpanBase<T, Layout<D, F, O>>,
+    dst: &mut SpanBase<T, Layout<D, G, O>>,
 ) {
-    if src.has_linear_indexing() && dst.has_linear_indexing() {
+    if F::IS_UNIFORM && G::IS_UNIFORM {
         assert!(src.shape()[..] == dst.shape()[..], "shape mismatch");
 
-        if src.has_slice_indexing() && dst.has_slice_indexing() {
+        if F::IS_UNIT_STRIDED && G::IS_UNIT_STRIDED {
             dst.as_mut_slice().clone_from_slice(src.as_slice());
         } else {
             for (x, y) in dst.flatten_mut().iter_mut().zip(src.flatten().iter()) {
@@ -582,11 +570,11 @@ fn clone_span<T: Clone, D: Dim, O: Order>(
     }
 }
 
-fn fill_with<T>(
-    span: &mut SpanBase<T, Layout<impl Dim, impl Format, impl Order>>,
+fn fill_with<T, F: Format>(
+    span: &mut SpanBase<T, Layout<impl Dim, F, impl Order>>,
     f: &mut impl FnMut() -> T,
 ) {
-    if span.has_linear_indexing() {
+    if F::IS_UNIFORM {
         for x in span.flatten_mut().iter_mut() {
             *x = f();
         }

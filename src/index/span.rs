@@ -3,10 +3,10 @@ use std::ops::{
 };
 
 use crate::dim::{Dim, Shape};
-use crate::format::Format;
-use crate::layout::{panic_bounds_check, HasLinearIndexing, HasSliceIndexing, Layout};
+use crate::format::{Format, Uniform};
+use crate::layout::{panic_bounds_check, Layout};
 use crate::order::Order;
-use crate::span::SpanBase;
+use crate::span::{DenseSpan, SpanBase};
 
 impl<T, S: Shape, F: Format, O: Order> Index<S> for SpanBase<T, Layout<S::Dim, F, O>> {
     type Output = T;
@@ -38,10 +38,7 @@ impl<T, S: Shape, F: Format, O: Order> IndexMut<S> for SpanBase<T, Layout<S::Dim
     }
 }
 
-impl<T, D: Dim, F: Format, O: Order> Index<usize> for SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasLinearIndexing,
-{
+impl<T, D: Dim, F: Uniform, O: Order> Index<usize> for SpanBase<T, Layout<D, F, O>> {
     type Output = T;
 
     fn index(&self, index: usize) -> &T {
@@ -53,10 +50,7 @@ where
     }
 }
 
-impl<T, D: Dim, F: Format, O: Order> IndexMut<usize> for SpanBase<T, Layout<D, F, O>>
-where
-    Layout<D, F, O>: HasLinearIndexing,
-{
+impl<T, D: Dim, F: Uniform, O: Order> IndexMut<usize> for SpanBase<T, Layout<D, F, O>> {
     fn index_mut(&mut self, index: usize) -> &mut T {
         if index >= self.size(0) {
             panic_bounds_check(index, self.size(0))
@@ -68,10 +62,7 @@ where
 
 macro_rules! impl_index_range {
     ($type:ty) => {
-        impl<T, D: Dim, F: Format, O: Order> Index<$type> for SpanBase<T, Layout<D, F, O>>
-        where
-            Layout<D, F, O>: HasSliceIndexing,
-        {
+        impl<T, D: Dim, O: Order> Index<$type> for DenseSpan<T, D, O> {
             type Output = [T];
 
             fn index(&self, index: $type) -> &Self::Output {
@@ -79,10 +70,7 @@ macro_rules! impl_index_range {
             }
         }
 
-        impl<T, D: Dim, F: Format, O: Order> IndexMut<$type> for SpanBase<T, Layout<D, F, O>>
-        where
-            Layout<D, F, O>: HasSliceIndexing,
-        {
+        impl<T, D: Dim, O: Order> IndexMut<$type> for DenseSpan<T, D, O> {
             fn index_mut(&mut self, index: $type) -> &mut Self::Output {
                 &mut self.as_mut_slice()[index]
             }
