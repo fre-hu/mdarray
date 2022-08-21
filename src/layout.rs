@@ -1,24 +1,23 @@
-use crate::dim::{Dim, Shape, U1};
+use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Dense, Flat, Format, General, Strided};
 use crate::index::Params;
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-use crate::order::Order;
 
-/// Array layout, including rank, shape, strides and element order.
+/// Array layout, including rank, element order and storage format.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Layout<D: Dim, F: Format, O: Order> {
-    map: F::Mapping<D, O>,
+pub struct Layout<D: Dim, F: Format> {
+    map: F::Mapping<D>,
 }
 
-pub type DenseLayout<D, O> = Layout<D, Dense, O>;
-pub type FlatLayout<D, O> = Layout<D, Flat, O>;
-pub type GeneralLayout<D, O> = Layout<D, General, O>;
-pub type StridedLayout<D, O> = Layout<D, Strided, O>;
+pub type DenseLayout<D> = Layout<D, Dense>;
+pub type FlatLayout<D> = Layout<D, Flat>;
+pub type GeneralLayout<D> = Layout<D, General>;
+pub type StridedLayout<D> = Layout<D, Strided>;
 
-pub type ValidLayout<D, F, O> = Layout<D, <D as Dim>::Format<F>, O>;
-pub type ViewLayout<P, O> = Layout<<P as Params>::Dim, <P as Params>::Format, O>;
+pub type ValidLayout<D, F> = Layout<D, <D as Dim>::Format<F>>;
+pub type ViewLayout<P> = Layout<<P as Params>::Dim, <P as Params>::Format>;
 
-impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
+impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns true if the array strides are consistent with contiguous memory layout.
     pub fn is_contiguous(self) -> bool {
         self.map.is_contiguous()
@@ -67,11 +66,11 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         self.map.strides()
     }
 
-    pub(crate) fn add_dim<G: Format>(self, size: usize, stride: isize) -> Layout<D::Higher, G, O> {
+    pub(crate) fn add_dim<G: Format>(self, size: usize, stride: isize) -> Layout<D::Higher, G> {
         G::Mapping::add_dim(self, size, stride)
     }
 
-    pub(crate) fn flatten(self) -> Layout<U1, F::Uniform, O> {
+    pub(crate) fn flatten(self) -> Layout<Rank<1, D::Order>, F::Uniform> {
         self.map.flatten()
     }
 
@@ -88,15 +87,15 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
         offset
     }
 
-    pub(crate) fn reformat<G: Format>(self) -> Layout<D, G, O> {
+    pub(crate) fn reformat<G: Format>(self) -> Layout<D, G> {
         G::Mapping::reformat(self)
     }
 
-    pub(crate) fn remove_dim<G: Format>(self, dim: usize) -> Layout<D::Lower, G, O> {
+    pub(crate) fn remove_dim<G: Format>(self, dim: usize) -> Layout<D::Lower, G> {
         G::Mapping::remove_dim(self, dim)
     }
 
-    pub(crate) fn reshape<S: Shape, G: Format>(self, new_shape: S) -> Layout<S::Dim, G, O> {
+    pub(crate) fn reshape<S: Shape, G: Format>(self, new_shape: S) -> Layout<S::Dim<D::Order>, G> {
         G::Mapping::reshape(self, new_shape)
     }
 
@@ -105,28 +104,28 @@ impl<D: Dim, F: Format, O: Order> Layout<D, F, O> {
     }
 }
 
-impl<D: Dim, O: Order> DenseLayout<D, O> {
+impl<D: Dim> DenseLayout<D> {
     /// Creates a new, dense array layout with the specified shape.
     pub fn new(shape: D::Shape) -> Self {
         Self { map: DenseMapping::new(shape) }
     }
 }
 
-impl<D: Dim, O: Order> FlatLayout<D, O> {
+impl<D: Dim> FlatLayout<D> {
     /// Creates a new, flat array layout with the specified shape and inner stride.
     pub fn new(shape: D::Shape, inner_stride: isize) -> Self {
         Self { map: FlatMapping::new(shape, inner_stride) }
     }
 }
 
-impl<D: Dim, O: Order> GeneralLayout<D, O> {
+impl<D: Dim> GeneralLayout<D> {
     /// Creates a new, general array layout with the specified shape and outer strides.
     pub fn new(shape: D::Shape, outer_strides: <D::Lower as Dim>::Strides) -> Self {
         Self { map: GeneralMapping::new(shape, outer_strides) }
     }
 }
 
-impl<D: Dim, O: Order> StridedLayout<D, O> {
+impl<D: Dim> StridedLayout<D> {
     /// Creates a new, strided array layout with the specified shape and strides.
     pub fn new(shape: D::Shape, strides: D::Strides) -> Self {
         Self { map: StridedMapping::new(shape, strides) }

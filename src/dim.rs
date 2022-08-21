@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::slice;
 
 use std::ops::{
@@ -9,38 +10,41 @@ use std::ops::{
 use crate::format::{Dense, Format};
 use crate::order::Order;
 
-/// Array dimension trait for rank, shape and strides.
+/// Array dimension trait, for rank and element order.
 pub trait Dim: Copy + Debug + Default {
+    /// Array element order.
+    type Order: Order;
+
     /// Next higher dimension.
-    type Higher: Dim;
+    type Higher: Dim<Order = Self::Order>;
 
     /// Next lower dimension.
-    type Lower: Dim;
+    type Lower: Dim<Order = Self::Order>;
 
     /// Corresponding format based on the dimension.
     type Format<F: Format>: Format;
 
     /// Array shape type.
-    type Shape: Shape<Dim = Self>;
+    type Shape: Shape<Dim<Self::Order> = Self>;
 
     /// Array strides type.
-    type Strides: Strides<Dim = Self>;
+    type Strides: Strides<Dim<Self::Order> = Self>;
 
     /// Array rank, i.e. the number of dimensions.
     const RANK: usize;
 
     /// Returns the dimension with the specified index, counted from the innermost dimension.
-    fn dim<O: Order>(index: usize) -> usize {
+    fn dim(index: usize) -> usize {
         assert!(index < Self::RANK, "invalid dimension");
 
-        O::select(index, Self::RANK - 1 - index)
+        Self::Order::select(index, Self::RANK - 1 - index)
     }
 
     /// Returns the dimensions with the specified indices, counted from the innermost dimension.
-    fn dims<O: Order>(indices: impl RangeBounds<usize>) -> Range<usize> {
+    fn dims(indices: impl RangeBounds<usize>) -> Range<usize> {
         let range = slice::range(indices, ..Self::RANK);
 
-        O::select(range.clone(), Self::RANK - range.end..Self::RANK - range.start)
+        Self::Order::select(range.clone(), Self::RANK - range.end..Self::RANK - range.start)
     }
 }
 
@@ -59,7 +63,7 @@ pub trait Shape:
     + IndexMut<RangeToInclusive<usize>, Output = [usize]>
 {
     /// Array dimension type.
-    type Dim: Dim<Shape = Self>;
+    type Dim<O: Order>: Dim<Shape = Self>;
 }
 
 /// Array strides trait.
@@ -77,22 +81,23 @@ pub trait Strides:
     + IndexMut<RangeToInclusive<usize>, Output = [isize]>
 {
     /// Array dimension type.
-    type Dim: Dim<Strides = Self>;
+    type Dim<O: Order>: Dim<Strides = Self>;
 }
 
-/// Type-level constant.
+/// Array rank type, including element order.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Const<const N: usize>;
-
-pub type U0 = Const<0>;
-pub type U1 = Const<1>;
+pub struct Rank<const N: usize, O: Order> {
+    phantom: PhantomData<O>,
+}
 
 macro_rules! impl_dim {
     (($($n:tt),*), ($($format:ty),*)) => {
         $(
-            impl Dim for Const<$n> {
-                type Higher = Const<{ $n + ($n < 6) as usize }>;
-                type Lower = Const<{ $n - ($n > 0) as usize }>;
+            impl<O: Order> Dim for Rank<$n, O> {
+                type Order = O;
+
+                type Higher = Rank<{ $n + ($n < 6) as usize }, O>;
+                type Lower = Rank<{ $n - ($n > 0) as usize }, O>;
 
                 type Format<F: Format> = $format;
 
@@ -103,11 +108,11 @@ macro_rules! impl_dim {
             }
 
             impl Shape for [usize; $n] {
-                type Dim = Const<$n>;
+                type Dim<O: Order> = Rank<$n, O>;
             }
 
             impl Strides for [isize; $n] {
-                type Dim = Const<$n>;
+                type Dim<O: Order> = Rank<$n, O>;
             }
         )*
     }

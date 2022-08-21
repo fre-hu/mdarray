@@ -5,7 +5,6 @@ use std::slice::{Iter, IterMut};
 use crate::dim::Dim;
 use crate::iter::{LinearIter, LinearIterMut};
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-use crate::order::Order;
 
 /// Array format trait for memory layout.
 pub trait Format: Copy + Debug + Default {
@@ -38,7 +37,7 @@ pub trait Format: Copy + Debug + Default {
         + Iterator<Item = &'a mut T>;
 
     #[doc(hidden)]
-    type Mapping<D: Dim, O: Order>: Mapping<Dim = D, Format = Self, Order = O>;
+    type Mapping<D: Dim>: Mapping<Dim = D, Format = Self>;
 
     /// True if the format type has uniform stride.
     const IS_UNIFORM: bool;
@@ -80,7 +79,7 @@ impl Format for Dense {
     type Iter<'a, T: 'a> = Iter<'a, T>;
     type IterMut<'a, T: 'a> = IterMut<'a, T>;
 
-    type Mapping<D: Dim, O: Order> = DenseMapping<D, O>;
+    type Mapping<D: Dim> = DenseMapping<D>;
 
     const IS_UNIFORM: bool = true;
     const IS_UNIT_STRIDED: bool = true;
@@ -97,7 +96,7 @@ impl Format for Flat {
     type Iter<'a, T: 'a> = LinearIter<'a, T>;
     type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
 
-    type Mapping<D: Dim, O: Order> = FlatMapping<D, O>;
+    type Mapping<D: Dim> = FlatMapping<D>;
 
     const IS_UNIFORM: bool = true;
     const IS_UNIT_STRIDED: bool = false;
@@ -114,7 +113,7 @@ impl Format for General {
     type Iter<'a, T: 'a> = Iter<'a, T>;
     type IterMut<'a, T: 'a> = IterMut<'a, T>;
 
-    type Mapping<D: Dim, O: Order> = GeneralMapping<D, O>;
+    type Mapping<D: Dim> = GeneralMapping<D>;
 
     const IS_UNIFORM: bool = false;
     const IS_UNIT_STRIDED: bool = true;
@@ -131,7 +130,7 @@ impl Format for Strided {
     type Iter<'a, T: 'a> = LinearIter<'a, T>;
     type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
 
-    type Mapping<D: Dim, O: Order> = StridedMapping<D, O>;
+    type Mapping<D: Dim> = StridedMapping<D>;
 
     const IS_UNIFORM: bool = false;
     const IS_UNIT_STRIDED: bool = false;

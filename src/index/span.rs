@@ -5,16 +5,15 @@ use std::ops::{
 use crate::dim::{Dim, Shape};
 use crate::format::{Format, Uniform};
 use crate::layout::{panic_bounds_check, Layout};
-use crate::order::Order;
 use crate::span::{DenseSpan, SpanBase};
 
-impl<T, S: Shape, F: Format, O: Order> Index<S> for SpanBase<T, Layout<S::Dim, F, O>> {
+impl<T, S: Shape, D: Dim<Shape = S>, F: Format> Index<S> for SpanBase<T, Layout<D, F>> {
     type Output = T;
 
     fn index(&self, index: S) -> &T {
         let layout = self.layout();
 
-        for i in 0..S::Dim::RANK {
+        for i in 0..D::RANK {
             if index[i] >= layout.size(i) {
                 panic_bounds_check(index[i], layout.size(i))
             }
@@ -24,11 +23,11 @@ impl<T, S: Shape, F: Format, O: Order> Index<S> for SpanBase<T, Layout<S::Dim, F
     }
 }
 
-impl<T, S: Shape, F: Format, O: Order> IndexMut<S> for SpanBase<T, Layout<S::Dim, F, O>> {
+impl<T, S: Shape, D: Dim<Shape = S>, F: Format> IndexMut<S> for SpanBase<T, Layout<D, F>> {
     fn index_mut(&mut self, index: S) -> &mut T {
         let layout = self.layout();
 
-        for i in 0..S::Dim::RANK {
+        for i in 0..D::RANK {
             if index[i] >= layout.size(i) {
                 panic_bounds_check(index[i], layout.size(i))
             }
@@ -38,7 +37,7 @@ impl<T, S: Shape, F: Format, O: Order> IndexMut<S> for SpanBase<T, Layout<S::Dim
     }
 }
 
-impl<T, D: Dim, F: Uniform, O: Order> Index<usize> for SpanBase<T, Layout<D, F, O>> {
+impl<T, D: Dim, F: Uniform> Index<usize> for SpanBase<T, Layout<D, F>> {
     type Output = T;
 
     fn index(&self, index: usize) -> &T {
@@ -46,23 +45,23 @@ impl<T, D: Dim, F: Uniform, O: Order> Index<usize> for SpanBase<T, Layout<D, F, 
             panic_bounds_check(index, self.size(0))
         }
 
-        unsafe { &*self.as_ptr().offset(self.stride(D::dim::<O>(0)) * index as isize) }
+        unsafe { &*self.as_ptr().offset(self.stride(D::dim(0)) * index as isize) }
     }
 }
 
-impl<T, D: Dim, F: Uniform, O: Order> IndexMut<usize> for SpanBase<T, Layout<D, F, O>> {
+impl<T, D: Dim, F: Uniform> IndexMut<usize> for SpanBase<T, Layout<D, F>> {
     fn index_mut(&mut self, index: usize) -> &mut T {
         if index >= self.size(0) {
             panic_bounds_check(index, self.size(0))
         }
 
-        unsafe { &mut *self.as_mut_ptr().offset(self.stride(D::dim::<O>(0)) * index as isize) }
+        unsafe { &mut *self.as_mut_ptr().offset(self.stride(D::dim(0)) * index as isize) }
     }
 }
 
 macro_rules! impl_index_range {
     ($type:ty) => {
-        impl<T, D: Dim, O: Order> Index<$type> for DenseSpan<T, D, O> {
+        impl<T, D: Dim> Index<$type> for DenseSpan<T, D> {
             type Output = [T];
 
             fn index(&self, index: $type) -> &Self::Output {
@@ -70,7 +69,7 @@ macro_rules! impl_index_range {
             }
         }
 
-        impl<T, D: Dim, O: Order> IndexMut<$type> for DenseSpan<T, D, O> {
+        impl<T, D: Dim> IndexMut<$type> for DenseSpan<T, D> {
             fn index_mut(&mut self, index: $type) -> &mut Self::Output {
                 &mut self.as_mut_slice()[index]
             }

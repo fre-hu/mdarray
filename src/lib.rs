@@ -36,8 +36,8 @@
 //! refer to either an owned array or an array view.
 //!
 //! The array layout describes how elements are stored in memory. The layout
-//! is parameterized by the rank (i.e. the number of dimensions), the storage
-//! format and the element order. It contains the shape (i.e. the size in each
+//! is parameterized by the rank (i.e. the number of dimensions), the element
+//! order and the storage format. It contains the shape (i.e. the size in each
 //! dimension), and the strides per dimension if needed.
 //!
 //! The storage format is `Dense` if elements are stored contiguously without gaps.
@@ -174,7 +174,7 @@ mod serde;
 
 use std::alloc::Global;
 
-pub use dim::{Const, Dim, Shape, Strides};
+pub use dim::{Dim, Rank, Shape, Strides};
 pub use format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
 pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
 pub use layout::Layout;
@@ -183,13 +183,13 @@ pub use order::{ColumnMajor, Order, RowMajor};
 pub use span::SpanBase;
 
 /// Dense multidimensional array with column-major element order.
-pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, Const<N>, ColumnMajor, A>;
+pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, ColumnMajor>, A>;
 
 /// Dense multidimensional array with row-major element order.
-pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, Const<N>, RowMajor, A>;
+pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, RowMajor>, A>;
 
 /// Multidimensional array span with column-major element order.
-pub type Span<T, const N: usize, F = Dense> = SpanBase<T, Layout<Const<N>, F, ColumnMajor>>;
+pub type Span<T, const N: usize, F = Dense> = SpanBase<T, Layout<Rank<N, ColumnMajor>, F>>;
 
 /// Multidimensional array span with row-major element order.
-pub type CSpan<T, const N: usize, F = Dense> = SpanBase<T, Layout<Const<N>, F, RowMajor>>;
+pub type CSpan<T, const N: usize, F = Dense> = SpanBase<T, Layout<Rank<N, RowMajor>, F>>;

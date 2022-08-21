@@ -8,7 +8,7 @@ use std::ops::{Deref, DerefMut};
 use std::result::Result;
 
 use crate::buffer::{Buffer, BufferMut, DenseBuffer, SubBuffer, SubBufferMut};
-use crate::dim::{Const, Dim, Shape, U1};
+use crate::dim::{Dim, Rank, Shape};
 use crate::format::Format;
 use crate::index::ViewIndex;
 use crate::layout::{panic_bounds_check, DenseLayout, Layout, ValidLayout, ViewLayout};
@@ -21,7 +21,7 @@ pub struct GridBase<B: Buffer> {
 }
 
 /// Dense multidimensional array with static rank and element order.
-pub type DenseGrid<T, D, O, A = Global> = GridBase<DenseBuffer<T, D, O, A>>;
+pub type DenseGrid<T, D, A = Global> = GridBase<DenseBuffer<T, D, A>>;
 
 /// Multidimensional array view with static rank and element order.
 pub type SubGrid<'a, T, L> = GridBase<SubBuffer<'a, T, L>>;
@@ -45,7 +45,7 @@ impl<B: BufferMut> GridBase<B> {
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
+impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// Returns a reference to the underlying allocator.
     pub fn allocator(&self) -> &A {
         self.buffer.vec().allocator()
@@ -60,8 +60,8 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         } else {
             let mut shape = self.shape();
 
-            let dim = D::dim::<O>(D::RANK - 1);
-            let inner_dims = D::dims::<O>(..D::RANK - 1);
+            let dim = D::dim(D::RANK - 1);
+            let inner_dims = D::dims(..D::RANK - 1);
 
             assert!(
                 grid.shape()[inner_dims.clone()] == shape[inner_dims],
@@ -95,7 +95,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
     /// Clones the array span and appends to the array along the outer dimension.
     /// # Panics
     /// Panics if the inner dimensions do not match.
-    pub fn extend_from_span(&mut self, span: &SpanBase<T, Layout<D, impl Format, O>>)
+    pub fn extend_from_span(&mut self, span: &SpanBase<T, Layout<D, impl Format>>)
     where
         T: Clone,
     {
@@ -104,8 +104,8 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         } else {
             let mut shape = self.shape();
 
-            let dim = D::dim::<O>(D::RANK - 1);
-            let inner_dims = D::dims::<O>(..D::RANK - 1);
+            let dim = D::dim(D::RANK - 1);
+            let inner_dims = D::dims(..D::RANK - 1);
 
             assert!(
                 span.shape()[inner_dims.clone()] == shape[inner_dims],
@@ -131,7 +131,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
         let mut vec = Vec::with_capacity_in(len, alloc);
 
         unsafe {
-            from_fn::<T, D, O, A, D::Lower, F>(&mut vec, shape, D::Shape::default(), &mut f);
+            from_fn::<T, D, A, D::Lower, F>(&mut vec, shape, D::Shape::default(), &mut f);
 
             Self::from_parts(vec, DenseLayout::new(shape))
         }
@@ -140,26 +140,26 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
     /// Creates an array from a vector and layout.
     /// # Safety
     /// The vector length must match the given layout.
-    pub unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D, O>) -> Self {
+    pub unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D>) -> Self {
         Self { buffer: DenseBuffer::from_parts(vec, layout) }
     }
 
     /// Converts the array into a one-dimensional array.
-    pub fn into_flattened(self) -> DenseGrid<T, U1, O, A> {
+    pub fn into_flattened(self) -> DenseGrid<T, Rank<1, D::Order>, A> {
         let layout = DenseLayout::new([self.len()]);
 
         unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
     }
 
     /// Decomposes an array into a vector and layout.
-    pub fn into_parts(self) -> (Vec<T, A>, DenseLayout<D, O>) {
+    pub fn into_parts(self) -> (Vec<T, A>, DenseLayout<D>) {
         self.buffer.into_parts()
     }
 
     /// Converts the array into a reshaped array, which must have the same length.
     /// # Panics
     /// Panics if the array length is changed.
-    pub fn into_shape<S: Shape>(self, shape: S) -> DenseGrid<T, S::Dim, O, A> {
+    pub fn into_shape<S: Shape>(self, shape: S) -> DenseGrid<T, S::Dim<D::Order>, A> {
         let layout = self.layout().reshape(shape);
 
         unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
@@ -222,7 +222,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
     /// Forces the array layout to the specified layout.
     /// # Safety
     /// All elements within the array length must be initialized.
-    pub unsafe fn set_layout(&mut self, layout: DenseLayout<D, O>) {
+    pub unsafe fn set_layout(&mut self, layout: DenseLayout<D>) {
         self.buffer.vec_mut().set_len(layout.len());
         self.buffer.set_layout(layout);
     }
@@ -243,7 +243,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
 
     /// Shortens the array along the outer dimension, keeping the first `size` elements.
     pub fn truncate(&mut self, size: usize) {
-        let dim = D::dim::<O>(D::RANK - 1);
+        let dim = D::dim(D::RANK - 1);
 
         if size < self.size(dim) {
             let len = size * self.stride(dim) as usize;
@@ -275,7 +275,7 @@ impl<T, D: Dim, O: Order, A: Allocator> DenseGrid<T, D, O, A> {
     }
 }
 
-impl<T, D: Dim, O: Order> DenseGrid<T, D, O, Global> {
+impl<T, D: Dim> DenseGrid<T, D, Global> {
     /// Creates an array with the results from the given function.
     pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F) -> Self {
         Self::from_fn_in(shape, f, Global)
@@ -303,18 +303,20 @@ macro_rules! impl_sub_grid {
             }
         }
 
-        impl<'a, T, D: Dim, F: Format, O: Order> $name<'a, T, Layout<D, F, O>> {
+        impl<'a, T, D: Dim, F: Format> $name<'a, T, Layout<D, F>> {
             /// Converts the array view into a one-dimensional array view.
             /// # Panics
             /// Panics if the array layout is not uniformly strided.
-            pub fn into_flattened($($mut)? self) -> $name<'a, T, Layout<U1, F::Uniform, O>> {
+            pub fn into_flattened(
+                $($mut)? self
+            ) -> $name<'a, T, Layout<Rank<1, D::Order>, F::Uniform>> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().flatten()) }
             }
 
             /// Converts the array view into a reformatted array view.
             /// # Panics
             /// Panics if the array layout is not compatible with the new format.
-            pub fn into_format<G: Format>($($mut)? self) -> $name<'a, T, Layout<D, G, O>> {
+            pub fn into_format<G: Format>($($mut)? self) -> $name<'a, T, Layout<D, G>> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reformat()) }
             }
 
@@ -324,7 +326,7 @@ macro_rules! impl_sub_grid {
             pub fn into_shape<S: Shape>(
                 $($mut)? self,
                 shape: S
-            ) -> $name<'a, T, ValidLayout<S::Dim, F, O>> {
+            ) -> $name<'a, T, ValidLayout<S::Dim<D::Order>, F>> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
 
@@ -336,8 +338,8 @@ macro_rules! impl_sub_grid {
                 dim: usize,
                 mid: usize,
             ) -> (
-                $name<'a, T, ValidLayout<D, F::NonUniform, O>>,
-                $name<'a, T, ValidLayout<D, F::NonUniform, O>>
+                $name<'a, T, ValidLayout<D, F::NonUniform>>,
+                $name<'a, T, ValidLayout<D, F::NonUniform>>
             ) {
                 assert!(D::RANK > 0, "invalid rank");
 
@@ -365,10 +367,10 @@ macro_rules! impl_sub_grid {
             pub fn into_split_outer(
                 $($mut)? self,
                 mid: usize,
-            ) -> ($name<'a, T, Layout<D, F, O>>, $name<'a, T, Layout<D, F, O>>) {
+            ) -> ($name<'a, T, Layout<D, F>>, $name<'a, T, Layout<D, F>>) {
                 assert!(D::RANK > 0, "invalid rank");
 
-                let dim = D::dim::<O>(D::RANK - 1);
+                let dim = D::dim(D::RANK - 1);
 
                 if mid > self.size(dim) {
                     panic_bounds_check(mid, self.size(dim));
@@ -388,13 +390,13 @@ macro_rules! impl_sub_grid {
                 }
             }
 
-            /// Converts an array view into a new array view for the specified subarray.
+             /// Converts an array view into a new array view for the specified subarray.
             /// # Panics
             /// Panics if the subarray is out of bounds.
-            pub fn into_view<I: ViewIndex<D, F, O>>(
+            pub fn into_view<I: ViewIndex<D, F>>(
                 $($mut)? self,
                 index: I
-            ) -> $name<'a, T, ViewLayout<I::Params, O>> {
+            ) -> $name<'a, T, ViewLayout<I::Params>> {
                 let (offset, layout) = I::view_index(index, self.layout());
                 let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty.
 
@@ -407,14 +409,14 @@ macro_rules! impl_sub_grid {
 impl_sub_grid!(SubGrid, SubBuffer, as_ptr, const, {});
 impl_sub_grid!(SubGridMut, SubBufferMut, as_mut_ptr, mut, {mut});
 
-impl<T, D: Dim, O: Order, A: Allocator> Borrow<DenseSpan<T, D, O>> for DenseGrid<T, D, O, A> {
-    fn borrow(&self) -> &DenseSpan<T, D, O> {
+impl<T, D: Dim, A: Allocator> Borrow<DenseSpan<T, D>> for DenseGrid<T, D, A> {
+    fn borrow(&self) -> &DenseSpan<T, D> {
         self.as_span()
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> BorrowMut<DenseSpan<T, D, O>> for DenseGrid<T, D, O, A> {
-    fn borrow_mut(&mut self) -> &mut DenseSpan<T, D, O> {
+impl<T, D: Dim, A: Allocator> BorrowMut<DenseSpan<T, D>> for DenseGrid<T, D, A> {
+    fn borrow_mut(&mut self) -> &mut DenseSpan<T, D> {
         self.as_mut_span()
     }
 }
@@ -438,7 +440,7 @@ where
     }
 }
 
-impl<T, D: Dim, O: Order> Default for DenseGrid<T, D, O> {
+impl<T, D: Dim> Default for DenseGrid<T, D> {
     fn default() -> Self {
         Self::new()
     }
@@ -458,7 +460,7 @@ impl<B: BufferMut> DerefMut for GridBase<B> {
     }
 }
 
-impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for DenseGrid<T, U1, O, A> {
+impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for DenseGrid<T, Rank<1, O>, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         unsafe {
             self.buffer.vec_mut().extend(iter);
@@ -467,7 +469,7 @@ impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for DenseGrid<
     }
 }
 
-impl<T, O: Order, A: Allocator> Extend<T> for DenseGrid<T, U1, O, A> {
+impl<T, O: Order, A: Allocator> Extend<T> for DenseGrid<T, Rank<1, O>, A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         unsafe {
             self.buffer.vec_mut().extend(iter);
@@ -476,19 +478,19 @@ impl<T, O: Order, A: Allocator> Extend<T> for DenseGrid<T, U1, O, A> {
     }
 }
 
-impl<T: Clone, O: Order> From<&[T]> for DenseGrid<T, U1, O> {
+impl<T: Clone, O: Order> From<&[T]> for DenseGrid<T, Rank<1, O>> {
     fn from(slice: &[T]) -> Self {
         Self::from(slice.to_vec())
     }
 }
 
-impl<'a, T, O: Order> From<&'a [T]> for SubGrid<'a, T, DenseLayout<U1, O>> {
+impl<'a, T, O: Order> From<&'a [T]> for SubGrid<'a, T, DenseLayout<Rank<1, O>>> {
     fn from(slice: &'a [T]) -> Self {
         unsafe { SubGrid::new_unchecked(slice.as_ptr(), DenseLayout::new([slice.len()])) }
     }
 }
 
-impl<'a, T, O: Order> From<&'a mut [T]> for SubGridMut<'a, T, DenseLayout<U1, O>> {
+impl<'a, T, O: Order> From<&'a mut [T]> for SubGridMut<'a, T, DenseLayout<Rank<1, O>>> {
     fn from(slice: &'a mut [T]) -> Self {
         unsafe { SubGridMut::new_unchecked(slice.as_mut_ptr(), DenseLayout::new([slice.len()])) }
     }
@@ -497,7 +499,7 @@ impl<'a, T, O: Order> From<&'a mut [T]> for SubGridMut<'a, T, DenseLayout<U1, O>
 macro_rules! impl_from_array_ref {
     ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
         impl<'a, T, O: Order, $(const $xyz: usize),+> From<&'a $array>
-            for SubGrid<'a, T, DenseLayout<Const<$n>, O>>
+            for SubGrid<'a, T, DenseLayout<Rank<$n, O>>>
         {
             fn from(array: &'a $array) -> Self {
                 let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
@@ -507,7 +509,7 @@ macro_rules! impl_from_array_ref {
         }
 
         impl<'a, T, O: Order, $(const $xyz: usize),+> From<&'a mut $array>
-            for SubGridMut<'a, T, DenseLayout<Const<$n>, O>>
+            for SubGridMut<'a, T, DenseLayout<Rank<$n, O>>>
         {
             fn from(array: &'a mut $array) -> Self {
                 let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
@@ -528,7 +530,7 @@ impl_from_array_ref!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y];
 macro_rules! impl_from_array {
     ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
         #[allow(unused_parens)]
-        impl<T, O: Order, $(const $xyz: usize),+> From<$array> for DenseGrid<T, Const<$n>, O> {
+        impl<T, O: Order, $(const $xyz: usize),+> From<$array> for DenseGrid<T, Rank<$n, O>> {
             fn from(array: $array) -> Self {
                 let (ptr, _, mut capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
                 let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
@@ -552,7 +554,7 @@ impl_from_array!(4, (X, Y, Z, W), (W, Z, Y, X), [[[[T; X]; Y]; Z]; W]);
 impl_from_array!(5, (X, Y, Z, W, U), (U, W, Z, Y, X), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
-impl<T, O: Order, A: Allocator> From<Vec<T, A>> for DenseGrid<T, U1, O, A> {
+impl<T, O: Order, A: Allocator> From<Vec<T, A>> for DenseGrid<T, Rank<1, O>, A> {
     fn from(vec: Vec<T, A>) -> Self {
         let layout = DenseLayout::new([vec.len()]);
 
@@ -560,13 +562,13 @@ impl<T, O: Order, A: Allocator> From<Vec<T, A>> for DenseGrid<T, U1, O, A> {
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> From<DenseGrid<T, D, O, A>> for Vec<T, A> {
-    fn from(grid: DenseGrid<T, D, O, A>) -> Self {
+impl<T, D: Dim, A: Allocator> From<DenseGrid<T, D, A>> for Vec<T, A> {
+    fn from(grid: DenseGrid<T, D, A>) -> Self {
         grid.into_vec()
     }
 }
 
-impl<T, O: Order> FromIterator<T> for DenseGrid<T, U1, O> {
+impl<T, O: Order> FromIterator<T> for DenseGrid<T, Rank<1, O>> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
     }
@@ -596,7 +598,7 @@ where
     }
 }
 
-impl<T, D: Dim, O: Order, A: Allocator> IntoIterator for DenseGrid<T, D, O, A> {
+impl<T, D: Dim, A: Allocator> IntoIterator for DenseGrid<T, D, A> {
     type Item = T;
     type IntoIter = <Vec<T, A> as IntoIterator>::IntoIter;
 
@@ -607,7 +609,7 @@ impl<T, D: Dim, O: Order, A: Allocator> IntoIterator for DenseGrid<T, D, O, A> {
 
 unsafe fn extend_from_span<T: Clone, F: Format>(
     vec: &mut Vec<T, impl Allocator>,
-    span: &SpanBase<T, Layout<impl Dim, F, impl Order>>,
+    span: &SpanBase<T, Layout<impl Dim, F>>,
 ) {
     if F::IS_UNIFORM {
         for x in span.flatten().iter() {
@@ -621,13 +623,13 @@ unsafe fn extend_from_span<T: Clone, F: Format>(
     }
 }
 
-unsafe fn from_fn<T, D: Dim, O: Order, A: Allocator, I: Dim, F: FnMut(D::Shape) -> T>(
+unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim, F: FnMut(D::Shape) -> T>(
     vec: &mut Vec<T, A>,
     shape: D::Shape,
     mut index: D::Shape,
     f: &mut F,
 ) {
-    let dim = O::select(I::RANK, D::RANK - 1 - I::RANK);
+    let dim = D::dim(I::RANK);
 
     for i in 0..shape[dim] {
         index[dim] = i;
@@ -636,13 +638,13 @@ unsafe fn from_fn<T, D: Dim, O: Order, A: Allocator, I: Dim, F: FnMut(D::Shape) 
             vec.as_mut_ptr().add(vec.len()).write(f(index));
             vec.set_len(vec.len() + 1);
         } else {
-            from_fn::<T, D, O, A, I::Lower, F>(vec, shape, index, f);
+            from_fn::<T, D, A, I::Lower, F>(vec, shape, index, f);
         }
     }
 }
 
 fn map<T: Default, F: Format>(
-    span: &mut SpanBase<T, Layout<impl Dim, F, impl Order>>,
+    span: &mut SpanBase<T, Layout<impl Dim, F>>,
     f: &mut impl FnMut(T) -> T,
 ) {
     if F::IS_UNIFORM {

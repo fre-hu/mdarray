@@ -16,7 +16,7 @@ use serde_test::{assert_tokens, Token};
 
 use aligned_alloc::AlignedAlloc;
 use mdarray::{
-    fill, step, CGrid, ColumnMajor, Const, Dense, Dim, Flat, Format, General, Grid, Layout,
+    fill, step, CGrid, ColumnMajor, Dense, Dim, Flat, Format, General, Grid, Layout, Rank,
     StepRange, Strided, SubGrid, SubGridMut,
 };
 
@@ -27,188 +27,190 @@ macro_rules! to_slice {
 }
 
 fn check_layout<D: Dim, F: Format, L: Copy>(_: L) {
-    assert_eq!(any::type_name::<Layout<D, F, ColumnMajor>>(), any::type_name::<L>());
+    assert_eq!(any::type_name::<Layout<D, F>>(), any::type_name::<L>());
 }
 
 fn check_view<F: Format>() {
+    type Dim<const N: usize> = Rank<N, ColumnMajor>;
+
     let a = Grid::from([[[[0]]]]);
     let a = a.reformat::<F>();
 
     // a.view((_, _, 0, 0))
 
-    check_layout::<Const<0>, Dense, _>(a.view((0, 0, 0, 0)).layout());
-    check_layout::<Const<1>, F::Uniform, _>(a.view((.., 0, 0, 0)).layout());
-    check_layout::<Const<1>, F::Uniform, _>(a.view((1.., 0, 0, 0)).layout());
-    check_layout::<Const<1>, Flat, _>(a.view((sr(), 0, 0, 0)).layout());
+    check_layout::<Dim<0>, Dense, _>(a.view((0, 0, 0, 0)).layout());
+    check_layout::<Dim<1>, F::Uniform, _>(a.view((.., 0, 0, 0)).layout());
+    check_layout::<Dim<1>, F::Uniform, _>(a.view((1.., 0, 0, 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((sr(), 0, 0, 0)).layout());
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, .., 0, 0)).layout());
-    check_layout::<Const<2>, F, _>(a.view((.., .., 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., .., 0, 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), .., 0, 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, .., 0, 0)).layout());
+    check_layout::<Dim<2>, F, _>(a.view((.., .., 0, 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., .., 0, 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), .., 0, 0)).layout());
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 1.., 0, 0)).layout());
-    check_layout::<Const<2>, F, _>(a.view((.., 1.., 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 1.., 0, 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 1.., 0, 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, 1.., 0, 0)).layout());
+    check_layout::<Dim<2>, F, _>(a.view((.., 1.., 0, 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., 1.., 0, 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), 1.., 0, 0)).layout());
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, sr(), 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., sr(), 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., sr(), 0, 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), sr(), 0, 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, sr(), 0, 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((.., sr(), 0, 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., sr(), 0, 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), sr(), 0, 0)).layout());
 
     // a.view((_, _, .., 0))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, .., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, .., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, .., 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, .., 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, 0, .., 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((.., 0, .., 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., 0, .., 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), 0, .., 0)).layout());
 
-    check_layout::<Const<2>, F::NonUnitStrided, _>(a.view((0, .., .., 0)).layout());
-    check_layout::<Const<3>, F, _>(a.view((.., .., .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., .., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., .., 0)).layout());
+    check_layout::<Dim<2>, F::NonUnitStrided, _>(a.view((0, .., .., 0)).layout());
+    check_layout::<Dim<3>, F, _>(a.view((.., .., .., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., .., .., 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), .., .., 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., .., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., .., 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, 1.., .., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 1.., .., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 1.., .., 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 1.., .., 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), .., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), .., 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, sr(), .., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., sr(), .., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., sr(), .., 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), sr(), .., 0)).layout());
 
     // a.view((_, _, 1.., 0))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, 1.., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, 1.., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, 1.., 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, 1.., 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, 0, 1.., 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((.., 0, 1.., 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., 0, 1.., 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), 0, 1.., 0)).layout());
 
-    check_layout::<Const<2>, F::NonUnitStrided, _>(a.view((0, .., 1.., 0)).layout());
-    check_layout::<Const<3>, F, _>(a.view((.., .., 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., 1.., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., 1.., 0)).layout());
+    check_layout::<Dim<2>, F::NonUnitStrided, _>(a.view((0, .., 1.., 0)).layout());
+    check_layout::<Dim<3>, F, _>(a.view((.., .., 1.., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., .., 1.., 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), .., 1.., 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., 1.., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., 1.., 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, 1.., 1.., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 1.., 1.., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 1.., 1.., 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 1.., 1.., 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), 1.., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), 1.., 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, sr(), 1.., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., sr(), 1.., 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., sr(), 1.., 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), sr(), 1.., 0)).layout());
 
     // a.view((_, _, sr(), 0))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, sr(), 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, sr(), 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, sr(), 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, sr(), 0)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, 0, sr(), 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((.., 0, sr(), 0)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., 0, sr(), 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), 0, sr(), 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, .., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., .., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., sr(), 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., sr(), 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, .., sr(), 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., .., sr(), 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., .., sr(), 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), .., sr(), 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., sr(), 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., sr(), 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, 1.., sr(), 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 1.., sr(), 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 1.., sr(), 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 1.., sr(), 0)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), sr(), 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), sr(), 0)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, sr(), sr(), 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., sr(), sr(), 0)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., sr(), sr(), 0)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), sr(), sr(), 0)).layout());
 
     // a.view((_, _, 0, ..))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, 0, ..)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, 0, ..)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, 0, ..)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, 0, ..)).layout());
+    check_layout::<Dim<1>, Flat, _>(a.view((0, 0, 0, ..)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((.., 0, 0, ..)).layout());
+    check_layout::<Dim<2>, F::NonUniform, _>(a.view((1.., 0, 0, ..)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((sr(), 0, 0, ..)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, .., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., .., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., 0, ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., 0, ..)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, .., 0, ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., .., 0, ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., .., 0, ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), .., 0, ..)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., 0, ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., 0, ..)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, 1.., 0, ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 1.., 0, ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 1.., 0, ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 1.., 0, ..)).layout());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), 0, ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), 0, ..)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, sr(), 0, ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., sr(), 0, ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., sr(), 0, ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), sr(), 0, ..)).layout());
 
     // a.view((_, _, .., ..))
 
-    check_layout::<Const<2>, F::NonUnitStrided, _>(a.view((0, 0, .., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 0, .., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 0, .., ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 0, .., ..)).layout());
+    check_layout::<Dim<2>, F::NonUnitStrided, _>(a.view((0, 0, .., ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 0, .., ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 0, .., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 0, .., ..)).layout());
 
-    check_layout::<Const<3>, F::NonUnitStrided, _>(a.view((0, .., .., ..)).layout());
-    check_layout::<Const<4>, F, _>(a.view((.., .., .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., .., .., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), .., .., ..)).layout());
+    check_layout::<Dim<3>, F::NonUnitStrided, _>(a.view((0, .., .., ..)).layout());
+    check_layout::<Dim<4>, F, _>(a.view((.., .., .., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., .., .., ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), .., .., ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, 1.., .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., 1.., .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., 1.., .., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), 1.., .., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, 1.., .., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., 1.., .., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., 1.., .., ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), 1.., .., ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, sr(), .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., sr(), .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., sr(), .., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), sr(), .., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, sr(), .., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., sr(), .., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., sr(), .., ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), sr(), .., ..)).layout());
 
     // a.view((_, _, 1.., ..))
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 0, 1.., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 0, 1.., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 0, 1.., ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 0, 1.., ..)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, 0, 1.., ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 0, 1.., ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 0, 1.., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 0, 1.., ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, .., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., .., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., .., 1.., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), .., 1.., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, .., 1.., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., .., 1.., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., .., 1.., ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), .., 1.., ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, 1.., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., 1.., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., 1.., 1.., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), 1.., 1.., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, 1.., 1.., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., 1.., 1.., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., 1.., 1.., ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), 1.., 1.., ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, sr(), 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., sr(), 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., sr(), 1.., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), sr(), 1.., ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, sr(), 1.., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., sr(), 1.., ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., sr(), 1.., ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), sr(), 1.., ..)).layout());
 
     // a.view((_, _, sr(), ..))
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 0, sr(), ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 0, sr(), ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 0, sr(), ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 0, sr(), ..)).layout());
+    check_layout::<Dim<2>, Strided, _>(a.view((0, 0, sr(), ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((.., 0, sr(), ..)).layout());
+    check_layout::<Dim<3>, F::NonUniform, _>(a.view((1.., 0, sr(), ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((sr(), 0, sr(), ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, .., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., .., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., .., sr(), ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), .., sr(), ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, .., sr(), ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., .., sr(), ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., .., sr(), ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), .., sr(), ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, 1.., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., 1.., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., 1.., sr(), ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), 1.., sr(), ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, 1.., sr(), ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., 1.., sr(), ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., 1.., sr(), ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), 1.., sr(), ..)).layout());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, sr(), sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., sr(), sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., sr(), sr(), ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), sr(), sr(), ..)).layout());
+    check_layout::<Dim<3>, Strided, _>(a.view((0, sr(), sr(), ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((.., sr(), sr(), ..)).layout());
+    check_layout::<Dim<4>, F::NonUniform, _>(a.view((1.., sr(), sr(), ..)).layout());
+    check_layout::<Dim<4>, Strided, _>(a.view((sr(), sr(), sr(), ..)).layout());
 }
 
 fn sr() -> StepRange<RangeFull, isize> {
@@ -261,7 +263,7 @@ fn test_base() {
     let mut s = c.clone();
 
     unsafe {
-        s.set_layout(Layout::<_, Dense, _>::new([5, 4, 3]));
+        s.set_layout(Layout::<_, Dense>::new([5, 4, 3]));
     }
 
     a.resize([4, 4, 4], 9999);

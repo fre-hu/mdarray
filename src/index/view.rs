@@ -4,7 +4,7 @@ use std::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use crate::dim::{Const, Dim, U0, U1};
+use crate::dim::{Dim, Rank};
 use crate::format::{Dense, Flat, Format, Uniform};
 use crate::layout::{panic_bounds_check, Layout, ViewLayout};
 use crate::ops::StepRange;
@@ -16,13 +16,13 @@ pub trait DimIndex {
     type Params<P: Params, F: Format>: Params;
 
     #[doc(hidden)]
-    fn dim_index<P: Params, F: Format, O: Order>(
+    fn dim_index<P: Params, F: Format>(
         self,
         offset: isize,
-        layout: ViewLayout<P, O>,
+        layout: ViewLayout<P>,
         size: usize,
         stride: isize,
-    ) -> (isize, ViewLayout<Self::Params<P, F>, O>);
+    ) -> (isize, ViewLayout<Self::Params<P, F>>);
 }
 
 /// Helper trait for array indexing, for view parameters.
@@ -41,26 +41,26 @@ pub trait Params {
 }
 
 /// Array view index trait, for a linear index or a tuple of indices.
-pub trait ViewIndex<D: Dim, F: Format, O: Order> {
+pub trait ViewIndex<D: Dim, F: Format> {
     /// Array view parameters.
     type Params: Params;
 
     #[doc(hidden)]
-    fn view_index(self, layout: Layout<D, F, O>) -> (isize, ViewLayout<Self::Params, O>);
+    fn view_index(self, layout: Layout<D, F>) -> (isize, ViewLayout<Self::Params>);
 }
 
-type EmptyParams = (U0, Dense, Dense, Flat);
+type EmptyParams<O> = (Rank<0, O>, Dense, Dense, Flat);
 
 impl DimIndex for usize {
     type Params<P: Params, F: Format> = (P::Dim, P::Format, P::Split, P::Split);
 
-    fn dim_index<P: Params, F: Format, O: Order>(
+    fn dim_index<P: Params, F: Format>(
         self,
         offset: isize,
-        layout: ViewLayout<P, O>,
+        layout: ViewLayout<P>,
         size: usize,
         stride: isize,
-    ) -> (isize, ViewLayout<Self::Params<P, F>, O>) {
+    ) -> (isize, ViewLayout<Self::Params<P, F>>) {
         if self >= size {
             panic_bounds_check(self, size)
         }
@@ -77,13 +77,13 @@ impl DimIndex for RangeFull {
         <P::Larger as Format>::NonUniform,
     );
 
-    fn dim_index<P: Params, F: Format, O: Order>(
+    fn dim_index<P: Params, F: Format>(
         self,
         offset: isize,
-        layout: ViewLayout<P, O>,
+        layout: ViewLayout<P>,
         size: usize,
         stride: isize,
-    ) -> (isize, ViewLayout<Self::Params<P, F>, O>) {
+    ) -> (isize, ViewLayout<Self::Params<P, F>>) {
         (offset, layout.add_dim(size, stride))
     }
 }
@@ -98,13 +98,13 @@ macro_rules! impl_dim_index {
                 <P::Larger as Format>::NonUniform,
             );
 
-            fn dim_index<P: Params, F: Format, O: Order>(
+            fn dim_index<P: Params, F: Format>(
                 self,
                 offset: isize,
-                layout: ViewLayout<P, O>,
+                layout: ViewLayout<P>,
                 size: usize,
                 stride: isize,
-            ) -> (isize, ViewLayout<Self::Params<P, F>, O>) {
+            ) -> (isize, ViewLayout<Self::Params<P, F>>) {
                 let range = slice::range(self, ..size);
                 let layout = layout.add_dim(range.len(), stride);
 
@@ -129,13 +129,13 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
         <P::Split as Format>::NonUniform,
     );
 
-    fn dim_index<P: Params, F: Format, O: Order>(
+    fn dim_index<P: Params, F: Format>(
         self,
         offset: isize,
-        layout: ViewLayout<P, O>,
+        layout: ViewLayout<P>,
         size: usize,
         stride: isize,
-    ) -> (isize, ViewLayout<Self::Params<P, F>, O>) {
+    ) -> (isize, ViewLayout<Self::Params<P, F>>) {
         let range = slice::range(self.range, ..size);
         let len = range.len().div_ceil(self.step.abs_diff(0));
         let layout = layout.add_dim(len, stride * self.step);
@@ -160,14 +160,14 @@ impl<D: Dim, F: Format, L: Format, S: Format> Params for (D, F, L, S) {
 
 macro_rules! impl_view_index_linear {
     ($type:ty) => {
-        impl<D: Dim, F: Uniform, O: Order> ViewIndex<D, F, O> for $type {
-            type Params = <Self as DimIndex>::Params<EmptyParams, F>;
+        impl<D: Dim, F: Uniform> ViewIndex<D, F> for $type {
+            type Params = <Self as DimIndex>::Params<EmptyParams<D::Order>, F>;
 
-            fn view_index(self, layout: Layout<D, F, O>) -> (isize, ViewLayout<Self::Params, O>) {
+            fn view_index(self, layout: Layout<D, F>) -> (isize, ViewLayout<Self::Params>) {
                 let size = layout.len();
-                let stride = layout.stride(D::dim::<O>(0));
+                let stride = layout.stride(D::dim(0));
 
-                self.dim_index::<EmptyParams, F, O>(0, Layout::default(), size, stride)
+                self.dim_index::<EmptyParams<D::Order>, F>(0, Layout::default(), size, stride)
             }
         }
     };
@@ -182,38 +182,36 @@ impl_view_index_linear!(RangeInclusive<usize>);
 impl_view_index_linear!(RangeTo<usize>);
 impl_view_index_linear!(RangeToInclusive<usize>);
 
-impl<D: Dim, F: Uniform, O: Order, R: RangeBounds<usize>> ViewIndex<D, F, O>
-    for StepRange<R, isize>
-{
-    type Params = <Self as DimIndex>::Params<EmptyParams, F>;
+impl<D: Dim, F: Uniform, R: RangeBounds<usize>> ViewIndex<D, F> for StepRange<R, isize> {
+    type Params = <Self as DimIndex>::Params<EmptyParams<D::Order>, F>;
 
-    fn view_index(self, layout: Layout<D, F, O>) -> (isize, ViewLayout<Self::Params, O>) {
+    fn view_index(self, layout: Layout<D, F>) -> (isize, ViewLayout<Self::Params>) {
         let size = layout.len();
-        let stride = layout.stride(D::dim::<O>(0));
+        let stride = layout.stride(D::dim(0));
 
-        self.dim_index::<EmptyParams, F, O>(0, Layout::default(), size, stride)
+        self.dim_index::<EmptyParams<D::Order>, F>(0, Layout::default(), size, stride)
     }
 }
 
-impl<F: Format, O: Order, X: DimIndex> ViewIndex<U1, F, O> for (X,) {
-    type Params = X::Params<EmptyParams, F>;
+impl<O: Order, F: Format, X: DimIndex> ViewIndex<Rank<1, O>, F> for (X,) {
+    type Params = X::Params<EmptyParams<O>, F>;
 
-    fn view_index(self, layout: Layout<U1, F, O>) -> (isize, ViewLayout<Self::Params, O>) {
+    fn view_index(self, layout: Layout<Rank<1, O>, F>) -> (isize, ViewLayout<Self::Params>) {
         let inner = Layout::default();
 
-        self.0.dim_index::<EmptyParams, F, O>(0, inner, layout.size(0), layout.stride(0))
+        self.0.dim_index::<EmptyParams<O>, F>(0, inner, layout.size(0), layout.stride(0))
     }
 }
 
 macro_rules! impl_view_index {
     ($n:tt, $m:tt, ($($ij:tt),+), $k:tt, ($($xy:tt),+), $z:tt, ($($xyz:tt),+), $f:ty, $o:ty) => {
-        impl<F: Format, $($xyz: DimIndex),+> ViewIndex<Const<$n>, F, $o> for ($($xyz),+) {
-            type Params = $z::Params<<($($xy),+,) as ViewIndex<Const<$m>, $f, $o>>::Params, F>;
+        impl<F: Format, $($xyz: DimIndex),+> ViewIndex<Rank<$n, $o>, F> for ($($xyz),+) {
+            type Params = $z::Params<<($($xy),+,) as ViewIndex<Rank<$m, $o>, $f>>::Params, F>;
 
             fn view_index(
                 self,
-                layout: Layout<Const<$n>, F, $o>,
-            ) -> (isize, ViewLayout<Self::Params, $o>) {
+                layout: Layout<Rank<$n, $o>, F>,
+            ) -> (isize, ViewLayout<Self::Params>) {
                 let (offset, inner) = ($(self.$ij),+,).view_index(layout.remove_dim($k));
 
                 self.$k.dim_index(offset, inner, layout.size($k), layout.stride($k))
