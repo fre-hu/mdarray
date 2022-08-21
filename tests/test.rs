@@ -240,6 +240,12 @@ fn test_base() {
         }
     }
 
+    unsafe {
+        assert_eq!(*a.get_unchecked([2, 3, 4]), 1234);
+
+        *c.get_unchecked_mut([2, 3, 4]) = 1234;
+    }
+
     assert_eq!(to_slice!(a.view((.., 2, 3))), [1023, 1123, 1223]);
     assert_eq!(to_slice!(a.view((1, 1.., 3))), [1113, 1123, 1133]);
     assert_eq!(to_slice!(a.view((1, 2, 2..))), [1122, 1123, 1124]);

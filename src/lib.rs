@@ -155,6 +155,7 @@ pub mod index {
     mod span;
     mod view;
 
+    pub use span::SpanIndex;
     pub use view::{DimIndex, Params, ViewIndex};
 }
 

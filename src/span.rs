@@ -2,11 +2,13 @@ use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter, Result};
 use std::marker::PhantomData;
+use std::ops::{Index, IndexMut};
 use std::{mem, ptr, slice};
 
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Format, Uniform};
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
+use crate::index::SpanIndex;
 use crate::index::{Params, ViewIndex};
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{DenseLayout, Layout, ValidLayout, ViewLayout};
@@ -201,6 +203,26 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Panics if the array layout is not uniformly strided.
     pub fn flatten_mut(&mut self) -> SubGridMut<T, Layout<Rank<1, D::Order>, F::Uniform>> {
         self.to_view_mut().into_flattened()
+    }
+
+    /// Returns a reference to an element or a subslice, without doing bounds checking.
+    /// # Safety
+    /// The index must be within bounds of the array span.
+    pub unsafe fn get_unchecked<I>(&self, index: I) -> &I::Output
+    where
+        I: SpanIndex<T, Layout<D, F>>,
+    {
+        index.get_unchecked(self)
+    }
+
+    /// Returns a mutable reference to an element or a subslice, without doing bounds checking.
+    /// # Safety
+    /// The index must be within bounds of the array span.
+    pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut I::Output
+    where
+        I: SpanIndex<T, Layout<D, F>>,
+    {
+        index.get_unchecked_mut(self)
     }
 
     /// Copies the specified subarray into a new array.
@@ -511,6 +533,20 @@ impl<T: Debug, D: Dim, F: Format> Debug for SpanBase<T, Layout<D, F>> {
         } else {
             fmt.debug_list().entries(self.outer_iter()).finish()
         }
+    }
+}
+
+impl<T, L: Copy, I: SpanIndex<T, L>> Index<I> for SpanBase<T, L> {
+    type Output = I::Output;
+
+    fn index(&self, index: I) -> &I::Output {
+        index.index(self)
+    }
+}
+
+impl<T, L: Copy, I: SpanIndex<T, L>> IndexMut<I> for SpanBase<T, L> {
+    fn index_mut(&mut self, index: I) -> &mut I::Output {
+        index.index_mut(self)
     }
 }
 
