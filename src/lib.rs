@@ -145,7 +145,6 @@
 //! This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 
 #![feature(allocator_api)]
-#![feature(generic_associated_types)]
 #![feature(int_roundings)]
 #![feature(slice_range)]
 #![warn(missing_docs)]

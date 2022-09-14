@@ -1,5 +1,4 @@
 #![feature(allocator_api)]
-#![feature(generic_associated_types)]
 #![feature(int_roundings)]
 #![feature(slice_range)]
 #![warn(missing_docs)]
