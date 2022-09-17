@@ -3,8 +3,10 @@
 #![feature(slice_range)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "nightly")]
 mod aligned_alloc;
 
+#[cfg(feature = "nightly")]
 use std::alloc::Global;
 use std::any;
 use std::cmp::Ordering;
@@ -13,6 +15,7 @@ use std::ops::RangeFull;
 #[cfg(feature = "serde")]
 use serde_test::{assert_tokens, Token};
 
+#[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::{
     fill, step, CGrid, ColumnMajor, Dense, Dim, Flat, Format, General, Grid, Layout, Rank,
@@ -219,6 +222,9 @@ fn sr() -> StepRange<RangeFull, isize> {
 #[test]
 fn test_base() {
     let mut a = Grid::default();
+    #[cfg(not(feature = "nightly"))]
+    let mut c = CGrid::with_capacity(60);
+    #[cfg(feature = "nightly")]
     let mut c = CGrid::with_capacity_in(60, a.allocator().clone());
 
     a.resize([3, 4, 5], 0);
@@ -302,6 +308,9 @@ fn test_base() {
     assert_eq!(s.view((1.., 1.., 1..)).view((2, 1, 0))[[]], 1203);
 
     assert_eq!(Grid::from_iter(0..10).grid(step(.., 2))[..], [0, 2, 4, 6, 8]);
+    #[cfg(not(feature = "nightly"))]
+    assert_eq!(Grid::from_iter(0..10).grid(step(.., -2))[..], [8, 6, 4, 2, 0]);
+    #[cfg(feature = "nightly")]
     assert_eq!(Grid::from_iter(0..10).grid_in(step(.., -2), Global)[..], [8, 6, 4, 2, 0]);
 
     assert!(Grid::from_iter(0..10).view(step(..0, isize::MAX)).is_empty());
@@ -351,8 +360,10 @@ fn test_base() {
 
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
+    #[cfg(feature = "nightly")]
     let u = Grid::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 
+    #[cfg(feature = "nightly")]
     assert_eq!(u.as_ptr() as usize % 64, 0);
 }
 

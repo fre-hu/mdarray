@@ -1,10 +1,27 @@
+#[cfg(feature = "nightly")]
 use std::alloc::Allocator;
 use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 use std::{cmp, mem};
 
+#[cfg(not(feature = "nightly"))]
+use crate::alloc::Allocator;
 use crate::dim::Dim;
 use crate::layout::{DenseLayout, Layout};
+
+#[cfg(not(feature = "nightly"))]
+macro_rules! vec_t {
+    ($type:ty, $alloc:ty) => {
+        Vec<$type>
+    };
+}
+
+#[cfg(feature = "nightly")]
+macro_rules! vec_t {
+    ($type:ty, $alloc:ty) => {
+        Vec<$type, $alloc>
+    };
+}
 
 pub trait Buffer {
     type Item;
@@ -19,8 +36,10 @@ pub trait BufferMut: Buffer {
 }
 
 pub struct DenseBuffer<T, D: Dim, A: Allocator> {
-    vec: Vec<T, A>,
+    vec: vec_t!(T, A),
     layout: DenseLayout<D>,
+    #[cfg(not(feature = "nightly"))]
+    phantom: PhantomData<A>,
 }
 
 pub struct SubBuffer<'a, T, L: Copy> {
@@ -38,24 +57,35 @@ pub struct SubBufferMut<'a, T, L: Copy> {
 struct VecGuard<'a, T, A: Allocator> {
     ptr: *mut T,
     len: usize,
+    #[cfg(not(feature = "nightly"))]
+    phantom: PhantomData<(&'a mut Vec<T>, &'a A)>,
+    #[cfg(feature = "nightly")]
     phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
 impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
-    pub(crate) unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D>) -> Self {
+    pub unsafe fn from_parts(vec: vec_t!(T, A), layout: DenseLayout<D>) -> Self {
         assert!(mem::size_of::<T>() != 0, "ZST not allowed");
         assert!(D::RANK > 0, "invalid rank");
 
-        Self { vec, layout }
+        Self {
+            vec,
+            layout,
+            #[cfg(not(feature = "nightly"))]
+            phantom: PhantomData,
+        }
     }
 
-    pub(crate) fn into_parts(self) -> (Vec<T, A>, DenseLayout<D>) {
+    pub fn into_parts(self) -> (vec_t!(T, A), DenseLayout<D>) {
+        #[cfg(not(feature = "nightly"))]
+        let Self { vec, layout, .. } = self;
+        #[cfg(feature = "nightly")]
         let Self { vec, layout } = self;
 
         (vec, layout)
     }
 
-    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, shape: D::Shape, mut f: F)
+    pub fn resize_with<F: FnMut() -> T>(&mut self, shape: D::Shape, mut f: F)
     where
         T: Clone,
         A: Clone,
@@ -71,6 +101,9 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
             if shape[inner_dims.clone()] == old_shape[inner_dims] {
                 self.vec.resize_with(len, f);
             } else {
+                #[cfg(not(feature = "nightly"))]
+                let mut vec = Vec::with_capacity(len);
+                #[cfg(feature = "nightly")]
                 let mut vec = Vec::with_capacity_in(len, self.vec.allocator().clone());
 
                 self.layout = Layout::default(); // Remove contents in case of exception.
@@ -92,15 +125,15 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
         self.layout = DenseLayout::new(shape);
     }
 
-    pub(crate) unsafe fn set_layout(&mut self, layout: DenseLayout<D>) {
+    pub unsafe fn set_layout(&mut self, layout: DenseLayout<D>) {
         self.layout = layout;
     }
 
-    pub(crate) fn vec(&self) -> &Vec<T, A> {
+    pub fn vec(&self) -> &vec_t!(T, A) {
         &self.vec
     }
 
-    pub(crate) unsafe fn vec_mut(&mut self) -> &mut Vec<T, A> {
+    pub unsafe fn vec_mut(&mut self) -> &mut vec_t!(T, A) {
         &mut self.vec
     }
 }
@@ -126,7 +159,12 @@ impl<T, D: Dim, A: Allocator> BufferMut for DenseBuffer<T, D, A> {
 
 impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for DenseBuffer<T, D, A> {
     fn clone(&self) -> Self {
-        Self { vec: self.vec.clone(), layout: self.layout }
+        Self {
+            vec: self.vec.clone(),
+            layout: self.layout,
+            #[cfg(not(feature = "nightly"))]
+            phantom: PhantomData,
+        }
     }
 
     fn clone_from(&mut self, src: &Self) {
@@ -139,7 +177,7 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for DenseBuffer<T, D, A> {
 macro_rules! impl_sub_buffer {
     ($name:tt, $raw_mut:tt) => {
         impl<'a, T, L: Copy> $name<'a, T, L> {
-            pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
+            pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
                 assert!(mem::size_of::<T>() != 0, "ZST not allowed");
 
                 Self {
@@ -181,7 +219,7 @@ impl<'a, T, L: Copy> Clone for SubBuffer<'a, T, L> {
 }
 
 impl<'a, T, A: Allocator> VecGuard<'a, T, A> {
-    fn new(vec: &'a mut Vec<T, A>) -> Self {
+    fn new(vec: &'a mut vec_t!(T, A)) -> Self {
         let len = vec.len();
 
         unsafe {
@@ -202,7 +240,7 @@ impl<'a, T, A: Allocator> Drop for VecGuard<'a, T, A> {
 
 unsafe fn copy_dim<T: Clone, D: Dim, A: Allocator, I: Dim, F: FnMut() -> T>(
     old_vec: &mut VecGuard<T, A>,
-    new_vec: &mut Vec<T, A>,
+    new_vec: &mut vec_t!(T, A),
     old_shape: D::Shape,
     new_shape: D::Shape,
     f: &mut F,

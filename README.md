@@ -18,8 +18,6 @@ The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
 the proposed C++ mdarray and mdspan types, and multidimensional arrays in
 Julia and Matlab.
 
-Note that this crate requires nightly Rust toolchain.
-
 ## License
 
 Licensed under either of

@@ -1,3 +1,4 @@
+#[cfg(feature = "nightly")]
 use std::alloc::Allocator;
 use std::cmp::Ordering;
 use std::mem;
@@ -7,6 +8,8 @@ use std::ops::{
     Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
 };
 
+#[cfg(not(feature = "nightly"))]
+use crate::alloc::Allocator;
 use crate::buffer::{Buffer, BufferMut};
 use crate::dim::{Dim, Rank};
 use crate::format::Format;

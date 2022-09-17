@@ -18,8 +18,6 @@
 //! the proposed C++ mdarray and mdspan types, and multidimensional arrays in
 //! Julia and Matlab.
 //!
-//! Note that this crate requires nightly Rust toolchain.
-//!
 //! ## Array types
 //!
 //! The base types for multidimensional arrays are `GridBase` and `SpanBase`,
@@ -144,9 +142,9 @@
 //!
 //! This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 
-#![feature(allocator_api)]
-#![feature(int_roundings)]
-#![feature(slice_range)]
+#![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(int_roundings))]
+#![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
 
 /// Module for array span and view indexing.
@@ -174,7 +172,21 @@ mod span;
 #[cfg(feature = "serde")]
 mod serde;
 
+#[cfg(not(feature = "nightly"))]
+mod alloc {
+    pub trait Allocator {}
+
+    #[derive(Copy, Clone, Default, Debug)]
+    pub struct Global;
+
+    impl Allocator for Global {}
+}
+
+#[cfg(feature = "nightly")]
 use std::alloc::Global;
+
+#[cfg(not(feature = "nightly"))]
+use alloc::Global;
 
 pub use dim::{Dim, Rank, Shape, Strides};
 pub use format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};

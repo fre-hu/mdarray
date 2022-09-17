@@ -1,3 +1,4 @@
+#[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter, Result};
@@ -235,6 +236,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Copies the specified subarray into a new array with the specified allocator.
     /// # Panics
     /// Panics if the subarray is out of bounds.
+    #[cfg(feature = "nightly")]
     pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> DenseGrid<T, P::Dim, A>
     where
         T: Clone,
@@ -461,6 +463,19 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Copies the array span into a new array.
+    #[cfg(not(feature = "nightly"))]
+    pub fn to_grid(&self) -> DenseGrid<T, D>
+    where
+        T: Clone,
+    {
+        let mut grid = DenseGrid::new();
+
+        grid.extend_from_span(self);
+        grid
+    }
+
+    /// Copies the array span into a new array.
+    #[cfg(feature = "nightly")]
     pub fn to_grid(&self) -> DenseGrid<T, D>
     where
         T: Clone,
@@ -469,6 +484,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Copies the array span into a new array with the specified allocator.
+    #[cfg(feature = "nightly")]
     pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> DenseGrid<T, D, A>
     where
         T: Clone,
@@ -484,10 +500,11 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     where
         T: Clone,
     {
-        self.to_vec_in(Global)
+        self.to_grid().into_vec()
     }
 
     /// Copies the array span into a new vector with the specified allocator.
+    #[cfg(feature = "nightly")]
     pub fn to_vec_in<A: Allocator>(&self, alloc: A) -> Vec<T, A>
     where
         T: Clone,
