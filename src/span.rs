@@ -8,8 +8,7 @@ use std::{mem, ptr, slice};
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Format, Uniform};
 use crate::grid::{DenseGrid, SubGrid, SubGridMut};
-use crate::index::SpanIndex;
-use crate::index::{Params, ViewIndex};
+use crate::index::{Axis, Const, Params, SpanIndex, ViewIndex};
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{DenseLayout, Layout, ValidLayout, ViewLayout};
 use crate::mapping::Mapping;
@@ -107,63 +106,60 @@ impl<T, L: Copy> SpanBase<T, L> {
 }
 
 impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
-    /// Returns a mutable slice of all elements in the array.
-    /// # Panics
-    /// Panics if the array layout is not contiguous.
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        assert!(self.is_contiguous(), "array layout not contiguous");
-
-        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
-    }
-
-    /// Returns a slice of all elements in the array.
-    /// # Panics
-    /// Panics if the array layout is not contiguous.
-    pub fn as_slice(&self) -> &[T] {
-        assert!(self.is_contiguous(), "array layout not contiguous");
-
-        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
-    }
-
     /// Returns an iterator that gives array views over the specified dimension.
     ///
-    /// Iterating over middle dimensions maintains the unit inner stride propery however not
-    /// uniform stride, so that the resulting array views have general or strided format.
-    /// # Panics
-    /// Panics if the inner dimension is specified, as that would affect the return type.
-    pub fn axis_iter(&self, dim: usize) -> AxisIter<T, ValidLayout<D::Lower, F::NonUniform>> {
-        assert!(D::RANK > 0, "invalid rank");
-        assert!(dim != D::dim(0), "inner dimension not allowed");
-
+    /// When iterating over the outer dimension, both the unit inner stride and the
+    /// uniform stride properties are maintained, and the resulting array views have
+    /// the same format.
+    ///
+    /// When iterating over the inner dimension, the uniform stride property is
+    /// maintained but not unit inner stride, and the resulting array views have
+    /// flat or strided format.
+    ///
+    /// When iterating over the middle dimensions, the unit inner stride propery is
+    /// maintained but not uniform stride, and the resulting array views have general
+    /// or strided format.
+    pub fn axis_iter<const DIM: usize>(
+        &self,
+    ) -> AxisIter<T, Layout<D::Lower, <Const<DIM> as Axis<D>>::Remove<F>>>
+    where
+        Const<DIM>: Axis<D>,
+    {
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().remove_dim(dim),
-                self.size(dim),
-                self.stride(dim),
+                self.layout().remove_dim(DIM),
+                self.size(DIM),
+                self.stride(DIM),
             )
         }
     }
 
     /// Returns a mutable iterator that gives array views over the specified dimension.
     ///
-    /// Iterating over middle dimensions maintains the unit inner stride propery however not
-    /// uniform stride, so that the resulting array views have general or strided format.
-    /// # Panics
-    /// Panics if the inner dimension is specified, as that would affect the return type.
-    pub fn axis_iter_mut(
+    /// When iterating over the outer dimension, both the unit inner stride and the
+    /// uniform stride properties are maintained, and the resulting array views have
+    /// the same format.
+    ///
+    /// When iterating over the inner dimension, the uniform stride property is
+    /// maintained but not unit inner stride, and the resulting array views have
+    /// flat or strided format.
+    ///
+    /// When iterating over the middle dimensions, the unit inner stride propery is
+    /// maintained but not uniform stride, and the resulting array views have general
+    /// or strided format.
+    pub fn axis_iter_mut<const DIM: usize>(
         &mut self,
-        dim: usize,
-    ) -> AxisIterMut<T, ValidLayout<D::Lower, F::NonUniform>> {
-        assert!(D::RANK > 0, "invalid rank");
-        assert!(dim != D::dim(0), "inner dimension not allowed");
-
+    ) -> AxisIterMut<T, Layout<D::Lower, <Const<DIM> as Axis<D>>::Remove<F>>>
+    where
+        Const<DIM>: Axis<D>,
+    {
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().remove_dim(dim),
-                self.size(dim),
-                self.stride(dim),
+                self.layout().remove_dim(DIM),
+                self.size(DIM),
+                self.stride(DIM),
             )
         }
     }
@@ -250,12 +246,12 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
 
     /// Returns an iterator that gives array views over the inner dimension.
     ///
-    /// Iterating over the inner dimension maintains the uniform stride property however not
+    /// Iterating over the inner dimension maintains the uniform stride property but not
     /// unit inner stride, so that the resulting array views have flat or strided format.
     /// # Panics
-    /// Panics if the rank is not 2 or higher.
+    /// Panics if the rank is not at least 1.
     pub fn inner_iter(&self) -> AxisIter<T, ValidLayout<D::Lower, F::NonUnitStrided>> {
-        assert!(D::RANK > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 0, "invalid rank");
 
         unsafe {
             AxisIter::new_unchecked(
@@ -269,12 +265,12 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
 
     /// Returns a mutable iterator that gives array views over the inner dimension.
     ///
-    /// Iterating over the inner dimension maintains the uniform stride property however not
+    /// Iterating over the inner dimension maintains the uniform stride property but not
     /// unit inner stride, so that the resulting array views have flat or strided format.
     /// # Panics
-    /// Panics if the rank is not 2 or higher.
+    /// Panics if the rank is not at least 1.
     pub fn inner_iter_mut(&mut self) -> AxisIterMut<T, ValidLayout<D::Lower, F::NonUnitStrided>> {
-        assert!(D::RANK > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 0, "invalid rank");
 
         unsafe {
             AxisIterMut::new_unchecked(
@@ -327,9 +323,9 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Iterating over the outer dimension maintains both the unit inner stride and the
     /// uniform stride properties, and the resulting array views have the same format.
     /// # Panics
-    /// Panics if the rank is not 2 or higher.
+    /// Panics if the rank is not at least 1.
     pub fn outer_iter(&self) -> AxisIter<T, ValidLayout<D::Lower, F>> {
-        assert!(D::RANK > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 0, "invalid rank");
 
         let dim = D::dim(D::RANK - 1);
 
@@ -348,9 +344,9 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Iterating over the outer dimension maintains both the unit inner stride and the
     /// uniform stride properties, and the resulting array views have the same format.
     /// # Panics
-    /// Panics if the rank is not 2 or higher.
+    /// Panics if the rank is not at least 1.
     pub fn outer_iter_mut(&mut self) -> AxisIterMut<T, ValidLayout<D::Lower, F>> {
-        assert!(D::RANK > 1, "rank must be 2 or higher");
+        assert!(D::RANK > 0, "invalid rank");
 
         let dim = D::dim(D::RANK - 1);
 
@@ -405,45 +401,53 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
         self.layout().size(dim)
     }
 
-    /// Divides an array span into two at an index along the specified dimension.
-    /// # Panics
-    /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_axis(
-        &self,
-        dim: usize,
-        mid: usize,
-    ) -> (SubGrid<T, ValidLayout<D, F::NonUniform>>, SubGrid<T, ValidLayout<D, F::NonUniform>>)
-    {
-        self.to_view().into_split_axis(dim, mid)
-    }
-
-    /// Divides a mutable array span into two at an index along the specified dimension.
-    /// # Panics
-    /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_axis_mut(
-        &mut self,
-        dim: usize,
-        mid: usize,
-    ) -> (SubGridMut<T, ValidLayout<D, F::NonUniform>>, SubGridMut<T, ValidLayout<D, F::NonUniform>>)
-    {
-        self.to_view_mut().into_split_axis(dim, mid)
-    }
-
     /// Divides an array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_outer(&self, mid: usize) -> (SubGrid<T, Layout<D, F>>, SubGrid<T, Layout<D, F>>) {
-        self.to_view().into_split_outer(mid)
+    pub fn split_at(&self, mid: usize) -> (SubGrid<T, Layout<D, F>>, SubGrid<T, Layout<D, F>>) {
+        self.to_view().into_split_at(mid)
     }
 
     /// Divides a mutable array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_outer_mut(
+    pub fn split_at_mut(
         &mut self,
         mid: usize,
     ) -> (SubGridMut<T, Layout<D, F>>, SubGridMut<T, Layout<D, F>>) {
-        self.to_view_mut().into_split_outer(mid)
+        self.to_view_mut().into_split_at(mid)
+    }
+
+    /// Divides an array span into two at an index along the specified dimension.
+    /// # Panics
+    /// Panics if the split point is larger than the number of elements in that dimension.
+    pub fn split_axis_at<const DIM: usize>(
+        &self,
+        mid: usize,
+    ) -> (
+        SubGrid<T, Layout<D, <Const<DIM> as Axis<D>>::Split<F>>>,
+        SubGrid<T, Layout<D, <Const<DIM> as Axis<D>>::Split<F>>>,
+    )
+    where
+        Const<DIM>: Axis<D>,
+    {
+        self.to_view().into_split_axis_at(mid)
+    }
+
+    /// Divides a mutable array span into two at an index along the specified dimension.
+    /// # Panics
+    /// Panics if the split point is larger than the number of elements in that dimension.
+    pub fn split_axis_at_mut<const DIM: usize>(
+        &mut self,
+        mid: usize,
+    ) -> (
+        SubGridMut<T, Layout<D, <Const<DIM> as Axis<D>>::Split<F>>>,
+        SubGridMut<T, Layout<D, <Const<DIM> as Axis<D>>::Split<F>>>,
+    )
+    where
+        Const<DIM>: Axis<D>,
+    {
+        self.to_view_mut().into_split_axis_at(mid)
     }
 
     /// Returns the distance between elements in the specified dimension.
@@ -509,6 +513,18 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
         I: ViewIndex<D, F>,
     {
         self.to_view_mut().into_view(index)
+    }
+}
+
+impl<T, D: Dim> DenseSpan<T, D> {
+    /// Returns a mutable slice of all elements in the array.
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
+    }
+
+    /// Returns a slice of all elements in the array.
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 }
 
@@ -584,7 +600,7 @@ fn clone_span<T: Clone, D: Dim, F: Format, G: Format>(
         assert!(src.shape()[..] == dst.shape()[..], "shape mismatch");
 
         if F::IS_UNIT_STRIDED && G::IS_UNIT_STRIDED {
-            dst.as_mut_slice().clone_from_slice(src.as_slice());
+            dst.reformat_mut().as_mut_slice().clone_from_slice(src.reformat().as_slice());
         } else {
             for (x, y) in dst.flatten_mut().iter_mut().zip(src.flatten().iter()) {
                 x.clone_from(y);

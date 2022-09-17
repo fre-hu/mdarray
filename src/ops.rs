@@ -64,7 +64,7 @@ impl<T: Ord, B: Buffer<Item = T, Layout = Layout<Rank<1, impl Order>, impl Forma
 impl<T: Ord, F: Format, O: Order> Ord for SpanBase<T, Layout<Rank<1, O>, F>> {
     fn cmp(&self, rhs: &Self) -> Ordering {
         if F::IS_UNIFORM && F::IS_UNIT_STRIDED {
-            self.as_slice().cmp(rhs.as_slice())
+            self.reformat().as_slice().cmp(rhs.reformat().as_slice())
         } else {
             self.flatten().iter().cmp(rhs.flatten().iter())
         }
@@ -128,7 +128,7 @@ where
         if F::IS_UNIFORM && G::IS_UNIFORM {
             if self.shape()[..] == rhs.shape()[..] {
                 if F::IS_UNIT_STRIDED && G::IS_UNIT_STRIDED {
-                    self.as_slice().eq(rhs.as_slice())
+                    self.reformat().as_slice().eq(rhs.reformat().as_slice())
                 } else {
                     self.flatten().iter().eq(rhs.flatten().iter())
                 }

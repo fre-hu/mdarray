@@ -151,9 +151,11 @@
 
 /// Module for array span and view indexing.
 pub mod index {
+    mod axis;
     mod span;
     mod view;
 
+    pub use axis::{Axis, Const};
     pub use span::SpanIndex;
     pub use view::{DimIndex, Params, ViewIndex};
 }

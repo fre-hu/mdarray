@@ -10,7 +10,7 @@ use std::result::Result;
 use crate::buffer::{Buffer, BufferMut, DenseBuffer, SubBuffer, SubBufferMut};
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::Format;
-use crate::index::ViewIndex;
+use crate::index::{Axis, Const, ViewIndex};
 use crate::layout::{panic_bounds_check, DenseLayout, Layout, ValidLayout, ViewLayout};
 use crate::order::Order;
 use crate::span::{DenseSpan, SpanBase};
@@ -330,64 +330,32 @@ macro_rules! impl_sub_grid {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
 
-            /// Divides an array view into two at an index along the specified dimension.
-            /// # Panics
-            /// Panics if the split point is larger than the number of elements in that dimension.
-            pub fn into_split_axis(
-                $($mut)? self,
-                dim: usize,
-                mid: usize,
-            ) -> (
-                $name<'a, T, ValidLayout<D, F::NonUniform>>,
-                $name<'a, T, ValidLayout<D, F::NonUniform>>
-            ) {
-                assert!(D::RANK > 0, "invalid rank");
-
-                if mid > self.size(dim) {
-                    panic_bounds_check(mid, self.size(dim));
-                }
-
-                let first_layout = self.layout().reformat().resize_dim(dim, mid);
-                let second_layout = self.layout().reformat().resize_dim(dim, self.size(dim) - mid);
-
-                // Calculate offset for the second view if non-empty.
-                let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
-
-                unsafe {
-                    (
-                        $name::new_unchecked(self.$as_ptr(), first_layout),
-                        $name::new_unchecked(self.$as_ptr().offset(count), second_layout),
-                    )
-                }
-            }
-
             /// Divides an array view into two at an index along the outer dimension.
             /// # Panics
             /// Panics if the split point is larger than the number of elements in that dimension.
-            pub fn into_split_outer(
-                $($mut)? self,
+            pub fn into_split_at(
+                self,
                 mid: usize,
             ) -> ($name<'a, T, Layout<D, F>>, $name<'a, T, Layout<D, F>>) {
                 assert!(D::RANK > 0, "invalid rank");
 
-                let dim = D::dim(D::RANK - 1);
+                self.into_split_dim_at(D::dim(D::RANK - 1), mid)
+            }
 
-                if mid > self.size(dim) {
-                    panic_bounds_check(mid, self.size(dim));
-                }
-
-                let first_layout = self.layout().resize_dim(dim, mid);
-                let second_layout = self.layout().resize_dim(dim, self.size(dim) - mid);
-
-                // Calculate offset for the second view if non-empty.
-                let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
-
-                unsafe {
-                    (
-                        $name::new_unchecked(self.$as_ptr(), first_layout),
-                        $name::new_unchecked(self.$as_ptr().offset(count), second_layout),
-                    )
-                }
+            /// Divides an array view into two at an index along the specified dimension.
+            /// # Panics
+            /// Panics if the split point is larger than the number of elements in that dimension.
+            pub fn into_split_axis_at<const DIM: usize>(
+                self,
+                mid: usize,
+            ) -> (
+                $name<'a, T, Layout<D, <Const<DIM> as Axis<D>>::Split<F>>>,
+                $name<'a, T, Layout<D, <Const<DIM> as Axis<D>>::Split<F>>>
+            )
+            where
+                Const<DIM>: Axis<D>
+            {
+                self.into_format().into_split_dim_at(DIM, mid)
             }
 
              /// Converts an array view into a new array view for the specified subarray.
@@ -401,6 +369,29 @@ macro_rules! impl_sub_grid {
                 let count = if layout.is_empty() { 0 } else { offset }; // Discard offset if empty.
 
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), layout) }
+            }
+
+            fn into_split_dim_at(
+                $($mut)? self,
+                dim: usize,
+                mid: usize
+            ) -> ($name<'a, T, Layout<D, F>>, $name<'a, T, Layout<D, F>>) {
+                if mid > self.size(dim) {
+                    panic_bounds_check(mid, self.size(dim));
+                }
+
+                let left_layout = self.layout().resize_dim(dim, mid);
+                let right_layout = self.layout().resize_dim(dim, self.size(dim) - mid);
+
+                // Calculate offset for the second view if non-empty.
+                let count = if mid == self.size(dim) { 0 } else { self.stride(dim) * mid as isize };
+
+                unsafe {
+                    let left = $name::new_unchecked(self.$as_ptr(), left_layout);
+                    let right = $name::new_unchecked(self.$as_ptr().offset(count), right_layout);
+
+                    (left, right)
+                }
             }
         }
     };

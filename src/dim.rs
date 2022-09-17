@@ -63,7 +63,7 @@ pub trait Shape:
     + IndexMut<RangeToInclusive<usize>, Output = [usize]>
 {
     /// Array dimension type.
-    type Dim<O: Order>: Dim<Shape = Self>;
+    type Dim<O: Order>: Dim<Order = O, Shape = Self>;
 }
 
 /// Array strides trait.
@@ -81,7 +81,7 @@ pub trait Strides:
     + IndexMut<RangeToInclusive<usize>, Output = [isize]>
 {
     /// Array dimension type.
-    type Dim<O: Order>: Dim<Strides = Self>;
+    type Dim<O: Order>: Dim<Order = O, Strides = Self>;
 }
 
 /// Array rank type, including element order.

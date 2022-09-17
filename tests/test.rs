@@ -261,8 +261,23 @@ fn test_base() {
     assert_eq!(a.view((1, 2..3, 3..)), SubGrid::from(&[[1123], [1124]]));
     assert_eq!(c.view((1, 2..3, 3..)), SubGridMut::from(&mut [[1123, 1124]]));
 
-    assert!(a == Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
-    assert!(c == CGrid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
+    assert_eq!(a, Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
+    assert_eq!(c, CGrid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
+
+    assert_eq!(a.view((2, .., ..)), a.axis_iter::<0>().skip(2).next().unwrap());
+    assert_eq!(c.grid((2, .., ..)), c.axis_iter_mut::<0>().skip(2).next().unwrap());
+
+    assert_eq!(c.view((.., 2, ..)), c.axis_iter::<1>().skip(2).next().unwrap());
+    assert_eq!(a.grid((.., 2, ..)), a.axis_iter_mut::<1>().skip(2).next().unwrap());
+
+    assert_eq!(a.view((.., .., 2)), a.axis_iter::<2>().skip(2).next().unwrap());
+    assert_eq!(c.grid((.., .., 2)), c.axis_iter_mut::<2>().skip(2).next().unwrap());
+
+    assert_eq!(c.view((.., .., 2)), c.inner_iter().skip(2).next().unwrap());
+    assert_eq!(a.grid((2, .., ..)), a.inner_iter_mut().skip(2).next().unwrap());
+
+    assert_eq!(a.view((.., .., 2)), a.outer_iter().skip(2).next().unwrap());
+    assert_eq!(c.grid((2, .., ..)), c.outer_iter_mut().skip(2).next().unwrap());
 
     let mut r = a.clone().into_shape([5, 4, 3]);
     let mut s = c.clone();
@@ -294,8 +309,8 @@ fn test_base() {
 
     assert_eq!(Grid::from_iter(0..3).map(|x| 10 * x)[..], [0, 10, 20]);
 
-    assert_eq!(to_slice!(a.view((..2, ..2, ..2)).split_outer(1).0), [1000, 1100, 1010, 1110]);
-    assert_eq!(to_slice!(a.view_mut((..2, ..2, ..2)).split_axis(1, 1).1), [1010, 1110, 1011, 1111]);
+    assert_eq!(to_slice!(a.view((..2, ..2, ..)).split_at(1).0), [1000, 1100, 1010, 1110]);
+    assert_eq!(to_slice!(a.view((..2, .., ..2)).split_axis_at::<1>(3).1), [1030, 1130, 1031, 1131]);
 
     a.truncate(2);
 
