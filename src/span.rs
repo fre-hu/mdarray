@@ -2,6 +2,7 @@
 use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter, Result};
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::{mem, ptr, slice};
@@ -168,15 +169,15 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Clones an array span into the array span.
     /// # Panics
     /// Panics if the two spans have different shapes.
-    pub fn clone_from_span(&mut self, span: &SpanBase<T, Layout<D, impl Format>>)
+    pub fn clone_from_span(&mut self, src: &SpanBase<T, Layout<D, impl Format>>)
     where
         T: Clone,
     {
-        clone_span(span, self);
+        clone_from_span(self, src);
     }
 
     /// Fills the array span with elements by cloning `value`.
-    pub fn fill(&mut self, value: impl Borrow<T> + Copy)
+    pub fn fill(&mut self, value: impl Borrow<T>)
     where
         T: Clone,
     {
@@ -558,14 +559,37 @@ impl<T, D: Dim> AsRef<[T]> for DenseSpan<T, D> {
 }
 
 impl<T: Debug, D: Dim, F: Format> Debug for SpanBase<T, Layout<D, F>> {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if D::RANK == 0 {
-            self[D::Shape::default()].fmt(fmt)
-        } else if D::RANK == 1 {
-            fmt.debug_list().entries(self.flatten().iter()).finish()
+            self[D::Shape::default()].fmt(f)
         } else {
-            fmt.debug_list().entries(self.outer_iter()).finish()
+            let mut list = f.debug_list();
+
+            if !self.is_empty() {
+                if D::RANK == 1 {
+                    list.entries(self.flatten().iter());
+                } else {
+                    list.entries(self.outer_iter());
+                }
+            }
+
+            list.finish()
         }
+    }
+}
+
+impl<T: Hash, D: Dim, F: Format> Hash for SpanBase<T, Layout<D, F>> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let shape = if self.is_empty() { Default::default() } else { self.shape() };
+
+        for i in 0..D::RANK {
+            #[cfg(not(feature = "nightly"))]
+            state.write_usize(shape[D::dim(i)]);
+            #[cfg(feature = "nightly")]
+            state.write_length_prefix(shape[D::dim(i)]);
+        }
+
+        hash(self, state);
     }
 }
 
@@ -609,39 +633,51 @@ impl<T: Clone, D: Dim> ToOwned for DenseSpan<T, D> {
     }
 }
 
-fn clone_span<T: Clone, D: Dim, F: Format, G: Format>(
+fn clone_from_span<T: Clone, D: Dim, F: Format, G: Format>(
+    this: &mut SpanBase<T, Layout<D, G>>,
     src: &SpanBase<T, Layout<D, F>>,
-    dst: &mut SpanBase<T, Layout<D, G>>,
 ) {
     if F::IS_UNIFORM && G::IS_UNIFORM {
-        assert!(src.shape()[..] == dst.shape()[..], "shape mismatch");
+        assert!(src.shape()[..] == this.shape()[..], "shape mismatch");
 
         if F::IS_UNIT_STRIDED && G::IS_UNIT_STRIDED {
-            dst.reformat_mut().as_mut_slice().clone_from_slice(src.reformat().as_slice());
+            this.reformat_mut().as_mut_slice().clone_from_slice(src.reformat().as_slice());
         } else {
-            for (x, y) in dst.flatten_mut().iter_mut().zip(src.flatten().iter()) {
+            for (x, y) in this.flatten_mut().iter_mut().zip(src.flatten().iter()) {
                 x.clone_from(y);
             }
         }
     } else {
         let dim = D::dim(D::RANK - 1);
 
-        assert!(src.size(dim) == dst.size(dim), "shape mismatch");
+        assert!(src.size(dim) == this.size(dim), "shape mismatch");
 
-        for (mut x, y) in dst.outer_iter_mut().zip(src.outer_iter()) {
-            clone_span(&y, &mut x);
+        for (mut x, y) in this.outer_iter_mut().zip(src.outer_iter()) {
+            clone_from_span(&mut x, &y);
         }
     }
 }
 
-fn fill_with<T, F: Format>(span: &mut SpanBase<T, Layout<impl Dim, F>>, f: &mut impl FnMut() -> T) {
+fn fill_with<T, F: Format>(this: &mut SpanBase<T, Layout<impl Dim, F>>, f: &mut impl FnMut() -> T) {
     if F::IS_UNIFORM {
-        for x in span.flatten_mut().iter_mut() {
+        for x in this.flatten_mut().iter_mut() {
             *x = f();
         }
     } else {
-        for mut x in span.outer_iter_mut() {
+        for mut x in this.outer_iter_mut() {
             fill_with(&mut x, f);
+        }
+    }
+}
+
+fn hash<T: Hash, F: Format>(this: &SpanBase<T, Layout<impl Dim, F>>, state: &mut impl Hasher) {
+    if F::IS_UNIFORM {
+        for x in this.flatten().iter() {
+            x.hash(state);
+        }
+    } else {
+        for x in this.outer_iter() {
+            hash(&x, state);
         }
     }
 }

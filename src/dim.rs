@@ -12,7 +12,7 @@ use crate::format::{Dense, Format};
 use crate::order::Order;
 
 /// Array dimension trait, for rank and element order.
-pub trait Dim: Copy + Debug + Default {
+pub trait Dim {
     /// Array element order.
     type Order: Order;
 
@@ -89,7 +89,6 @@ pub trait Strides:
 }
 
 /// Array rank type, including element order.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct Rank<const N: usize, O: Order> {
     phantom: PhantomData<O>,
 }

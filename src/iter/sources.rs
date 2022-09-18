@@ -1,9 +1,12 @@
+use std::fmt::{Debug, Formatter, Result};
 use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use crate::grid::{SubGrid, SubGridMut};
+use crate::span::SpanBase;
 
+/// Array axis iterator.
 pub struct AxisIter<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
@@ -13,6 +16,7 @@ pub struct AxisIter<'a, T, L: Copy> {
     phantom: PhantomData<&'a T>,
 }
 
+/// Mutable array axis iterator.
 pub struct AxisIterMut<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
@@ -22,6 +26,7 @@ pub struct AxisIterMut<'a, T, L: Copy> {
     phantom: PhantomData<&'a mut T>,
 }
 
+/// Linear array span iterator.
 pub struct LinearIter<'a, T> {
     ptr: NonNull<T>,
     index: usize,
@@ -30,6 +35,7 @@ pub struct LinearIter<'a, T> {
     phantom: PhantomData<&'a T>,
 }
 
+/// Mutable linear array span iterator.
 pub struct LinearIterMut<'a, T> {
     ptr: NonNull<T>,
     index: usize,
@@ -39,9 +45,9 @@ pub struct LinearIterMut<'a, T> {
 }
 
 macro_rules! impl_axis_iter {
-    ($type:ty, $grid:tt, $raw_mut:tt) => {
-        impl<'a, T, L: Copy> $type {
-            pub unsafe fn new_unchecked(
+    ($name:tt, $grid:tt, $raw_mut:tt) => {
+        impl<'a, T, L: Copy> $name<'a, T, L> {
+            pub(crate) unsafe fn new_unchecked(
                 ptr: *$raw_mut T,
                 layout: L,
                 size: usize,
@@ -58,7 +64,37 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, L: Copy> DoubleEndedIterator for $type {
+        impl<'a, T, L: Copy> Debug for $name<'a, T, L>
+        where
+            SpanBase<T, L>: Debug,
+        {
+            fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+                struct Value<'b, 'c, U, M: Copy>(&'b $name<'c, U, M>);
+
+                impl<'b, 'c, U, M: Copy> Debug for Value<'b, 'c, U, M>
+                where
+                    SpanBase<U, M>: Debug,
+                {
+                    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+                        let mut list = f.debug_list();
+
+                        for i in self.0.index..self.0.size {
+                            unsafe {
+                                let ptr = self.0.ptr.as_ptr().offset(self.0.stride * i as isize);
+
+                                list.entry(&SubGrid::new_unchecked(ptr, self.0.layout));
+                            }
+                        }
+
+                        list.finish()
+                    }
+                }
+
+                f.debug_tuple(stringify!($name)).field(&Value(self)).finish()
+            }
+        }
+
+        impl<'a, T, L: Copy> DoubleEndedIterator for $name<'a, T, L> {
             fn next_back(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -74,10 +110,10 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, L: Copy> ExactSizeIterator for $type {}
-        impl<'a, T, L: Copy> FusedIterator for $type {}
+        impl<'a, T, L: Copy> ExactSizeIterator for $name<'a, T, L> {}
+        impl<'a, T, L: Copy> FusedIterator for $name<'a, T, L> {}
 
-        impl<'a, T, L: Copy> Iterator for $type {
+        impl<'a, T, L: Copy> Iterator for $name<'a, T, L> {
             type Item = $grid<'a, T, L>;
 
             fn next(&mut self) -> Option<Self::Item> {
@@ -103,8 +139,8 @@ macro_rules! impl_axis_iter {
     }
 }
 
-impl_axis_iter!(AxisIter<'a, T, L>, SubGrid, const);
-impl_axis_iter!(AxisIterMut<'a, T, L>, SubGridMut, mut);
+impl_axis_iter!(AxisIter, SubGrid, const);
+impl_axis_iter!(AxisIterMut, SubGridMut, mut);
 
 impl<'a, T, L: Copy> Clone for AxisIter<'a, T, L> {
     fn clone(&self) -> Self {
@@ -126,9 +162,9 @@ unsafe impl<'a, T: Send, L: Copy> Send for AxisIterMut<'a, T, L> {}
 unsafe impl<'a, T: Sync, L: Copy> Sync for AxisIterMut<'a, T, L> {}
 
 macro_rules! impl_linear_iter {
-    ($type:ty, $raw_mut:tt, {$($const:tt)?}, {$($mut:tt)?}) => {
-        impl<'a, T> $type {
-            pub $($const)? unsafe fn new_unchecked(
+    ($name:tt, $raw_mut:tt, {$($mut:tt)?}) => {
+        impl<'a, T> $name<'a, T> {
+            pub(crate) unsafe fn new_unchecked(
                 ptr: *$raw_mut T,
                 size: usize,
                 stride: isize,
@@ -143,7 +179,29 @@ macro_rules! impl_linear_iter {
             }
         }
 
-        impl<'a, T> DoubleEndedIterator for $type {
+        impl<'a, T: Debug> Debug for $name<'a, T> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+                struct Value<'b, 'c, U>(&'b $name<'c, U>);
+
+                impl<'b, 'c, U: Debug> Debug for Value<'b, 'c, U> {
+                    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+                        let mut list = f.debug_list();
+
+                        for i in self.0.index..self.0.size {
+                            let count = self.0.stride * i as isize;
+
+                            list.entry(unsafe { &*self.0.ptr.as_ptr().offset(count) });
+                        }
+
+                        list.finish()
+                    }
+                }
+
+                f.debug_tuple(stringify!($name)).field(&Value(self)).finish()
+            }
+        }
+
+        impl<'a, T> DoubleEndedIterator for $name<'a, T> {
             fn next_back(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -157,10 +215,10 @@ macro_rules! impl_linear_iter {
             }
         }
 
-        impl<'a, T> ExactSizeIterator for $type {}
-        impl<'a, T> FusedIterator for $type {}
+        impl<'a, T> ExactSizeIterator for $name<'a, T> {}
+        impl<'a, T> FusedIterator for $name<'a, T> {}
 
-        impl<'a, T> Iterator for $type {
+        impl<'a, T> Iterator for $name<'a, T> {
             type Item = &'a $($mut)? T;
 
             fn next(&mut self) -> Option<Self::Item> {
@@ -184,8 +242,8 @@ macro_rules! impl_linear_iter {
     }
 }
 
-impl_linear_iter!(LinearIter<'a, T>, const, {const}, {});
-impl_linear_iter!(LinearIterMut<'a, T>, mut, {}, {mut});
+impl_linear_iter!(LinearIter, const, {});
+impl_linear_iter!(LinearIterMut, mut, {mut});
 
 impl<'a, T> Clone for LinearIter<'a, T> {
     fn clone(&self) -> Self {

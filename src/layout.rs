@@ -1,10 +1,11 @@
+use std::fmt::{Debug, Formatter, Result};
+
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Dense, Flat, Format, General, Strided};
 use crate::index::Params;
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Array layout, including rank, element order and storage format.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct Layout<D: Dim, F: Format> {
     map: F::Mapping<D>,
 }
@@ -129,6 +130,26 @@ impl<D: Dim> StridedLayout<D> {
     /// Creates a new, strided array layout with the specified shape and strides.
     pub fn new(shape: D::Shape, strides: D::Strides) -> Self {
         Self { map: StridedMapping::new(shape, strides) }
+    }
+}
+
+impl<D: Dim, F: Format> Clone for Layout<D, F> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Dim, F: Format> Copy for Layout<D, F> {}
+
+impl<D: Dim, F: Format> Debug for Layout<D, F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        self.map.fmt(f)
+    }
+}
+
+impl<D: Dim, F: Format> Default for Layout<D, F> {
+    fn default() -> Self {
+        Self { map: Default::default() }
     }
 }
 

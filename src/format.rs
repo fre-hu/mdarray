@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::iter::FusedIterator;
 use std::slice::{Iter, IterMut};
 
@@ -7,7 +6,7 @@ use crate::iter::{LinearIter, LinearIterMut};
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Array format trait for memory layout.
-pub trait Format: Copy + Debug + Default {
+pub trait Format {
     /// Corresponding format which may have non-uniform stride.
     type NonUniform: Format;
 
@@ -53,19 +52,15 @@ pub trait Uniform: Format {}
 pub trait UnitStrided: Format {}
 
 /// Dense array format type.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct Dense;
 
 /// Flat array format type.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct Flat;
 
 /// General array format type.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct General;
 
 /// Strided array format type.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct Strided;
 
 impl Format for Dense {

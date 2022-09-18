@@ -10,6 +10,8 @@ mod aligned_alloc;
 use std::alloc::Global;
 use std::any;
 use std::cmp::Ordering;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::ops::RangeFull;
 
 #[cfg(feature = "serde")]
@@ -267,6 +269,8 @@ fn test_base() {
     assert_eq!(a.view((1, 2..3, 3..)), SubGrid::from(&[[1123], [1124]]));
     assert_eq!(c.view((1, 2..3, 3..)), SubGridMut::from(&mut [[1123, 1124]]));
 
+    assert_eq!(Grid::<usize, 3>::from_elem([3, 4, 5], 1).as_slice(), [1; 60]);
+
     assert_eq!(a, Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
     assert_eq!(c, CGrid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
 
@@ -289,7 +293,7 @@ fn test_base() {
     let mut s = c.clone();
 
     unsafe {
-        s.set_layout(Layout::<_, Dense>::new([5, 4, 3]));
+        s.set_shape([5, 4, 3]);
     }
 
     a.resize([4, 4, 4], 9999);
@@ -368,11 +372,62 @@ fn test_base() {
 }
 
 #[test]
+fn test_hash() {
+    let mut s1 = DefaultHasher::new();
+    let mut s2 = DefaultHasher::new();
+
+    Grid::<usize, 3>::from([[[4], [5]], [[6], [7]], [[8], [9]]]).hash(&mut s1);
+
+    for i in 0..9 {
+        s2.write_usize(i + 1);
+    }
+
+    assert_eq!(s1.finish(), s2.finish());
+}
+
+#[test]
 fn test_index() {
     check_view::<Dense>();
     check_view::<General>();
     check_view::<Flat>();
     check_view::<Strided>();
+}
+
+#[test]
+fn test_iter() {
+    let mut grid = Grid::<i32, 2>::from([[1, 2, 3], [4, 5, 6]]);
+
+    assert_eq!(format!("{:?}", grid.outer_iter()), "AxisIter([[1, 2, 3], [4, 5, 6]])");
+    assert_eq!(format!("{:?}", grid.inner_iter_mut()), "AxisIterMut([[1, 4], [2, 5], [3, 6]])");
+
+    assert_eq!(format!("{:?}", grid.view((.., 0)).iter()), "Iter([1, 2, 3])");
+    assert_eq!(format!("{:?}", grid.view_mut((.., 1)).iter_mut()), "IterMut([4, 5, 6])");
+
+    assert_eq!(format!("{:?}", grid.view((1, ..)).iter()), "LinearIter([2, 5])");
+    assert_eq!(format!("{:?}", grid.view_mut((2, ..)).iter_mut()), "LinearIterMut([3, 6])");
+}
+
+#[test]
+fn test_layout() {
+    let d = Layout::<Rank<3, ColumnMajor>, Dense>::new([1, 2, 3]);
+    let f = Layout::<Rank<3, ColumnMajor>, Flat>::new([1, 2, 3], 4);
+    let g = Layout::<Rank<3, ColumnMajor>, General>::new([1, 2, 3], [4, 5]);
+    let s = Layout::<Rank<3, ColumnMajor>, Strided>::new([1, 2, 3], [4, 5, 6]);
+
+    assert_eq!(d.is_contiguous(), true);
+    assert_eq!(f.is_empty(), false);
+    assert_eq!(g.is_uniformly_strided(), false);
+    assert_eq!(s.len(), 6);
+
+    assert_eq!(d.shape(), [1, 2, 3]);
+    assert_eq!(f.size(2), 3);
+    assert_eq!(g.stride(0), 1);
+    assert_eq!(s.strides(), [4, 5, 6]);
+
+    assert_eq!(format!("{:?}", d), "DenseLayout { shape: [1, 2, 3] }");
+    assert_eq!(format!("{:?}", f), "FlatLayout { shape: [1, 2, 3], inner_stride: 4 }");
+    assert_eq!(format!("{:?}", g), "GeneralLayout { shape: [1, 2, 3], outer_strides: [4, 5] }");
+    assert_eq!(format!("{:?}", s), "StridedLayout { shape: [1, 2, 3], strides: [4, 5, 6] }");
 }
 
 #[test]

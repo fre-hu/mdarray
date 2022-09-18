@@ -3,6 +3,7 @@ use std::alloc::{Allocator, Global};
 use std::borrow::{Borrow, BorrowMut};
 use std::collections::TryReserveError;
 use std::fmt::{self, Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -66,15 +67,15 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// Returns a reference to the underlying allocator.
     #[cfg(feature = "nightly")]
     pub fn allocator(&self) -> &A {
-        self.buffer.vec().allocator()
+        self.buffer.as_vec().allocator()
     }
 
-    /// Moves all elements from a source array into the array along the outer dimension.
+    /// Moves all elements from another array into the array along the outer dimension.
     /// # Panics
     /// Panics if the inner dimensions do not match.
-    pub fn append(&mut self, grid: &mut Self) {
-        let shape = if self.buffer.vec().is_empty() {
-            grid.shape()
+    pub fn append(&mut self, other: &mut Self) {
+        let new_shape = if self.buffer.as_vec().is_empty() {
+            other.shape()
         } else {
             let mut shape = self.shape();
 
@@ -82,43 +83,43 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
             let inner_dims = D::dims(..D::RANK - 1);
 
             assert!(
-                grid.shape()[inner_dims.clone()] == shape[inner_dims],
+                other.shape()[inner_dims.clone()] == shape[inner_dims],
                 "inner dimensions mismatch"
             );
 
-            shape[dim] += grid.size(dim);
+            shape[dim] += other.size(dim);
             shape
         };
 
         unsafe {
-            grid.buffer.set_layout(Layout::default());
-            self.buffer.vec_mut().append(grid.buffer.vec_mut());
-            self.buffer.set_layout(DenseLayout::new(shape));
+            other.buffer.set_layout(Layout::default());
+            self.buffer.as_mut_vec().append(other.buffer.as_mut_vec());
+            self.buffer.set_layout(DenseLayout::new(new_shape));
         }
     }
 
     /// Returns the number of elements the array can hold without reallocating.
     pub fn capacity(&self) -> usize {
-        self.buffer.vec().capacity()
+        self.buffer.as_vec().capacity()
     }
 
     /// Clears the array, removing all values.
     pub fn clear(&mut self) {
         unsafe {
-            self.buffer.vec_mut().clear();
             self.buffer.set_layout(Layout::default());
+            self.buffer.as_mut_vec().clear();
         }
     }
 
-    /// Clones the array span and appends to the array along the outer dimension.
+    /// Clones all elements in an array span and appends to the array along the outer dimension.
     /// # Panics
     /// Panics if the inner dimensions do not match.
-    pub fn extend_from_span(&mut self, span: &SpanBase<T, Layout<D, impl Format>>)
+    pub fn extend_from_span(&mut self, other: &SpanBase<T, Layout<D, impl Format>>)
     where
         T: Clone,
     {
-        let shape = if self.buffer.vec().is_empty() {
-            span.shape()
+        let new_shape = if self.buffer.as_vec().is_empty() {
+            other.shape()
         } else {
             let mut shape = self.shape();
 
@@ -126,70 +127,99 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
             let inner_dims = D::dims(..D::RANK - 1);
 
             assert!(
-                span.shape()[inner_dims.clone()] == shape[inner_dims],
+                other.shape()[inner_dims.clone()] == shape[inner_dims],
                 "inner dimensions mismatch"
             );
 
-            shape[dim] += span.size(dim);
+            shape[dim] += other.size(dim);
             shape
         };
 
-        self.reserve(span.len());
+        self.reserve(other.len());
 
         unsafe {
             #[cfg(not(feature = "nightly"))]
-            extend_from_span::<_, _, A>(self.buffer.vec_mut(), span);
+            extend_from_span::<_, _, A>(self.buffer.as_mut_vec(), other);
             #[cfg(feature = "nightly")]
-            extend_from_span(self.buffer.vec_mut(), span);
+            extend_from_span(self.buffer.as_mut_vec(), other);
 
-            self.buffer.set_layout(DenseLayout::new(shape));
+            self.buffer.set_layout(DenseLayout::new(new_shape));
         }
     }
 
-    /// Creates an array with the results from the given function with the specified allocator.
+    /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn from_fn_in<F: FnMut(D::Shape) -> T>(shape: D::Shape, mut f: F, alloc: A) -> Self {
+    pub fn from_elem_in(shape: D::Shape, elem: impl Borrow<T>, alloc: A) -> Self
+    where
+        T: Clone,
+    {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
-        let mut vec = Vec::with_capacity_in(len, alloc);
+        let mut vec = Vec::<T, A>::with_capacity_in(len, alloc);
 
         unsafe {
-            from_fn::<T, D, A, D::Lower, F>(&mut vec, shape, D::Shape::default(), &mut f);
+            for i in 0..len {
+                vec.as_mut_ptr().add(i).write(elem.borrow().clone());
+                vec.set_len(i + 1);
+            }
 
             Self::from_parts(vec, DenseLayout::new(shape))
         }
     }
 
-    /// Creates an array from a vector and layout.
+    /// Creates an array with the results from the given function with the specified allocator.
+    #[cfg(feature = "nightly")]
+    pub fn from_fn_in(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T, alloc: A) -> Self {
+        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let mut vec = Vec::with_capacity_in(len, alloc);
+
+        unsafe {
+            from_fn::<T, D, A, D::Lower>(&mut vec, shape, D::Shape::default(), &mut f);
+
+            Self::from_parts(vec, DenseLayout::new(shape))
+        }
+    }
+
+    /// Creates an array from raw components of another array with the specified allocator.
     /// # Safety
-    /// The vector length must match the given layout.
-    pub unsafe fn from_parts(vec: vec_t!(T, A), layout: DenseLayout<D>) -> Self {
-        Self { buffer: DenseBuffer::from_parts(vec, layout) }
+    /// The pointer must be a valid allocation given the shape, capacity and allocator.
+    #[cfg(feature = "nightly")]
+    pub unsafe fn from_raw_parts_in(
+        ptr: *mut T,
+        shape: D::Shape,
+        capacity: usize,
+        alloc: A,
+    ) -> Self {
+        let layout = DenseLayout::new(shape);
+
+        Self::from_parts(Vec::from_raw_parts_in(ptr, layout.len(), capacity, alloc), layout)
     }
 
     /// Converts the array into a one-dimensional array.
     pub fn into_flattened(self) -> DenseGrid<T, Rank<1, D::Order>, A> {
-        let layout = DenseLayout::new([self.len()]);
-
-        unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
+        self.into_vec().into()
     }
 
-    /// Decomposes an array into a vector and layout.
-    pub fn into_parts(self) -> (vec_t!(T, A), DenseLayout<D>) {
-        self.buffer.into_parts()
+    /// Decomposes an array into its raw components including the allocator.
+    #[cfg(feature = "nightly")]
+    pub fn into_raw_parts_with_alloc(self) -> (*mut T, D::Shape, usize, A) {
+        let (vec, layout) = self.buffer.into_parts();
+        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
+
+        (ptr, layout.shape(), capacity, alloc)
     }
 
     /// Converts the array into a reshaped array, which must have the same length.
     /// # Panics
     /// Panics if the array length is changed.
     pub fn into_shape<S: Shape>(self, shape: S) -> DenseGrid<T, S::Dim<D::Order>, A> {
-        let layout = self.layout().reshape(shape);
+        let (vec, layout) = self.buffer.into_parts();
 
-        unsafe { DenseGrid::from_parts(self.into_vec(), layout) }
+        unsafe { DenseGrid::from_parts(vec, layout.reshape(shape)) }
     }
 
     /// Converts the array into a vector.
     pub fn into_vec(self) -> vec_t!(T, A) {
-        let (vec, _) = self.into_parts();
+        let (vec, _) = self.buffer.into_parts();
 
         vec
     }
@@ -213,54 +243,55 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// Reserves capacity for at least the additional number of elements in the array.
     pub fn reserve(&mut self, additional: usize) {
         unsafe {
-            self.buffer.vec_mut().reserve(additional);
+            self.buffer.as_mut_vec().reserve(additional);
         }
     }
 
     /// Reserves the minimum capacity for the additional number of elements in the array.
     pub fn reserve_exact(&mut self, additional: usize) {
         unsafe {
-            self.buffer.vec_mut().reserve_exact(additional);
+            self.buffer.as_mut_vec().reserve_exact(additional);
         }
     }
 
-    /// Resizes the array to the given shape, creating new elements with the given value.
-    pub fn resize(&mut self, shape: D::Shape, value: impl Borrow<T> + Copy)
+    /// Resizes the array to the new shape, creating new elements with the given value.
+    pub fn resize(&mut self, new_shape: D::Shape, value: impl Borrow<T>)
     where
         T: Clone,
         A: Clone,
     {
-        self.buffer.resize_with(shape, || value.borrow().clone());
+        self.buffer.resize_with(new_shape, || value.borrow().clone());
     }
 
-    /// Resizes the array to the given shape, creating new elements from the given closure.
-    pub fn resize_with(&mut self, shape: D::Shape, f: impl FnMut() -> T)
+    /// Resizes the array to the new shape, creating new elements from the given closure.
+    pub fn resize_with(&mut self, new_shape: D::Shape, f: impl FnMut() -> T)
     where
-        T: Clone,
         A: Clone,
     {
-        self.buffer.resize_with(shape, f);
+        self.buffer.resize_with(new_shape, f);
     }
 
-    /// Forces the array layout to the specified layout.
+    /// Forces the array shape to the new shape.
     /// # Safety
     /// All elements within the array length must be initialized.
-    pub unsafe fn set_layout(&mut self, layout: DenseLayout<D>) {
-        self.buffer.vec_mut().set_len(layout.len());
-        self.buffer.set_layout(layout);
+    pub unsafe fn set_shape(&mut self, new_shape: D::Shape) {
+        let new_layout = DenseLayout::new(new_shape);
+
+        self.buffer.as_mut_vec().set_len(new_layout.len());
+        self.buffer.set_layout(new_layout);
     }
 
     /// Shrinks the capacity of the array with a lower bound.
     pub fn shrink_to(&mut self, min_capacity: usize) {
         unsafe {
-            self.buffer.vec_mut().shrink_to(min_capacity);
+            self.buffer.as_mut_vec().shrink_to(min_capacity);
         }
     }
 
     /// Shrinks the capacity of the array as much as possible.
     pub fn shrink_to_fit(&mut self) {
         unsafe {
-            self.buffer.vec_mut().shrink_to_fit();
+            self.buffer.as_mut_vec().shrink_to_fit();
         }
     }
 
@@ -269,11 +300,11 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
         let dim = D::dim(D::RANK - 1);
 
         if size < self.size(dim) {
-            let len = size * self.stride(dim) as usize;
+            let new_layout = self.layout().resize_dim(dim, size);
 
             unsafe {
-                self.buffer.vec_mut().truncate(len);
-                self.buffer.set_layout(self.layout().resize_dim(dim, size));
+                self.buffer.set_layout(new_layout);
+                self.buffer.as_mut_vec().truncate(new_layout.len());
             }
         }
     }
@@ -282,14 +313,14 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// # Errors
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.buffer.vec_mut().try_reserve(additional) }
+        unsafe { self.buffer.as_mut_vec().try_reserve(additional) }
     }
 
     /// Tries to reserve the minimum capacity for the additional number of elements in the array.
     /// # Errors
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.buffer.vec_mut().try_reserve_exact(additional) }
+        unsafe { self.buffer.as_mut_vec().try_reserve_exact(additional) }
     }
 
     /// Creates a new, empty array with the specified capacity and allocator.
@@ -297,20 +328,60 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         unsafe { Self::from_parts(Vec::with_capacity_in(capacity, alloc), Layout::default()) }
     }
+
+    pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), layout: DenseLayout<D>) -> Self {
+        Self { buffer: DenseBuffer::from_parts(vec, layout) }
+    }
 }
 
 #[cfg(not(feature = "nightly"))]
 impl<T, D: Dim> DenseGrid<T, D, Global> {
+    /// Creates an array from the given element.
+    pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
+    where
+        T: Clone,
+    {
+        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let mut vec = Vec::<T>::with_capacity(len);
+
+        unsafe {
+            for i in 0..len {
+                vec.as_mut_ptr().add(i).write(elem.borrow().clone());
+                vec.set_len(i + 1);
+            }
+
+            Self::from_parts(vec, DenseLayout::new(shape))
+        }
+    }
+
     /// Creates an array with the results from the given function.
-    pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, mut f: F) -> Self {
+    pub fn from_fn(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T) -> Self {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
         let mut vec = Vec::with_capacity(len);
 
         unsafe {
-            from_fn::<T, D, Global, D::Lower, F>(&mut vec, shape, D::Shape::default(), &mut f);
+            from_fn::<T, D, Global, D::Lower>(&mut vec, shape, D::Shape::default(), &mut f);
 
             Self::from_parts(vec, DenseLayout::new(shape))
         }
+    }
+
+    /// Creates an array from raw components of another array.
+    /// # Safety
+    /// The pointer must be a valid allocation given the shape and capacity.
+    pub unsafe fn from_raw_parts(ptr: *mut T, shape: D::Shape, capacity: usize) -> Self {
+        let layout = DenseLayout::new(shape);
+        let vec = Vec::from_raw_parts(ptr, layout.len(), capacity);
+
+        Self::from_parts(vec, layout)
+    }
+
+    /// Decomposes an array into its raw components.
+    pub fn into_raw_parts(self) -> (*mut T, D::Shape, usize) {
+        let (vec, layout) = self.buffer.into_parts();
+        let mut vec = mem::ManuallyDrop::new(vec);
+
+        (vec.as_mut_ptr(), layout.shape(), vec.capacity())
     }
 
     /// Creates a new, empty array.
@@ -326,9 +397,31 @@ impl<T, D: Dim> DenseGrid<T, D, Global> {
 
 #[cfg(feature = "nightly")]
 impl<T, D: Dim> DenseGrid<T, D, Global> {
+    /// Creates an array from the given element.
+    pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
+    where
+        T: Clone,
+    {
+        Self::from_elem_in(shape, elem, Global)
+    }
+
     /// Creates an array with the results from the given function.
-    pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F) -> Self {
+    pub fn from_fn(shape: D::Shape, f: impl FnMut(D::Shape) -> T) -> Self {
         Self::from_fn_in(shape, f, Global)
+    }
+
+    /// Creates an array from raw components of another array.
+    /// # Safety
+    /// The pointer must be a valid allocation given the shape and capacity.
+    pub unsafe fn from_raw_parts(ptr: *mut T, shape: D::Shape, capacity: usize) -> Self {
+        Self::from_raw_parts_in(ptr, shape, capacity, Global)
+    }
+
+    /// Decomposes an array into its raw components.
+    pub fn into_raw_parts(self) -> (*mut T, D::Shape, usize) {
+        let (ptr, shape, capacity, _) = self.into_raw_parts_with_alloc();
+
+        (ptr, shape, capacity)
     }
 
     /// Creates a new, empty array.
@@ -467,17 +560,19 @@ impl<B: Buffer + Clone> Clone for GridBase<B> {
         Self { buffer: self.buffer.clone() }
     }
 
-    fn clone_from(&mut self, src: &Self) {
-        self.buffer.clone_from(&src.buffer);
+    fn clone_from(&mut self, source: &Self) {
+        self.buffer.clone_from(&source.buffer);
     }
 }
+
+impl<B: Buffer + Copy> Copy for GridBase<B> {}
 
 impl<B: Buffer> Debug for GridBase<B>
 where
     SpanBase<B::Item, B::Layout>: Debug,
 {
-    fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
-        self.as_span().fmt(fmt)
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.as_span().fmt(f)
     }
 }
 
@@ -504,8 +599,8 @@ impl<B: BufferMut> DerefMut for GridBase<B> {
 impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for DenseGrid<T, Rank<1, O>, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         unsafe {
-            self.buffer.vec_mut().extend(iter);
-            self.buffer.set_layout(DenseLayout::new([self.buffer.vec().len()]));
+            self.buffer.as_mut_vec().extend(iter);
+            self.buffer.set_layout(DenseLayout::new([self.buffer.as_vec().len()]));
         }
     }
 }
@@ -513,8 +608,8 @@ impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for DenseGrid<
 impl<T, O: Order, A: Allocator> Extend<T> for DenseGrid<T, Rank<1, O>, A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         unsafe {
-            self.buffer.vec_mut().extend(iter);
-            self.buffer.set_layout(DenseLayout::new([self.buffer.vec().len()]));
+            self.buffer.as_mut_vec().extend(iter);
+            self.buffer.set_layout(DenseLayout::new([self.buffer.as_vec().len()]));
         }
     }
 }
@@ -570,26 +665,29 @@ impl_from_array_ref!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y];
 
 macro_rules! impl_from_array {
     ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
         impl<T, O: Order, $(const $xyz: usize),+> From<$array> for DenseGrid<T, Rank<$n, O>> {
+            #[cfg(not(feature = "nightly"))]
             fn from(array: $array) -> Self {
-                #[cfg(not(feature = "nightly"))]
                 let mut vec = std::mem::ManuallyDrop::new(Vec::from(array));
-                #[cfg(not(feature = "nightly"))]
                 let (ptr, mut capacity) = (vec.as_mut_ptr(), vec.capacity());
-                #[cfg(feature = "nightly")]
-                let (ptr, _, mut capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
-                let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
+                let shape = O::select([$($xyz),+], [$($zyx),+]);
 
                 unsafe {
                     capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
 
-                    #[cfg(not(feature = "nightly"))]
-                    let vec = Vec::from_raw_parts(ptr.cast(), layout.len(), capacity);
-                    #[cfg(feature = "nightly")]
-                    let vec = Vec::from_raw_parts_in(ptr.cast(), layout.len(), capacity, alloc);
+                    Self::from_raw_parts(ptr.cast(), shape, capacity)
+                }
+            }
 
-                    Self::from_parts(vec, layout)
+            #[cfg(feature = "nightly")]
+            fn from(array: $array) -> Self {
+                let (ptr, _, mut capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
+                let shape = O::select([$($xyz),+], [$($zyx),+]);
+
+                unsafe {
+                    capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
+
+                    Self::from_raw_parts_in(ptr.cast(), shape, capacity, alloc)
                 }
             }
         }
@@ -603,6 +701,12 @@ impl_from_array!(4, (X, Y, Z, W), (W, Z, Y, X), [[[[T; X]; Y]; Z]; W]);
 impl_from_array!(5, (X, Y, Z, W, U), (U, W, Z, Y, X), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
+impl<T, D: Dim, A: Allocator> From<DenseGrid<T, D, A>> for vec_t!(T, A) {
+    fn from(grid: DenseGrid<T, D, A>) -> Self {
+        grid.into_vec()
+    }
+}
+
 impl<T, O: Order, A: Allocator> From<vec_t!(T, A)> for DenseGrid<T, Rank<1, O>, A> {
     fn from(vec: vec_t!(T, A)) -> Self {
         let layout = DenseLayout::new([vec.len()]);
@@ -611,15 +715,18 @@ impl<T, O: Order, A: Allocator> From<vec_t!(T, A)> for DenseGrid<T, Rank<1, O>, 
     }
 }
 
-impl<T, D: Dim, A: Allocator> From<DenseGrid<T, D, A>> for vec_t!(T, A) {
-    fn from(grid: DenseGrid<T, D, A>) -> Self {
-        grid.into_vec()
-    }
-}
-
 impl<T, O: Order> FromIterator<T> for DenseGrid<T, Rank<1, O>> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
+    }
+}
+
+impl<B: Buffer> Hash for GridBase<B>
+where
+    SpanBase<B::Item, B::Layout>: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_span().hash(state);
     }
 }
 
@@ -658,15 +765,15 @@ impl<T, D: Dim, A: Allocator> IntoIterator for DenseGrid<T, D, A> {
 
 unsafe fn extend_from_span<T: Clone, F: Format, A: Allocator>(
     vec: &mut vec_t!(T, A),
-    span: &SpanBase<T, Layout<impl Dim, F>>,
+    other: &SpanBase<T, Layout<impl Dim, F>>,
 ) {
     if F::IS_UNIFORM {
-        for x in span.flatten().iter() {
+        for x in other.flatten().iter() {
             vec.as_mut_ptr().add(vec.len()).write(x.clone());
             vec.set_len(vec.len() + 1);
         }
     } else {
-        for x in span.outer_iter() {
+        for x in other.outer_iter() {
             #[cfg(not(feature = "nightly"))]
             extend_from_span::<_, _, A>(vec, &x);
             #[cfg(feature = "nightly")]
@@ -675,11 +782,11 @@ unsafe fn extend_from_span<T: Clone, F: Format, A: Allocator>(
     }
 }
 
-unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim, F: FnMut(D::Shape) -> T>(
+unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim>(
     vec: &mut vec_t!(T, A),
     shape: D::Shape,
     mut index: D::Shape,
-    f: &mut F,
+    f: &mut impl FnMut(D::Shape) -> T,
 ) {
     let dim = D::dim(I::RANK);
 
@@ -690,21 +797,21 @@ unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim, F: FnMut(D::Shape) -> T>(
             vec.as_mut_ptr().add(vec.len()).write(f(index));
             vec.set_len(vec.len() + 1);
         } else {
-            from_fn::<T, D, A, I::Lower, F>(vec, shape, index, f);
+            from_fn::<T, D, A, I::Lower>(vec, shape, index, f);
         }
     }
 }
 
 fn map<T: Default, F: Format>(
-    span: &mut SpanBase<T, Layout<impl Dim, F>>,
+    this: &mut SpanBase<T, Layout<impl Dim, F>>,
     f: &mut impl FnMut(T) -> T,
 ) {
     if F::IS_UNIFORM {
-        for x in span.flatten_mut().iter_mut() {
+        for x in this.flatten_mut().iter_mut() {
             *x = f(mem::take(x));
         }
     } else {
-        for mut x in span.outer_iter_mut() {
+        for mut x in this.outer_iter_mut() {
             map(&mut x, f);
         }
     }

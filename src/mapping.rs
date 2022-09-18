@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter, Result};
 use std::slice::{Iter, IterMut};
 
 use crate::dim::{Dim, Rank, Shape};
@@ -32,24 +32,20 @@ pub trait Mapping: Copy + Debug + Default {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
 pub struct DenseMapping<D: Dim> {
     shape: D::Shape,
 }
 
-#[derive(Clone, Copy, Debug)]
 pub struct FlatMapping<D: Dim> {
     shape: D::Shape,
     inner_stride: isize,
 }
 
-#[derive(Clone, Copy, Debug)]
 pub struct GeneralMapping<D: Dim> {
     shape: D::Shape,
     outer_strides: <D::Lower as Dim>::Strides,
 }
 
-#[derive(Clone, Copy, Debug)]
 pub struct StridedMapping<D: Dim> {
     shape: D::Shape,
     strides: D::Strides,
@@ -67,6 +63,26 @@ type Uniform<M> = <<M as Mapping>::Format as Format>::Uniform;
 impl<D: Dim> DenseMapping<D> {
     pub fn new(shape: D::Shape) -> Self {
         Self { shape }
+    }
+}
+
+impl<D: Dim> Clone for DenseMapping<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Dim> Copy for DenseMapping<D> {}
+
+impl<D: Dim> Debug for DenseMapping<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("DenseLayout").field("shape", &self.shape).finish()
+    }
+}
+
+impl<D: Dim> Default for DenseMapping<D> {
+    fn default() -> Self {
+        Self { shape: Default::default() }
     }
 }
 
@@ -167,6 +183,23 @@ impl<D: Dim> FlatMapping<D> {
         assert!(D::RANK > 0, "invalid rank");
 
         Self { shape, inner_stride }
+    }
+}
+
+impl<D: Dim> Clone for FlatMapping<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Dim> Copy for FlatMapping<D> {}
+
+impl<D: Dim> Debug for FlatMapping<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("FlatLayout")
+            .field("shape", &self.shape)
+            .field("inner_stride", &self.inner_stride)
+            .finish()
     }
 }
 
@@ -288,6 +321,23 @@ impl<D: Dim> GeneralMapping<D> {
     }
 }
 
+impl<D: Dim> Clone for GeneralMapping<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Dim> Copy for GeneralMapping<D> {}
+
+impl<D: Dim> Debug for GeneralMapping<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("GeneralLayout")
+            .field("shape", &self.shape)
+            .field("outer_strides", &self.outer_strides)
+            .finish()
+    }
+}
+
 impl<D: Dim> Default for GeneralMapping<D> {
     fn default() -> Self {
         assert!(D::RANK > 1, "invalid rank");
@@ -392,6 +442,23 @@ impl<D: Dim> StridedMapping<D> {
         assert!(D::RANK > 1, "invalid rank");
 
         Self { shape, strides }
+    }
+}
+
+impl<D: Dim> Clone for StridedMapping<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: Dim> Copy for StridedMapping<D> {}
+
+impl<D: Dim> Debug for StridedMapping<D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("StridedLayout")
+            .field("shape", &self.shape)
+            .field("strides", &self.strides)
+            .finish()
     }
 }
 

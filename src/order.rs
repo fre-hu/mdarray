@@ -1,7 +1,5 @@
-use std::fmt::Debug;
-
 /// Order for indexing and iteration over array elements.
-pub trait Order: Copy + Debug + Default {
+pub trait Order {
     /// True if the array has column-major element order.
     const IS_COLUMN_MAJOR: bool;
 
@@ -13,11 +11,9 @@ pub trait Order: Copy + Debug + Default {
 }
 
 /// Column-major order, for indexing and iteration over array elements.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct ColumnMajor;
 
 /// Row-major order, for indexing and iteration over array elements.
-#[derive(Clone, Copy, Debug, Default)]
 pub struct RowMajor;
 
 impl Order for ColumnMajor {

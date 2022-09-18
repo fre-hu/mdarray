@@ -98,18 +98,19 @@ impl<T: Serialize, D: Dim, F: Format> Serialize for SpanBase<T, Layout<D, F>> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if D::RANK == 0 {
             self[D::Shape::default()].serialize(serializer)
-        } else if self.is_empty() {
-            serializer.serialize_seq(Some(0))?.end()
         } else {
-            let mut seq = serializer.serialize_seq(Some(self.size(D::dim(D::RANK - 1))))?;
+            let len = if self.is_empty() { 0 } else { self.size(D::dim(D::RANK - 1)) };
+            let mut seq = serializer.serialize_seq(Some(len))?;
 
-            if D::RANK == 1 {
-                for x in self.flatten().iter() {
-                    seq.serialize_element(x)?;
-                }
-            } else {
-                for x in self.outer_iter() {
-                    seq.serialize_element(&x)?;
+            if len > 0 {
+                if D::RANK == 1 {
+                    for x in self.flatten().iter() {
+                        seq.serialize_element(x)?;
+                    }
+                } else {
+                    for x in self.outer_iter() {
+                        seq.serialize_element(&x)?;
+                    }
                 }
             }
 

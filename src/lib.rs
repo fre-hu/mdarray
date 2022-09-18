@@ -132,7 +132,7 @@
 //! let a = SubGrid::from(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
 //! let b = SubGrid::from(&[[0.0, 1.0], [1.0, 1.0]]);
 //!
-//! let mut c = Grid::from([[0.0; 3]; 2]);
+//! let mut c = Grid::from_elem([3, 2], 0.0);
 //!
 //! matmul(&a, &b, &mut c);
 //!
@@ -143,11 +143,12 @@
 //! This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
 
-/// Module for array span and view indexing.
+/// Module for array span and view indexing, and for array axis subarray types.
 pub mod index {
     mod axis;
     mod span;
@@ -158,11 +159,17 @@ pub mod index {
     pub use view::{DimIndex, Params, ViewIndex};
 }
 
+/// Module for array axis and linear array span iterators.
+pub mod iter {
+    mod sources;
+
+    pub use sources::{AxisIter, AxisIterMut, LinearIter, LinearIterMut};
+}
+
 mod buffer;
 mod dim;
 mod format;
 mod grid;
-mod iter;
 mod layout;
 mod mapping;
 mod ops;

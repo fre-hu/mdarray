@@ -54,7 +54,7 @@ pub struct SubBufferMut<'a, T, L: Copy> {
     phantom: PhantomData<&'a mut T>,
 }
 
-struct VecGuard<'a, T, A: Allocator> {
+struct DropGuard<'a, T, A: Allocator> {
     ptr: *mut T,
     len: usize,
     #[cfg(not(feature = "nightly"))]
@@ -64,6 +64,14 @@ struct VecGuard<'a, T, A: Allocator> {
 }
 
 impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
+    pub unsafe fn as_mut_vec(&mut self) -> &mut vec_t!(T, A) {
+        &mut self.vec
+    }
+
+    pub fn as_vec(&self) -> &vec_t!(T, A) {
+        &self.vec
+    }
+
     pub unsafe fn from_parts(vec: vec_t!(T, A), layout: DenseLayout<D>) -> Self {
         assert!(mem::size_of::<T>() != 0, "ZST not allowed");
         assert!(D::RANK > 0, "invalid rank");
@@ -85,56 +93,48 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
         (vec, layout)
     }
 
-    pub fn resize_with<F: FnMut() -> T>(&mut self, shape: D::Shape, mut f: F)
+    pub fn resize_with<F: FnMut() -> T>(&mut self, new_shape: D::Shape, mut f: F)
     where
-        T: Clone,
         A: Clone,
     {
-        let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
+        let new_len = new_shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
 
-        if len == 0 {
+        if new_len == 0 {
+            self.layout = DenseLayout::new(new_shape);
             self.vec.clear();
         } else {
             let inner_dims = D::dims(..D::RANK - 1);
             let old_shape = self.layout.shape();
 
-            if shape[inner_dims.clone()] == old_shape[inner_dims] {
-                self.vec.resize_with(len, f);
+            self.layout = Layout::default(); // Remove contents in case of exception.
+
+            if new_shape[inner_dims.clone()] == old_shape[inner_dims] {
+                self.vec.resize_with(new_len, f);
             } else {
                 #[cfg(not(feature = "nightly"))]
-                let mut vec = Vec::with_capacity(len);
+                let mut vec = Vec::with_capacity(new_len);
                 #[cfg(feature = "nightly")]
-                let mut vec = Vec::with_capacity_in(len, self.vec.allocator().clone());
-
-                self.layout = Layout::default(); // Remove contents in case of exception.
+                let mut vec = Vec::with_capacity_in(new_len, self.vec.allocator().clone());
 
                 unsafe {
-                    copy_dim::<T, D, A, D::Lower, F>(
-                        &mut VecGuard::new(&mut self.vec),
+                    copy_dim::<T, D, A, D::Lower>(
+                        &mut DropGuard::new(&mut self.vec),
                         &mut vec,
                         old_shape,
-                        shape,
+                        new_shape,
                         &mut f,
                     );
                 }
 
                 self.vec = vec;
             }
+
+            self.layout = DenseLayout::new(new_shape);
         }
-
-        self.layout = DenseLayout::new(shape);
     }
 
-    pub unsafe fn set_layout(&mut self, layout: DenseLayout<D>) {
-        self.layout = layout;
-    }
-
-    pub fn vec(&self) -> &vec_t!(T, A) {
-        &self.vec
-    }
-
-    pub unsafe fn vec_mut(&mut self) -> &mut vec_t!(T, A) {
-        &mut self.vec
+    pub unsafe fn set_layout(&mut self, new_layout: DenseLayout<D>) {
+        self.layout = new_layout;
     }
 }
 
@@ -167,10 +167,10 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for DenseBuffer<T, D, A> {
         }
     }
 
-    fn clone_from(&mut self, src: &Self) {
-        self.layout = Layout::default();
-        self.vec.clone_from(&src.vec);
-        self.layout = src.layout;
+    fn clone_from(&mut self, source: &Self) {
+        self.layout = Layout::default(); // Remove contents in case of exception.
+        self.vec.clone_from(&source.vec);
+        self.layout = source.layout;
     }
 }
 
@@ -214,11 +214,19 @@ impl<'a, T, L: Copy> BufferMut for SubBufferMut<'a, T, L> {
 
 impl<'a, T, L: Copy> Clone for SubBuffer<'a, T, L> {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr, layout: self.layout, phantom: PhantomData }
+        *self
     }
 }
 
-impl<'a, T, A: Allocator> VecGuard<'a, T, A> {
+impl<'a, T, L: Copy> Copy for SubBuffer<'a, T, L> {}
+
+unsafe impl<'a, T: Sync, L: Copy> Send for SubBuffer<'a, T, L> {}
+unsafe impl<'a, T: Sync, L: Copy> Sync for SubBuffer<'a, T, L> {}
+
+unsafe impl<'a, T: Send, L: Copy> Send for SubBufferMut<'a, T, L> {}
+unsafe impl<'a, T: Sync, L: Copy> Sync for SubBufferMut<'a, T, L> {}
+
+impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     fn new(vec: &'a mut vec_t!(T, A)) -> Self {
         let len = vec.len();
 
@@ -230,7 +238,7 @@ impl<'a, T, A: Allocator> VecGuard<'a, T, A> {
     }
 }
 
-impl<'a, T, A: Allocator> Drop for VecGuard<'a, T, A> {
+impl<'a, T, A: Allocator> Drop for DropGuard<'a, T, A> {
     fn drop(&mut self) {
         unsafe {
             ptr::drop_in_place(ptr::slice_from_raw_parts_mut(self.ptr, self.len));
@@ -238,12 +246,12 @@ impl<'a, T, A: Allocator> Drop for VecGuard<'a, T, A> {
     }
 }
 
-unsafe fn copy_dim<T: Clone, D: Dim, A: Allocator, I: Dim, F: FnMut() -> T>(
-    old_vec: &mut VecGuard<T, A>,
+unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
+    old_vec: &mut DropGuard<T, A>,
     new_vec: &mut vec_t!(T, A),
     old_shape: D::Shape,
     new_shape: D::Shape,
-    f: &mut F,
+    f: &mut impl FnMut() -> T,
 ) {
     let inner_dims = D::dims(..I::RANK);
 
@@ -256,7 +264,7 @@ unsafe fn copy_dim<T: Clone, D: Dim, A: Allocator, I: Dim, F: FnMut() -> T>(
     let min_size = cmp::min(old_size, new_size);
 
     if I::RANK == 0 {
-        ptr::copy(old_vec.ptr, new_vec.as_mut_ptr().add(new_vec.len()), min_size);
+        ptr::copy_nonoverlapping(old_vec.ptr, new_vec.as_mut_ptr().add(new_vec.len()), min_size);
 
         old_vec.ptr = old_vec.ptr.add(min_size);
         old_vec.len -= min_size;
@@ -264,7 +272,7 @@ unsafe fn copy_dim<T: Clone, D: Dim, A: Allocator, I: Dim, F: FnMut() -> T>(
         new_vec.set_len(new_vec.len() + min_size);
     } else {
         for _ in 0..min_size {
-            copy_dim::<T, D, A, I::Lower, F>(old_vec, new_vec, old_shape, new_shape, f);
+            copy_dim::<T, D, A, I::Lower>(old_vec, new_vec, old_shape, new_shape, f);
         }
     }
 

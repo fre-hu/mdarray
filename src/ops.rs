@@ -59,17 +59,17 @@ impl<T: Eq, L: Copy> Eq for SpanBase<T, L> where Self: PartialEq {}
 impl<T: Ord, B: Buffer<Item = T, Layout = Layout<Rank<1, impl Order>, impl Format>>> Ord
     for GridBase<B>
 {
-    fn cmp(&self, rhs: &Self) -> Ordering {
-        self.as_span().cmp(rhs.as_span())
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_span().cmp(other.as_span())
     }
 }
 
 impl<T: Ord, F: Format, O: Order> Ord for SpanBase<T, Layout<Rank<1, O>, F>> {
-    fn cmp(&self, rhs: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         if F::IS_UNIFORM && F::IS_UNIT_STRIDED {
-            self.reformat().as_slice().cmp(rhs.reformat().as_slice())
+            self.reformat().as_slice().cmp(other.reformat().as_slice())
         } else {
-            self.flatten().iter().cmp(rhs.flatten().iter())
+            self.flatten().iter().cmp(other.flatten().iter())
         }
     }
 }
@@ -88,8 +88,8 @@ impl<T, F: Format, O: Order, B: Buffer<Layout = Layout<Rank<1, O>, impl Format>>
 where
     T: PartialOrd<B::Item>,
 {
-    fn partial_cmp(&self, rhs: &GridBase<B>) -> Option<Ordering> {
-        self.partial_cmp(rhs.as_span())
+    fn partial_cmp(&self, other: &GridBase<B>) -> Option<Ordering> {
+        self.partial_cmp(other.as_span())
     }
 }
 
@@ -98,8 +98,8 @@ impl<T, U, F: Format, G: Format, O: Order> PartialOrd<SpanBase<U, Layout<Rank<1,
 where
     T: PartialOrd<U>,
 {
-    fn partial_cmp(&self, rhs: &SpanBase<U, Layout<Rank<1, O>, G>>) -> Option<Ordering> {
-        self.flatten().iter().partial_cmp(rhs.flatten().iter())
+    fn partial_cmp(&self, other: &SpanBase<U, Layout<Rank<1, O>, G>>) -> Option<Ordering> {
+        self.flatten().iter().partial_cmp(other.flatten().iter())
     }
 }
 
@@ -117,8 +117,8 @@ impl<T, D: Dim, F: Format, B: Buffer<Layout = Layout<D, impl Format>>> PartialEq
 where
     T: PartialEq<B::Item>,
 {
-    fn eq(&self, rhs: &GridBase<B>) -> bool {
-        self.eq(rhs.as_span())
+    fn eq(&self, other: &GridBase<B>) -> bool {
+        self.eq(other.as_span())
     }
 }
 
@@ -127,19 +127,19 @@ impl<T, U, D: Dim, F: Format, G: Format> PartialEq<SpanBase<U, Layout<D, G>>>
 where
     T: PartialEq<U>,
 {
-    fn eq(&self, rhs: &SpanBase<U, Layout<D, G>>) -> bool {
+    fn eq(&self, other: &SpanBase<U, Layout<D, G>>) -> bool {
         if F::IS_UNIFORM && G::IS_UNIFORM {
-            if self.shape()[..] == rhs.shape()[..] {
+            if self.shape()[..] == other.shape()[..] {
                 if F::IS_UNIT_STRIDED && G::IS_UNIT_STRIDED {
-                    self.reformat().as_slice().eq(rhs.reformat().as_slice())
+                    self.reformat().as_slice().eq(other.reformat().as_slice())
                 } else {
-                    self.flatten().iter().eq(rhs.flatten().iter())
+                    self.flatten().iter().eq(other.flatten().iter())
                 }
             } else {
                 false
             }
         } else {
-            self.outer_iter().eq(rhs.outer_iter())
+            self.outer_iter().eq(other.outer_iter())
         }
     }
 }
@@ -180,7 +180,7 @@ macro_rules! impl_binary_op {
                 let mut vec = Vec::with_capacity(self.len());
 
                 unsafe {
-                    from_binary_op(self, rhs, &mut vec, &|x, y| x.$fn(y));
+                    from_binary_op(&mut vec, self, rhs, &|x, y| x.$fn(y));
 
                     DenseGrid::from_parts(vec, DenseLayout::new(self.shape()))
                 }
@@ -209,7 +209,7 @@ macro_rules! impl_binary_op {
                 let mut vec = Vec::with_capacity(rhs.len());
 
                 unsafe {
-                    from_unary_op(rhs, &mut vec, &|x| self.value.$fn(x));
+                    from_unary_op(&mut vec, rhs, &|x| self.value.$fn(x));
 
                     DenseGrid::from_parts(vec, DenseLayout::new(rhs.shape()))
                 }
@@ -226,7 +226,7 @@ macro_rules! impl_binary_op {
                 let mut vec = Vec::with_capacity(self.len());
 
                 unsafe {
-                    from_unary_op(self, &mut vec, &|x| x.$fn(rhs.value));
+                    from_unary_op(&mut vec, self, &|x| x.$fn(rhs.value));
 
                     DenseGrid::from_parts(vec, DenseLayout::new(self.shape()))
                 }
@@ -390,7 +390,7 @@ macro_rules! impl_unary_op {
                 let mut vec = Vec::with_capacity(self.len());
 
                 unsafe {
-                    from_unary_op(self, &mut vec, &|x| x.$fn());
+                    from_unary_op(&mut vec, self, &|x| x.$fn());
 
                     DenseGrid::from_parts(vec, DenseLayout::new(self.shape()))
                 }
@@ -416,9 +416,9 @@ impl_unary_op!(Neg, neg);
 impl_unary_op!(Not, not);
 
 unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim>(
+    vec: &mut Vec<V>,
     lhs: &SpanBase<T, Layout<D, F>>,
     rhs: &SpanBase<U, Layout<D, G>>,
-    vec: &mut Vec<V>,
     f: &impl Fn(&T, &U) -> V,
 ) {
     if F::IS_UNIFORM && G::IS_UNIFORM {
@@ -434,53 +434,53 @@ unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim>(
         assert!(lhs.size(dim) == rhs.size(dim), "shape mismatch");
 
         for (x, y) in lhs.outer_iter().zip(rhs.outer_iter()) {
-            from_binary_op(&x, &y, vec, f);
+            from_binary_op(vec, &x, &y, f);
         }
     }
 }
 
 unsafe fn from_unary_op<T, F: Format, U>(
-    span: &SpanBase<T, Layout<impl Dim, F>>,
     vec: &mut Vec<U>,
+    other: &SpanBase<T, Layout<impl Dim, F>>,
     f: &impl Fn(&T) -> U,
 ) {
     if F::IS_UNIFORM {
-        for x in span.flatten().iter() {
+        for x in other.flatten().iter() {
             vec.as_mut_ptr().add(vec.len()).write(f(x));
             vec.set_len(vec.len() + 1);
         }
     } else {
-        for x in span.outer_iter() {
-            from_unary_op(&x, vec, f);
+        for x in other.outer_iter() {
+            from_unary_op(vec, &x, f);
         }
     }
 }
 
 fn map_binary_op<T, F: Format, G: Format, U, D: Dim>(
-    lhs: &mut SpanBase<T, Layout<D, F>>,
-    rhs: &SpanBase<U, Layout<D, G>>,
+    this: &mut SpanBase<T, Layout<D, F>>,
+    other: &SpanBase<U, Layout<D, G>>,
     f: &impl Fn((&mut T, &U)),
 ) {
     if F::IS_UNIFORM && G::IS_UNIFORM {
-        assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
+        assert!(this.shape()[..] == other.shape()[..], "shape mismatch");
 
-        lhs.flatten_mut().iter_mut().zip(rhs.flatten().iter()).for_each(f);
+        this.flatten_mut().iter_mut().zip(other.flatten().iter()).for_each(f);
     } else {
         let dim = D::dim(D::RANK - 1);
 
-        assert!(lhs.size(dim) == rhs.size(dim), "shape mismatch");
+        assert!(this.size(dim) == other.size(dim), "shape mismatch");
 
-        for (mut x, y) in lhs.outer_iter_mut().zip(rhs.outer_iter()) {
+        for (mut x, y) in this.outer_iter_mut().zip(other.outer_iter()) {
             map_binary_op(&mut x, &y, f);
         }
     }
 }
 
-fn map_unary_op<T, F: Format>(span: &mut SpanBase<T, Layout<impl Dim, F>>, f: &impl Fn(&mut T)) {
+fn map_unary_op<T, F: Format>(this: &mut SpanBase<T, Layout<impl Dim, F>>, f: &impl Fn(&mut T)) {
     if F::IS_UNIFORM {
-        span.flatten_mut().iter_mut().for_each(f);
+        this.flatten_mut().iter_mut().for_each(f);
     } else {
-        for mut x in span.outer_iter_mut() {
+        for mut x in this.outer_iter_mut() {
             map_unary_op(&mut x, f);
         }
     }
