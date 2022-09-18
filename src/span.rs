@@ -27,29 +27,34 @@ pub type DenseSpan<T, D> = SpanBase<T, DenseLayout<D>>;
 impl<T, L: Copy> SpanBase<T, L> {
     /// Returns a mutable pointer to the array buffer.
     #[cfg(not(feature = "permissive-provenance"))]
+    #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut T {
         (self as *mut Self).cast()
     }
 
     /// Returns a mutable pointer to the array buffer.
     #[cfg(feature = "permissive-provenance")]
+    #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut T {
         self as *mut Self as *mut () as usize as *mut T // Use previously exposed provenance.
     }
 
     /// Returns a raw pointer to the array buffer.
     #[cfg(not(feature = "permissive-provenance"))]
+    #[must_use]
     pub fn as_ptr(&self) -> *const T {
         (self as *const Self).cast()
     }
 
     /// Returns a raw pointer to the array buffer.
     #[cfg(feature = "permissive-provenance")]
+    #[must_use]
     pub fn as_ptr(&self) -> *const T {
         self as *const Self as *const () as usize as *const T // Use previously exposed provenance.
     }
 
     /// Returns the array layout.
+    #[must_use]
     pub fn layout(&self) -> L {
         let len = self.slice.len();
 
@@ -63,11 +68,13 @@ impl<T, L: Copy> SpanBase<T, L> {
     }
 
     /// Returns an array view of the entire array span.
+    #[must_use]
     pub fn to_view(&self) -> SubGrid<T, L> {
         unsafe { SubGrid::new_unchecked(self.as_ptr(), self.layout()) }
     }
 
     /// Returns a mutable array view of the entire array span.
+    #[must_use]
     pub fn to_view_mut(&mut self) -> SubGridMut<T, L> {
         unsafe { SubGridMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
     }
@@ -192,6 +199,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a one-dimensional array view of the array span.
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
+    #[must_use]
     pub fn flatten(&self) -> SubGrid<T, Layout<Rank<1, D::Order>, F::Uniform>> {
         self.to_view().into_flattened()
     }
@@ -199,6 +207,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a mutable one-dimensional array view over the array span.
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
+    #[must_use]
     pub fn flatten_mut(&mut self) -> SubGridMut<T, Layout<Rank<1, D::Order>, F::Uniform>> {
         self.to_view_mut().into_flattened()
     }
@@ -206,6 +215,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a reference to an element or a subslice, without doing bounds checking.
     /// # Safety
     /// The index must be within bounds of the array span.
+    #[must_use]
     pub unsafe fn get_unchecked<I>(&self, index: I) -> &I::Output
     where
         I: SpanIndex<T, Layout<D, F>>,
@@ -216,6 +226,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a mutable reference to an element or a subslice, without doing bounds checking.
     /// # Safety
     /// The index must be within bounds of the array span.
+    #[must_use]
     pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut I::Output
     where
         I: SpanIndex<T, Layout<D, F>>,
@@ -226,6 +237,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Copies the specified subarray into a new array.
     /// # Panics
     /// Panics if the subarray is out of bounds.
+    #[must_use]
     pub fn grid<P: Params, I>(&self, index: I) -> DenseGrid<T, P::Dim>
     where
         T: Clone,
@@ -238,6 +250,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// # Panics
     /// Panics if the subarray is out of bounds.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> DenseGrid<T, P::Dim, A>
     where
         T: Clone,
@@ -286,16 +299,19 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Returns true if the array strides are consistent with contiguous memory layout.
+    #[must_use]
     pub fn is_contiguous(&self) -> bool {
         self.layout().is_contiguous()
     }
 
     /// Returns true if the array contains no elements.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.layout().is_empty()
     }
 
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
+    #[must_use]
     pub fn is_uniformly_strided(&self) -> bool {
         self.layout().is_uniformly_strided()
     }
@@ -317,6 +333,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Returns the number of elements in the array.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.layout().len()
     }
@@ -366,6 +383,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a reformatted array view of the array span.
     /// # Panics
     /// Panics if the array layout is not compatible with the new format.
+    #[must_use]
     pub fn reformat<G: Format>(&self) -> SubGrid<T, Layout<D, G>> {
         self.to_view().into_format()
     }
@@ -373,6 +391,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a mutable reformatted array view of the array span.
     /// # Panics
     /// Panics if the array layout is not compatible with the new format.
+    #[must_use]
     pub fn reformat_mut<G: Format>(&mut self) -> SubGridMut<T, Layout<D, G>> {
         self.to_view_mut().into_format()
     }
@@ -380,6 +399,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a reshaped array view of the array span, with similar layout.
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
+    #[must_use]
     pub fn reshape<S: Shape>(&self, shape: S) -> SubGrid<T, ValidLayout<S::Dim<D::Order>, F>> {
         self.to_view().into_shape(shape)
     }
@@ -387,6 +407,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a mutable reshaped array view of the array span, with similar layout.
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
+    #[must_use]
     pub fn reshape_mut<S: Shape>(
         &mut self,
         shape: S,
@@ -395,11 +416,13 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Returns the shape of the array.
+    #[must_use]
     pub fn shape(&self) -> D::Shape {
         self.layout().shape()
     }
 
     /// Returns the number of elements in the specified dimension.
+    #[must_use]
     pub fn size(&self, dim: usize) -> usize {
         self.layout().size(dim)
     }
@@ -407,6 +430,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Divides an array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
+    #[must_use]
     pub fn split_at(&self, mid: usize) -> (SubGrid<T, Layout<D, F>>, SubGrid<T, Layout<D, F>>) {
         self.to_view().into_split_at(mid)
     }
@@ -414,6 +438,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Divides a mutable array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
+    #[must_use]
     pub fn split_at_mut(
         &mut self,
         mid: usize,
@@ -424,6 +449,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Divides an array span into two at an index along the specified dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
+    #[must_use]
     pub fn split_axis_at<const DIM: usize>(
         &self,
         mid: usize,
@@ -440,6 +466,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Divides a mutable array span into two at an index along the specified dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
+    #[must_use]
     pub fn split_axis_at_mut<const DIM: usize>(
         &mut self,
         mid: usize,
@@ -454,17 +481,20 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Returns the distance between elements in the specified dimension.
+    #[must_use]
     pub fn stride(&self, dim: usize) -> isize {
         self.layout().stride(dim)
     }
 
     /// Returns the distance between elements in each dimension.
+    #[must_use]
     pub fn strides(&self) -> D::Strides {
         self.layout().strides()
     }
 
     /// Copies the array span into a new array.
     #[cfg(not(feature = "nightly"))]
+    #[must_use]
     pub fn to_grid(&self) -> DenseGrid<T, D>
     where
         T: Clone,
@@ -477,6 +507,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
 
     /// Copies the array span into a new array.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn to_grid(&self) -> DenseGrid<T, D>
     where
         T: Clone,
@@ -486,6 +517,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
 
     /// Copies the array span into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> DenseGrid<T, D, A>
     where
         T: Clone,
@@ -497,6 +529,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     }
 
     /// Copies the array span into a new vector.
+    #[must_use]
     pub fn to_vec(&self) -> Vec<T>
     where
         T: Clone,
@@ -506,6 +539,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
 
     /// Copies the array span into a new vector with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn to_vec_in<A: Allocator>(&self, alloc: A) -> Vec<T, A>
     where
         T: Clone,
@@ -516,6 +550,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns an array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
+    #[must_use]
     pub fn view<I>(&self, index: I) -> SubGrid<T, ViewLayout<I::Params>>
     where
         I: ViewIndex<D, F>,
@@ -526,6 +561,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
     /// Returns a mutable array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
+    #[must_use]
     pub fn view_mut<I>(&mut self, index: I) -> SubGridMut<T, ViewLayout<I::Params>>
     where
         I: ViewIndex<D, F>,
@@ -536,11 +572,13 @@ impl<T, D: Dim, F: Format> SpanBase<T, Layout<D, F>> {
 
 impl<T, D: Dim> DenseSpan<T, D> {
     /// Returns a mutable slice of all elements in the array.
+    #[must_use]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
     }
 
     /// Returns a slice of all elements in the array.
+    #[must_use]
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }

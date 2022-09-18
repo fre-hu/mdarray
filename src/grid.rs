@@ -49,6 +49,7 @@ pub type SubGridMut<'a, T, L> = GridBase<SubBufferMut<'a, T, L>>;
 
 impl<B: Buffer> GridBase<B> {
     /// Returns an array span of the entire array.
+    #[must_use]
     pub fn as_span(&self) -> &SpanBase<B::Item, B::Layout> {
         unsafe { &*SpanBase::from_raw_parts(self.buffer.as_ptr(), self.buffer.layout()) }
     }
@@ -56,6 +57,7 @@ impl<B: Buffer> GridBase<B> {
 
 impl<B: BufferMut> GridBase<B> {
     /// Returns a mutable array span of the entire array.
+    #[must_use]
     pub fn as_mut_span(&mut self) -> &mut SpanBase<B::Item, B::Layout> {
         unsafe {
             &mut *SpanBase::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.buffer.layout())
@@ -66,6 +68,7 @@ impl<B: BufferMut> GridBase<B> {
 impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// Returns a reference to the underlying allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn allocator(&self) -> &A {
         self.buffer.as_vec().allocator()
     }
@@ -99,6 +102,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     }
 
     /// Returns the number of elements the array can hold without reallocating.
+    #[must_use]
     pub fn capacity(&self) -> usize {
         self.buffer.as_vec().capacity()
     }
@@ -149,6 +153,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 
     /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn from_elem_in(shape: D::Shape, elem: impl Borrow<T>, alloc: A) -> Self
     where
         T: Clone,
@@ -168,6 +173,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 
     /// Creates an array with the results from the given function with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn from_fn_in(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T, alloc: A) -> Self {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
         let mut vec = Vec::with_capacity_in(len, alloc);
@@ -195,6 +201,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     }
 
     /// Converts the array into a one-dimensional array.
+    #[must_use]
     pub fn into_flattened(self) -> DenseGrid<T, Rank<1, D::Order>, A> {
         self.into_vec().into()
     }
@@ -211,6 +218,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// Converts the array into a reshaped array, which must have the same length.
     /// # Panics
     /// Panics if the array length is changed.
+    #[must_use]
     pub fn into_shape<S: Shape>(self, shape: S) -> DenseGrid<T, S::Dim<D::Order>, A> {
         let (vec, layout) = self.buffer.into_parts();
 
@@ -218,6 +226,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     }
 
     /// Converts the array into a vector.
+    #[must_use]
     pub fn into_vec(self) -> vec_t!(T, A) {
         let (vec, _) = self.buffer.into_parts();
 
@@ -225,6 +234,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     }
 
     /// Returns the array with the given closure applied to each element.
+    #[must_use]
     pub fn map(mut self, mut f: impl FnMut(T) -> T) -> Self
     where
         T: Default,
@@ -236,6 +246,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 
     /// Creates a new, empty array with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn new_in(alloc: A) -> Self {
         unsafe { Self::from_parts(Vec::new_in(alloc), Layout::default()) }
     }
@@ -325,6 +336,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 
     /// Creates a new, empty array with the specified capacity and allocator.
     #[cfg(feature = "nightly")]
+    #[must_use]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         unsafe { Self::from_parts(Vec::with_capacity_in(capacity, alloc), Layout::default()) }
     }
@@ -337,6 +349,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 #[cfg(not(feature = "nightly"))]
 impl<T, D: Dim> DenseGrid<T, D, Global> {
     /// Creates an array from the given element.
+    #[must_use]
     pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
     where
         T: Clone,
@@ -355,6 +368,7 @@ impl<T, D: Dim> DenseGrid<T, D, Global> {
     }
 
     /// Creates an array with the results from the given function.
+    #[must_use]
     pub fn from_fn(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T) -> Self {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
         let mut vec = Vec::with_capacity(len);
@@ -385,11 +399,13 @@ impl<T, D: Dim> DenseGrid<T, D, Global> {
     }
 
     /// Creates a new, empty array.
+    #[must_use]
     pub fn new() -> Self {
         unsafe { Self::from_parts(Vec::new(), Layout::default()) }
     }
 
     /// Creates a new, empty array with the specified capacity.
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         unsafe { Self::from_parts(Vec::with_capacity(capacity), Layout::default()) }
     }
@@ -398,6 +414,7 @@ impl<T, D: Dim> DenseGrid<T, D, Global> {
 #[cfg(feature = "nightly")]
 impl<T, D: Dim> DenseGrid<T, D, Global> {
     /// Creates an array from the given element.
+    #[must_use]
     pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
     where
         T: Clone,
@@ -406,6 +423,7 @@ impl<T, D: Dim> DenseGrid<T, D, Global> {
     }
 
     /// Creates an array with the results from the given function.
+    #[must_use]
     pub fn from_fn(shape: D::Shape, f: impl FnMut(D::Shape) -> T) -> Self {
         Self::from_fn_in(shape, f, Global)
     }
@@ -425,11 +443,13 @@ impl<T, D: Dim> DenseGrid<T, D, Global> {
     }
 
     /// Creates a new, empty array.
+    #[must_use]
     pub fn new() -> Self {
         Self::new_in(Global)
     }
 
     /// Creates a new, empty array with the specified capacity.
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_in(capacity, Global)
     }
@@ -441,6 +461,7 @@ macro_rules! impl_sub_grid {
             /// Creates an array view from a raw pointer and layout.
             /// # Safety
             /// The pointer must be non-null and a valid array view for the given layout.
+            #[must_use]
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
                 Self { buffer: $buffer::new_unchecked(ptr, layout) }
             }
@@ -450,6 +471,7 @@ macro_rules! impl_sub_grid {
             /// Converts the array view into a one-dimensional array view.
             /// # Panics
             /// Panics if the array layout is not uniformly strided.
+            #[must_use]
             pub fn into_flattened(
                 $($mut)? self
             ) -> $name<'a, T, Layout<Rank<1, D::Order>, F::Uniform>> {
@@ -459,6 +481,7 @@ macro_rules! impl_sub_grid {
             /// Converts the array view into a reformatted array view.
             /// # Panics
             /// Panics if the array layout is not compatible with the new format.
+            #[must_use]
             pub fn into_format<G: Format>($($mut)? self) -> $name<'a, T, Layout<D, G>> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reformat()) }
             }
@@ -466,6 +489,7 @@ macro_rules! impl_sub_grid {
             /// Converts the array view into a reshaped array view with similar layout.
             /// # Panics
             /// Panics if the array length is changed, or the memory layout is not compatible.
+            #[must_use]
             pub fn into_shape<S: Shape>(
                 $($mut)? self,
                 shape: S
@@ -476,6 +500,7 @@ macro_rules! impl_sub_grid {
             /// Divides an array view into two at an index along the outer dimension.
             /// # Panics
             /// Panics if the split point is larger than the number of elements in that dimension.
+            #[must_use]
             pub fn into_split_at(
                 self,
                 mid: usize,
@@ -488,6 +513,7 @@ macro_rules! impl_sub_grid {
             /// Divides an array view into two at an index along the specified dimension.
             /// # Panics
             /// Panics if the split point is larger than the number of elements in that dimension.
+            #[must_use]
             pub fn into_split_axis_at<const DIM: usize>(
                 self,
                 mid: usize,
@@ -504,6 +530,7 @@ macro_rules! impl_sub_grid {
              /// Converts an array view into a new array view for the specified subarray.
             /// # Panics
             /// Panics if the subarray is out of bounds.
+            #[must_use]
             pub fn into_view<I: ViewIndex<D, F>>(
                 $($mut)? self,
                 index: I

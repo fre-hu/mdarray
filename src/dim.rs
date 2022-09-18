@@ -35,6 +35,7 @@ pub trait Dim {
     const RANK: usize;
 
     /// Returns the dimension with the specified index, counted from the innermost dimension.
+    #[must_use]
     fn dim(index: usize) -> usize {
         assert!(index < Self::RANK, "invalid dimension");
 
@@ -42,6 +43,7 @@ pub trait Dim {
     }
 
     /// Returns the dimensions with the specified indices, counted from the innermost dimension.
+    #[must_use]
     fn dims(indices: impl RangeBounds<usize>) -> Range<usize> {
         #[cfg(not(feature = "nightly"))]
         let range = range(indices, ..Self::RANK);

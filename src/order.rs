@@ -7,6 +7,7 @@ pub trait Order {
     const IS_ROW_MAJOR: bool;
 
     /// Returns the first or second input parameter depending on the element order.
+    #[must_use]
     fn select<T>(cm: T, rm: T) -> T;
 }
 

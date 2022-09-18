@@ -7,6 +7,7 @@ use crate::grid::{SubGrid, SubGridMut};
 use crate::span::SpanBase;
 
 /// Array axis iterator.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct AxisIter<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
@@ -17,6 +18,7 @@ pub struct AxisIter<'a, T, L: Copy> {
 }
 
 /// Mutable array axis iterator.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct AxisIterMut<'a, T, L: Copy> {
     ptr: NonNull<T>,
     layout: L,
@@ -27,6 +29,7 @@ pub struct AxisIterMut<'a, T, L: Copy> {
 }
 
 /// Linear array span iterator.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct LinearIter<'a, T> {
     ptr: NonNull<T>,
     index: usize,
@@ -36,6 +39,7 @@ pub struct LinearIter<'a, T> {
 }
 
 /// Mutable linear array span iterator.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct LinearIterMut<'a, T> {
     ptr: NonNull<T>,
     index: usize,

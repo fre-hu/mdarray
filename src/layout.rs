@@ -20,26 +20,31 @@ pub type ViewLayout<P> = Layout<<P as Params>::Dim, <P as Params>::Format>;
 
 impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns true if the array strides are consistent with contiguous memory layout.
+    #[must_use]
     pub fn is_contiguous(self) -> bool {
         self.map.is_contiguous()
     }
 
     /// Returns true if the array contains no elements.
+    #[must_use]
     pub fn is_empty(self) -> bool {
         self.len() == 0
     }
 
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
+    #[must_use]
     pub fn is_uniformly_strided(self) -> bool {
         self.map.is_uniformly_strided()
     }
 
     /// Returns the number of elements in the array.
+    #[must_use]
     pub fn len(self) -> usize {
         self.map.len()
     }
 
     /// Returns the shape of the array.
+    #[must_use]
     pub fn shape(self) -> D::Shape {
         self.map.shape()
     }
@@ -47,6 +52,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns the number of elements in the specified dimension.
     /// # Panics
     /// Panics if the dimension is out of bounds.
+    #[must_use]
     pub fn size(self, dim: usize) -> usize {
         assert!(dim < D::RANK, "invalid dimension");
 
@@ -56,6 +62,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns the distance between elements in the specified dimension.
     /// # Panics
     /// Panics if the dimension is out of bounds.
+    #[must_use]
     pub fn stride(self, dim: usize) -> isize {
         assert!(dim < D::RANK, "invalid dimension");
 
@@ -63,6 +70,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
     }
 
     /// Returns the distance between elements in each dimension.
+    #[must_use]
     pub fn strides(self) -> D::Strides {
         self.map.strides()
     }
