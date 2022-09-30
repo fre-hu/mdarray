@@ -1,6 +1,7 @@
-#![feature(allocator_api)]
-#![feature(int_roundings)]
-#![feature(slice_range)]
+#![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
+#![cfg_attr(feature = "nightly", feature(int_roundings))]
+#![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
 
 #[cfg(feature = "nightly")]
