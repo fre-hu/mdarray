@@ -51,7 +51,7 @@ impl<B: Buffer> GridBase<B> {
     /// Returns an array span of the entire array.
     #[must_use]
     pub fn as_span(&self) -> &SpanBase<B::Item, B::Layout> {
-        unsafe { &*SpanBase::from_raw_parts(self.buffer.as_ptr(), self.buffer.layout()) }
+        self.buffer.as_span()
     }
 }
 
@@ -59,9 +59,7 @@ impl<B: BufferMut> GridBase<B> {
     /// Returns a mutable array span of the entire array.
     #[must_use]
     pub fn as_mut_span(&mut self) -> &mut SpanBase<B::Item, B::Layout> {
-        unsafe {
-            &mut *SpanBase::from_raw_parts_mut(self.buffer.as_mut_ptr(), self.buffer.layout())
-        }
+        self.buffer.as_mut_span()
     }
 }
 
@@ -70,14 +68,14 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     #[cfg(feature = "nightly")]
     #[must_use]
     pub fn allocator(&self) -> &A {
-        self.buffer.as_vec().allocator()
+        self.buffer.allocator()
     }
 
     /// Moves all elements from another array into the array along the outer dimension.
     /// # Panics
     /// Panics if the inner dimensions do not match.
     pub fn append(&mut self, other: &mut Self) {
-        let new_shape = if self.buffer.as_vec().is_empty() {
+        let new_shape = if self.is_empty() {
             other.shape()
         } else {
             let mut shape = self.shape();
@@ -94,25 +92,27 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
             shape
         };
 
-        unsafe {
-            other.buffer.set_layout(Layout::default());
-            self.buffer.as_mut_vec().append(other.buffer.as_mut_vec());
-            self.buffer.set_layout(DenseLayout::new(new_shape));
-        }
+        let mut src_guard = other.buffer.guard_mut();
+        let mut dst_guard = self.buffer.guard_mut();
+
+        dst_guard.append(&mut src_guard);
+
+        src_guard.set_layout(Layout::default());
+        dst_guard.set_layout(DenseLayout::new(new_shape));
     }
 
     /// Returns the number of elements the array can hold without reallocating.
     #[must_use]
     pub fn capacity(&self) -> usize {
-        self.buffer.as_vec().capacity()
+        self.buffer.capacity()
     }
 
     /// Clears the array, removing all values.
     pub fn clear(&mut self) {
-        unsafe {
-            self.buffer.set_layout(Layout::default());
-            self.buffer.as_mut_vec().clear();
-        }
+        let mut guard = self.buffer.guard_mut();
+
+        guard.clear();
+        guard.set_layout(Layout::default());
     }
 
     /// Clones all elements in an array span and appends to the array along the outer dimension.
@@ -122,7 +122,7 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     where
         T: Clone,
     {
-        let new_shape = if self.buffer.as_vec().is_empty() {
+        let new_shape = if self.is_empty() {
             other.shape()
         } else {
             let mut shape = self.shape();
@@ -139,16 +139,18 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
             shape
         };
 
-        self.reserve(other.len());
+        let mut guard = self.buffer.guard_mut();
+
+        guard.reserve(other.len());
 
         unsafe {
             #[cfg(not(feature = "nightly"))]
-            extend_from_span::<_, _, A>(self.buffer.as_mut_vec(), other);
+            extend_from_span::<_, _, A>(&mut guard, other);
             #[cfg(feature = "nightly")]
-            extend_from_span(self.buffer.as_mut_vec(), other);
-
-            self.buffer.set_layout(DenseLayout::new(new_shape));
+            extend_from_span(&mut guard, other);
         }
+
+        guard.set_layout(DenseLayout::new(new_shape));
     }
 
     /// Creates an array from the given element with the specified allocator.
@@ -253,16 +255,12 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 
     /// Reserves capacity for at least the additional number of elements in the array.
     pub fn reserve(&mut self, additional: usize) {
-        unsafe {
-            self.buffer.as_mut_vec().reserve(additional);
-        }
+        self.buffer.guard_mut().reserve(additional);
     }
 
     /// Reserves the minimum capacity for the additional number of elements in the array.
     pub fn reserve_exact(&mut self, additional: usize) {
-        unsafe {
-            self.buffer.as_mut_vec().reserve_exact(additional);
-        }
+        self.buffer.guard_mut().reserve_exact(additional);
     }
 
     /// Resizes the array to the new shape, creating new elements with the given value.
@@ -286,24 +284,17 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// # Safety
     /// All elements within the array length must be initialized.
     pub unsafe fn set_shape(&mut self, new_shape: D::Shape) {
-        let new_layout = DenseLayout::new(new_shape);
-
-        self.buffer.as_mut_vec().set_len(new_layout.len());
-        self.buffer.set_layout(new_layout);
+        self.buffer.set_layout(DenseLayout::new(new_shape));
     }
 
     /// Shrinks the capacity of the array with a lower bound.
     pub fn shrink_to(&mut self, min_capacity: usize) {
-        unsafe {
-            self.buffer.as_mut_vec().shrink_to(min_capacity);
-        }
+        self.buffer.guard_mut().shrink_to(min_capacity);
     }
 
     /// Shrinks the capacity of the array as much as possible.
     pub fn shrink_to_fit(&mut self) {
-        unsafe {
-            self.buffer.as_mut_vec().shrink_to_fit();
-        }
+        self.buffer.guard_mut().shrink_to_fit();
     }
 
     /// Shortens the array along the outer dimension, keeping the first `size` elements.
@@ -312,11 +303,10 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
 
         if size < self.size(dim) {
             let new_layout = self.layout().resize_dim(dim, size);
+            let mut guard = self.buffer.guard_mut();
 
-            unsafe {
-                self.buffer.set_layout(new_layout);
-                self.buffer.as_mut_vec().truncate(new_layout.len());
-            }
+            guard.set_layout(new_layout);
+            guard.truncate(new_layout.len());
         }
     }
 
@@ -324,14 +314,14 @@ impl<T, D: Dim, A: Allocator> DenseGrid<T, D, A> {
     /// # Errors
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.buffer.as_mut_vec().try_reserve(additional) }
+        self.buffer.guard_mut().try_reserve(additional)
     }
 
     /// Tries to reserve the minimum capacity for the additional number of elements in the array.
     /// # Errors
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.buffer.as_mut_vec().try_reserve_exact(additional) }
+        self.buffer.guard_mut().try_reserve_exact(additional)
     }
 
     /// Creates a new, empty array with the specified capacity and allocator.
@@ -625,19 +615,19 @@ impl<B: BufferMut> DerefMut for GridBase<B> {
 
 impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for DenseGrid<T, Rank<1, O>, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
-        unsafe {
-            self.buffer.as_mut_vec().extend(iter);
-            self.buffer.set_layout(DenseLayout::new([self.buffer.as_vec().len()]));
-        }
+        let mut guard = self.buffer.guard_mut();
+
+        guard.extend(iter);
+        guard.set_layout(DenseLayout::new([guard.len()]));
     }
 }
 
 impl<T, O: Order, A: Allocator> Extend<T> for DenseGrid<T, Rank<1, O>, A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        unsafe {
-            self.buffer.as_mut_vec().extend(iter);
-            self.buffer.set_layout(DenseLayout::new([self.buffer.as_vec().len()]));
-        }
+        let mut guard = self.buffer.guard_mut();
+
+        guard.extend(iter);
+        guard.set_layout(DenseLayout::new([guard.len()]));
     }
 }
 

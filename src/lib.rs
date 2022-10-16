@@ -28,10 +28,10 @@
 //! to a parent array. The latter case occurs for example when creating a view
 //! of a larger array without duplicating elements.
 //!
-//! `SpanBase` is used as a generic array reference. It consists of pointers
-//! to the buffer and the layout, and is stored internally as a fat pointer.
-//! It is useful for function parameters where the same `SpanBase` type can
-//! refer to either an owned array or an array view.
+//! `SpanBase` is used as a generic array reference. It consists of a pointer
+//! to an internal structure that holds the buffer and the layout. It is useful
+//! for function parameters where the same `SpanBase` type can refer to either
+//! an owned array or an array view.
 //!
 //! The array layout describes how elements are stored in memory. The layout
 //! is parameterized by the rank (i.e. the number of dimensions), the element
@@ -143,6 +143,7 @@
 //! This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
@@ -174,6 +175,7 @@ mod layout;
 mod mapping;
 mod ops;
 mod order;
+mod raw_span;
 mod span;
 
 #[cfg(feature = "serde")]

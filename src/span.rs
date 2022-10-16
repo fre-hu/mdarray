@@ -3,9 +3,12 @@ use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
 use std::fmt::{Debug, Formatter, Result};
 use std::hash::{Hash, Hasher};
+#[cfg(feature = "nightly")]
 use std::marker::PhantomData;
+#[cfg(not(feature = "nightly"))]
+use std::marker::{PhantomData, PhantomPinned};
 use std::ops::{Index, IndexMut};
-use std::{mem, ptr, slice};
+use std::slice;
 
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Format, Uniform};
@@ -14,57 +17,41 @@ use crate::index::{Axis, Const, Params, SpanIndex, ViewIndex};
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{DenseLayout, Layout, ValidLayout, ViewLayout};
 use crate::mapping::Mapping;
+use crate::raw_span::RawSpan;
 
 /// Multidimensional array span with static rank and element order.
-#[repr(transparent)]
 pub struct SpanBase<T, L: Copy> {
     phantom: PhantomData<(T, L)>,
-    slice: [()],
+    #[cfg(not(feature = "nightly"))]
+    _pinned: PhantomPinned,
+    #[cfg(feature = "nightly")]
+    _opaque: Opaque,
 }
 
 pub type DenseSpan<T, D> = SpanBase<T, DenseLayout<D>>;
 
+#[cfg(feature = "nightly")]
+extern "C" {
+    type Opaque;
+}
+
 impl<T, L: Copy> SpanBase<T, L> {
     /// Returns a mutable pointer to the array buffer.
-    #[cfg(not(feature = "permissive-provenance"))]
     #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        (self as *mut Self).cast()
-    }
-
-    /// Returns a mutable pointer to the array buffer.
-    #[cfg(feature = "permissive-provenance")]
-    #[must_use]
-    pub fn as_mut_ptr(&mut self) -> *mut T {
-        self as *mut Self as *mut () as usize as *mut T // Use previously exposed provenance.
+        RawSpan::from_mut_span(self).as_mut_ptr()
     }
 
     /// Returns a raw pointer to the array buffer.
-    #[cfg(not(feature = "permissive-provenance"))]
     #[must_use]
     pub fn as_ptr(&self) -> *const T {
-        (self as *const Self).cast()
-    }
-
-    /// Returns a raw pointer to the array buffer.
-    #[cfg(feature = "permissive-provenance")]
-    #[must_use]
-    pub fn as_ptr(&self) -> *const T {
-        self as *const Self as *const () as usize as *const T // Use previously exposed provenance.
+        RawSpan::from_span(self).as_ptr()
     }
 
     /// Returns the array layout.
     #[must_use]
     pub fn layout(&self) -> L {
-        let len = self.slice.len();
-
-        if mem::size_of::<L>() == 0 {
-            unsafe { mem::transmute_copy(&()) }
-        } else if mem::size_of::<L>() == mem::size_of::<usize>() {
-            unsafe { mem::transmute_copy(&len) }
-        } else {
-            unsafe { *(len as *const L) }
-        }
+        RawSpan::from_span(self).layout()
     }
 
     /// Returns an array view of the entire array span.
@@ -77,40 +64,6 @@ impl<T, L: Copy> SpanBase<T, L> {
     #[must_use]
     pub fn to_view_mut(&mut self) -> SubGridMut<T, L> {
         unsafe { SubGridMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
-    }
-
-    pub(crate) unsafe fn from_raw_parts(ptr: *const T, layout: &L) -> *const Self {
-        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-
-        #[cfg(not(feature = "permissive-provenance"))]
-        let ptr = ptr as *const (); // Assume that provenance is maintained for &[()].
-        #[cfg(feature = "permissive-provenance")]
-        let ptr = ptr as usize as *const (); // Expose pointer provenance.
-
-        if mem::size_of::<L>() == 0 {
-            ptr::slice_from_raw_parts(ptr, 0) as *const Self
-        } else if mem::size_of::<L>() == mem::size_of::<usize>() {
-            ptr::slice_from_raw_parts(ptr, mem::transmute_copy(layout)) as *const Self
-        } else {
-            ptr::slice_from_raw_parts(ptr, layout as *const L as usize) as *const Self
-        }
-    }
-
-    pub(crate) unsafe fn from_raw_parts_mut(ptr: *mut T, layout: &L) -> *mut Self {
-        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-
-        #[cfg(not(feature = "permissive-provenance"))]
-        let ptr = ptr as *mut (); // Assume that provenance is maintained for &mut [()].
-        #[cfg(feature = "permissive-provenance")]
-        let ptr = ptr as usize as *mut (); // Expose pointer provenance.
-
-        if mem::size_of::<L>() == 0 {
-            ptr::slice_from_raw_parts_mut(ptr, 0) as *mut Self
-        } else if mem::size_of::<L>() == mem::size_of::<usize>() {
-            ptr::slice_from_raw_parts_mut(ptr, mem::transmute_copy(layout)) as *mut Self
-        } else {
-            ptr::slice_from_raw_parts_mut(ptr, layout as *const L as usize) as *mut Self
-        }
     }
 }
 
@@ -662,6 +615,9 @@ impl<'a, T, D: Dim, F: Uniform> IntoIterator for &'a mut SpanBase<T, Layout<D, F
         self.iter_mut()
     }
 }
+
+unsafe impl<T: Send, L: Copy> Send for SpanBase<T, L> {}
+unsafe impl<T: Sync, L: Copy> Sync for SpanBase<T, L> {}
 
 impl<T: Clone, D: Dim> ToOwned for DenseSpan<T, D> {
     type Owned = DenseGrid<T, D>;

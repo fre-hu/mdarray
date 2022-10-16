@@ -1,13 +1,16 @@
 #[cfg(feature = "nightly")]
 use std::alloc::Allocator;
 use std::marker::PhantomData;
-use std::ptr::{self, NonNull};
-use std::{cmp, mem};
+use std::mem::{self, ManuallyDrop};
+use std::ops::{Deref, DerefMut};
+use std::{cmp, ptr};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
 use crate::dim::Dim;
 use crate::layout::{DenseLayout, Layout};
+use crate::raw_span::RawSpan;
+use crate::span::SpanBase;
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -27,31 +30,40 @@ pub trait Buffer {
     type Item;
     type Layout: Copy;
 
-    fn as_ptr(&self) -> *const Self::Item;
-    fn layout(&self) -> &Self::Layout;
+    fn as_span(&self) -> &SpanBase<Self::Item, Self::Layout>;
 }
 
 pub trait BufferMut: Buffer {
-    fn as_mut_ptr(&mut self) -> *mut Self::Item;
+    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Layout>;
 }
 
 pub struct DenseBuffer<T, D: Dim, A: Allocator> {
-    vec: vec_t!(T, A),
-    layout: DenseLayout<D>,
+    span: RawSpan<T, DenseLayout<D>>,
+    capacity: usize,
     #[cfg(not(feature = "nightly"))]
     phantom: PhantomData<A>,
+    #[cfg(feature = "nightly")]
+    alloc: ManuallyDrop<A>,
 }
 
 pub struct SubBuffer<'a, T, L: Copy> {
-    ptr: NonNull<T>,
-    layout: L,
+    span: RawSpan<T, L>,
     phantom: PhantomData<&'a T>,
 }
 
 pub struct SubBufferMut<'a, T, L: Copy> {
-    ptr: NonNull<T>,
-    layout: L,
+    span: RawSpan<T, L>,
     phantom: PhantomData<&'a mut T>,
+}
+
+pub struct VecGuard<'a, T, D: Dim, A: Allocator> {
+    vec: ManuallyDrop<vec_t!(T, A)>,
+    phantom: PhantomData<&'a DenseBuffer<T, D, A>>,
+}
+
+pub struct VecGuardMut<'a, T, D: Dim, A: Allocator> {
+    vec: ManuallyDrop<vec_t!(T, A)>,
+    buffer: &'a mut DenseBuffer<T, D, A>,
 }
 
 struct DropGuard<'a, T, A: Allocator> {
@@ -64,33 +76,67 @@ struct DropGuard<'a, T, A: Allocator> {
 }
 
 impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
-    pub unsafe fn as_mut_vec(&mut self) -> &mut vec_t!(T, A) {
-        &mut self.vec
+    #[cfg(feature = "nightly")]
+    pub fn allocator(&self) -> &A {
+        &self.alloc
     }
 
-    pub fn as_vec(&self) -> &vec_t!(T, A) {
-        &self.vec
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
-    pub unsafe fn from_parts(vec: vec_t!(T, A), layout: DenseLayout<D>) -> Self {
-        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
+    #[cfg(not(feature = "nightly"))]
+    pub unsafe fn from_parts(vec: Vec<T>, layout: DenseLayout<D>) -> Self {
         assert!(D::RANK > 0, "invalid rank");
 
+        let mut vec = ManuallyDrop::new(vec);
+
         Self {
-            vec,
-            layout,
-            #[cfg(not(feature = "nightly"))]
+            span: RawSpan::new_unchecked(vec.as_mut_ptr(), layout),
+            capacity: vec.capacity(),
             phantom: PhantomData,
         }
     }
 
-    pub fn into_parts(self) -> (vec_t!(T, A), DenseLayout<D>) {
-        #[cfg(not(feature = "nightly"))]
-        let Self { vec, layout, .. } = self;
-        #[cfg(feature = "nightly")]
-        let Self { vec, layout } = self;
+    #[cfg(feature = "nightly")]
+    pub unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D>) -> Self {
+        assert!(D::RANK > 0, "invalid rank");
 
-        (vec, layout)
+        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
+
+        Self {
+            span: RawSpan::new_unchecked(ptr, layout),
+            capacity,
+            alloc: ManuallyDrop::new(alloc),
+        }
+    }
+
+    pub fn guard(&self) -> VecGuard<T, D, A> {
+        VecGuard::new(self)
+    }
+
+    pub fn guard_mut(&mut self) -> VecGuardMut<T, D, A> {
+        VecGuardMut::new(self)
+    }
+
+    pub fn into_parts(self) -> (vec_t!(T, A), DenseLayout<D>) {
+        let mut me = mem::ManuallyDrop::new(self);
+
+        #[cfg(not(feature = "nightly"))]
+        let vec = unsafe {
+            Vec::from_raw_parts(me.span.as_mut_ptr(), me.span.layout().len(), me.capacity)
+        };
+        #[cfg(feature = "nightly")]
+        let vec = unsafe {
+            Vec::from_raw_parts_in(
+                me.span.as_mut_ptr(),
+                me.span.layout().len(),
+                me.capacity,
+                ptr::read(&*me.alloc),
+            )
+        };
+
+        (vec, me.span.layout())
     }
 
     pub fn resize_with<F: FnMut() -> T>(&mut self, new_shape: D::Shape, mut f: F)
@@ -99,26 +145,25 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
     {
         let new_len = new_shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
 
+        let old_shape = self.span.layout().shape();
+        let mut guard = self.guard_mut();
+
         if new_len == 0 {
-            self.layout = DenseLayout::new(new_shape);
-            self.vec.clear();
+            guard.clear();
         } else {
             let inner_dims = D::dims(..D::RANK - 1);
-            let old_shape = self.layout.shape();
-
-            self.layout = Layout::default(); // Remove contents in case of exception.
 
             if new_shape[inner_dims.clone()] == old_shape[inner_dims] {
-                self.vec.resize_with(new_len, f);
+                guard.resize_with(new_len, f);
             } else {
                 #[cfg(not(feature = "nightly"))]
                 let mut vec = Vec::with_capacity(new_len);
                 #[cfg(feature = "nightly")]
-                let mut vec = Vec::with_capacity_in(new_len, self.vec.allocator().clone());
+                let mut vec = Vec::with_capacity_in(new_len, guard.allocator().clone());
 
                 unsafe {
                     copy_dim::<T, D, A, D::Lower>(
-                        &mut DropGuard::new(&mut self.vec),
+                        &mut DropGuard::new(&mut guard),
                         &mut vec,
                         old_shape,
                         new_shape,
@@ -126,15 +171,15 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
                     );
                 }
 
-                self.vec = vec;
+                *guard = vec;
             }
-
-            self.layout = DenseLayout::new(new_shape);
         }
+
+        guard.set_layout(DenseLayout::new(new_shape));
     }
 
     pub unsafe fn set_layout(&mut self, new_layout: DenseLayout<D>) {
-        self.layout = new_layout;
+        self.span.set_layout(new_layout);
     }
 }
 
@@ -142,35 +187,45 @@ impl<T, D: Dim, A: Allocator> Buffer for DenseBuffer<T, D, A> {
     type Item = T;
     type Layout = DenseLayout<D>;
 
-    fn as_ptr(&self) -> *const T {
-        self.vec.as_ptr()
-    }
-
-    fn layout(&self) -> &Self::Layout {
-        &self.layout
+    fn as_span(&self) -> &SpanBase<Self::Item, Self::Layout> {
+        self.span.as_span()
     }
 }
 
 impl<T, D: Dim, A: Allocator> BufferMut for DenseBuffer<T, D, A> {
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.vec.as_mut_ptr()
+    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Layout> {
+        self.span.as_mut_span()
     }
 }
 
 impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for DenseBuffer<T, D, A> {
     fn clone(&self) -> Self {
-        Self {
-            vec: self.vec.clone(),
-            layout: self.layout,
-            #[cfg(not(feature = "nightly"))]
-            phantom: PhantomData,
-        }
+        unsafe { Self::from_parts(self.guard().clone(), self.span.layout()) }
     }
 
     fn clone_from(&mut self, source: &Self) {
-        self.layout = Layout::default(); // Remove contents in case of exception.
-        self.vec.clone_from(&source.vec);
-        self.layout = source.layout;
+        let mut guard = self.guard_mut();
+
+        guard.clone_from(&source.guard());
+        guard.set_layout(source.span.layout());
+    }
+}
+
+impl<T, D: Dim, A: Allocator> Drop for DenseBuffer<T, D, A> {
+    fn drop(&mut self) {
+        #[cfg(not(feature = "nightly"))]
+        unsafe {
+            Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.layout().len(), self.capacity);
+        }
+        #[cfg(feature = "nightly")]
+        unsafe {
+            Vec::from_raw_parts_in(
+                self.span.as_mut_ptr(),
+                self.span.layout().len(),
+                self.capacity,
+                ptr::read(&*self.alloc),
+            );
+        }
     }
 }
 
@@ -178,11 +233,8 @@ macro_rules! impl_sub_buffer {
     ($name:tt, $raw_mut:tt) => {
         impl<'a, T, L: Copy> $name<'a, T, L> {
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
-                assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-
                 Self {
-                    ptr: NonNull::new_unchecked(ptr as *mut T),
-                    layout,
+                    span: RawSpan::new_unchecked(ptr as *mut T, layout),
                     phantom: PhantomData,
                 }
             }
@@ -192,12 +244,8 @@ macro_rules! impl_sub_buffer {
             type Item = T;
             type Layout = L;
 
-            fn as_ptr(&self) -> *const T {
-                self.ptr.as_ptr()
-            }
-
-            fn layout(&self) -> &L {
-                &self.layout
+            fn as_span(&self) -> &SpanBase<Self::Item, Self::Layout> {
+                self.span.as_span()
             }
         }
     };
@@ -207,8 +255,8 @@ impl_sub_buffer!(SubBuffer, const);
 impl_sub_buffer!(SubBufferMut, mut);
 
 impl<'a, T, L: Copy> BufferMut for SubBufferMut<'a, T, L> {
-    fn as_mut_ptr(&mut self) -> *mut T {
-        self.ptr.as_ptr()
+    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Layout> {
+        self.span.as_mut_span()
     }
 }
 
@@ -225,6 +273,124 @@ unsafe impl<'a, T: Sync, L: Copy> Sync for SubBuffer<'a, T, L> {}
 
 unsafe impl<'a, T: Send, L: Copy> Send for SubBufferMut<'a, T, L> {}
 unsafe impl<'a, T: Sync, L: Copy> Sync for SubBufferMut<'a, T, L> {}
+
+impl<'a, T, D: Dim, A: Allocator> VecGuard<'a, T, D, A> {
+    pub fn new(buffer: &'a DenseBuffer<T, D, A>) -> Self {
+        #[cfg(not(feature = "nightly"))]
+        let vec = unsafe {
+            Vec::from_raw_parts(
+                buffer.span.as_ptr() as *mut T,
+                buffer.span.layout().len(),
+                buffer.capacity,
+            )
+        };
+        #[cfg(feature = "nightly")]
+        let vec = unsafe {
+            Vec::from_raw_parts_in(
+                buffer.span.as_ptr() as *mut T,
+                buffer.span.layout().len(),
+                buffer.capacity,
+                ptr::read(&*buffer.alloc),
+            )
+        };
+
+        Self { vec: ManuallyDrop::new(vec), phantom: PhantomData }
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> Deref for VecGuard<'a, T, D, A> {
+    type Target = vec_t!(T, A);
+
+    fn deref(&self) -> &vec_t!(T, A) {
+        &self.vec
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> VecGuardMut<'a, T, D, A> {
+    pub fn new(buffer: &'a mut DenseBuffer<T, D, A>) -> Self {
+        #[cfg(not(feature = "nightly"))]
+        let vec = unsafe {
+            Vec::from_raw_parts(
+                buffer.span.as_mut_ptr(),
+                buffer.span.layout().len(),
+                buffer.capacity,
+            )
+        };
+        #[cfg(feature = "nightly")]
+        let vec = unsafe {
+            Vec::from_raw_parts_in(
+                buffer.span.as_mut_ptr(),
+                buffer.span.layout().len(),
+                buffer.capacity,
+                ptr::read(&*buffer.alloc),
+            )
+        };
+
+        Self { vec: ManuallyDrop::new(vec), buffer }
+    }
+
+    pub fn set_layout(&mut self, new_layout: DenseLayout<D>) {
+        unsafe {
+            self.buffer.span.set_layout(new_layout);
+        }
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> Deref for VecGuardMut<'a, T, D, A> {
+    type Target = vec_t!(T, A);
+
+    fn deref(&self) -> &vec_t!(T, A) {
+        &self.vec
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> DerefMut for VecGuardMut<'a, T, D, A> {
+    fn deref_mut(&mut self) -> &mut vec_t!(T, A) {
+        &mut self.vec
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> Drop for VecGuardMut<'a, T, D, A> {
+    fn drop(&mut self) {
+        #[cfg(not(feature = "nightly"))]
+        unsafe {
+            self.buffer.span.set_ptr(self.vec.as_mut_ptr());
+            self.buffer.capacity = self.vec.capacity();
+
+            let layout = self.buffer.span.layout();
+
+            // Cleanup in case of length mismatch (e.g. due to allocation failure)
+            if self.vec.len() != layout.len() {
+                if self.vec.len() > layout.len() {
+                    ptr::drop_in_place(&mut self.vec.as_mut_slice()[layout.len()..]);
+                } else {
+                    self.buffer.span.set_layout(Layout::default());
+                    ptr::drop_in_place(self.vec.as_mut_slice());
+                }
+            }
+        }
+        #[cfg(feature = "nightly")]
+        unsafe {
+            let (ptr, len, capacity, alloc) = ptr::read(&*self.vec).into_raw_parts_with_alloc();
+
+            self.buffer.span.set_ptr(ptr);
+            self.buffer.capacity = capacity;
+            self.buffer.alloc = ManuallyDrop::new(alloc);
+
+            let layout = self.buffer.span.layout();
+
+            // Cleanup in case of length mismatch (e.g. due to allocation failure)
+            if len != layout.len() {
+                if len > layout.len() {
+                    ptr::drop_in_place(&mut self.vec.as_mut_slice()[layout.len()..]);
+                } else {
+                    self.buffer.span.set_layout(Layout::default());
+                    ptr::drop_in_place(self.vec.as_mut_slice());
+                }
+            }
+        }
+    }
+}
 
 impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     fn new(vec: &'a mut vec_t!(T, A)) -> Self {

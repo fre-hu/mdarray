@@ -17,5 +17,5 @@ serde_test = "1.0"
 
 [features]
 nightly = []
-permissive-provenance = [] # Required for testing in Miri, see the issue:
+permissive-provenance = [] # Required for testing in Miri without extern types, see:
                            # https://github.com/rust-lang/unsafe-code-guidelines/issues/256
