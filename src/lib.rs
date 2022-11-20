@@ -203,7 +203,7 @@ pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
 pub use layout::Layout;
 pub use ops::{fill, step, Fill, StepRange};
 pub use order::{ColumnMajor, Order, RowMajor};
-pub use span::SpanBase;
+pub use span::{DenseSpan, SpanBase};
 
 /// Dense multidimensional array with column-major element order.
 pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, ColumnMajor>, A>;

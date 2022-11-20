@@ -28,6 +28,7 @@ pub struct SpanBase<T, L: Copy> {
     _opaque: Opaque,
 }
 
+/// Dense multidimensional array span with static rank and element order.
 pub type DenseSpan<T, D> = SpanBase<T, DenseLayout<D>>;
 
 #[cfg(feature = "nightly")]
