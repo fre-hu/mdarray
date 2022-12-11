@@ -2,7 +2,6 @@ use std::fmt::{Debug, Formatter, Result};
 
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Dense, Flat, Format, General, Strided};
-use crate::index::Params;
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Array layout, including rank, element order and storage format.
@@ -14,9 +13,6 @@ pub type DenseLayout<D> = Layout<D, Dense>;
 pub type FlatLayout<D> = Layout<D, Flat>;
 pub type GeneralLayout<D> = Layout<D, General>;
 pub type StridedLayout<D> = Layout<D, Strided>;
-
-pub type ValidLayout<D, F> = Layout<D, <D as Dim>::Format<F>>;
-pub type ViewLayout<P> = Layout<<P as Params>::Dim, <P as Params>::Format>;
 
 impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns true if the array strides are consistent with contiguous memory layout.

@@ -8,9 +8,10 @@ use std::{cmp, ptr};
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
 use crate::dim::Dim;
+use crate::format::{Dense, Format};
 use crate::layout::{DenseLayout, Layout};
 use crate::raw_span::RawSpan;
-use crate::span::SpanBase;
+use crate::span::{DenseSpan, SpanBase};
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -28,17 +29,18 @@ macro_rules! vec_t {
 
 pub trait Buffer {
     type Item;
-    type Layout: Copy;
+    type Dim: Dim;
+    type Format: Format;
 
-    fn as_span(&self) -> &SpanBase<Self::Item, Self::Layout>;
+    fn as_span(&self) -> &SpanBase<Self::Item, Self::Dim, Self::Format>;
 }
 
 pub trait BufferMut: Buffer {
-    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Layout>;
+    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Dim, Self::Format>;
 }
 
 pub struct DenseBuffer<T, D: Dim, A: Allocator> {
-    span: RawSpan<T, DenseLayout<D>>,
+    span: RawSpan<T, D, Dense>,
     capacity: usize,
     #[cfg(not(feature = "nightly"))]
     phantom: PhantomData<A>,
@@ -46,13 +48,13 @@ pub struct DenseBuffer<T, D: Dim, A: Allocator> {
     alloc: ManuallyDrop<A>,
 }
 
-pub struct SubBuffer<'a, T, L: Copy> {
-    span: RawSpan<T, L>,
+pub struct SubBuffer<'a, T, D: Dim, F: Format> {
+    span: RawSpan<T, D, F>,
     phantom: PhantomData<&'a T>,
 }
 
-pub struct SubBufferMut<'a, T, L: Copy> {
-    span: RawSpan<T, L>,
+pub struct SubBufferMut<'a, T, D: Dim, F: Format> {
+    span: RawSpan<T, D, F>,
     phantom: PhantomData<&'a mut T>,
 }
 
@@ -185,15 +187,16 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
 
 impl<T, D: Dim, A: Allocator> Buffer for DenseBuffer<T, D, A> {
     type Item = T;
-    type Layout = DenseLayout<D>;
+    type Dim = D;
+    type Format = Dense;
 
-    fn as_span(&self) -> &SpanBase<Self::Item, Self::Layout> {
+    fn as_span(&self) -> &DenseSpan<T, D> {
         self.span.as_span()
     }
 }
 
 impl<T, D: Dim, A: Allocator> BufferMut for DenseBuffer<T, D, A> {
-    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Layout> {
+    fn as_mut_span(&mut self) -> &mut DenseSpan<T, D> {
         self.span.as_mut_span()
     }
 }
@@ -231,8 +234,8 @@ impl<T, D: Dim, A: Allocator> Drop for DenseBuffer<T, D, A> {
 
 macro_rules! impl_sub_buffer {
     ($name:tt, $raw_mut:tt) => {
-        impl<'a, T, L: Copy> $name<'a, T, L> {
-            pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: L) -> Self {
+        impl<'a, T, D: Dim, F: Format> $name<'a, T, D, F> {
+            pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: Layout<D, F>) -> Self {
                 Self {
                     span: RawSpan::new_unchecked(ptr as *mut T, layout),
                     phantom: PhantomData,
@@ -240,11 +243,12 @@ macro_rules! impl_sub_buffer {
             }
         }
 
-        impl<'a, T, L: Copy> Buffer for $name<'a, T, L> {
+        impl<'a, T, D: Dim, F: Format> Buffer for $name<'a, T, D, F> {
             type Item = T;
-            type Layout = L;
+            type Dim = D;
+            type Format = F;
 
-            fn as_span(&self) -> &SpanBase<Self::Item, Self::Layout> {
+            fn as_span(&self) -> &SpanBase<T, D, F> {
                 self.span.as_span()
             }
         }
@@ -254,25 +258,25 @@ macro_rules! impl_sub_buffer {
 impl_sub_buffer!(SubBuffer, const);
 impl_sub_buffer!(SubBufferMut, mut);
 
-impl<'a, T, L: Copy> BufferMut for SubBufferMut<'a, T, L> {
-    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Layout> {
+impl<'a, T, D: Dim, F: Format> BufferMut for SubBufferMut<'a, T, D, F> {
+    fn as_mut_span(&mut self) -> &mut SpanBase<T, D, F> {
         self.span.as_mut_span()
     }
 }
 
-impl<'a, T, L: Copy> Clone for SubBuffer<'a, T, L> {
+impl<'a, T, D: Dim, F: Format> Clone for SubBuffer<'a, T, D, F> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, T, L: Copy> Copy for SubBuffer<'a, T, L> {}
+impl<'a, T, D: Dim, F: Format> Copy for SubBuffer<'a, T, D, F> {}
 
-unsafe impl<'a, T: Sync, L: Copy> Send for SubBuffer<'a, T, L> {}
-unsafe impl<'a, T: Sync, L: Copy> Sync for SubBuffer<'a, T, L> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Send for SubBuffer<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for SubBuffer<'a, T, D, F> {}
 
-unsafe impl<'a, T: Send, L: Copy> Send for SubBufferMut<'a, T, L> {}
-unsafe impl<'a, T: Sync, L: Copy> Sync for SubBufferMut<'a, T, L> {}
+unsafe impl<'a, T: Send, D: Dim, F: Format> Send for SubBufferMut<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for SubBufferMut<'a, T, D, F> {}
 
 impl<'a, T, D: Dim, A: Allocator> VecGuard<'a, T, D, A> {
     pub fn new(buffer: &'a DenseBuffer<T, D, A>) -> Self {

@@ -7,7 +7,7 @@ use std::ops::{
 
 use crate::dim::{Dim, Rank};
 use crate::format::{Dense, Flat, Format, Uniform};
-use crate::layout::{panic_bounds_check, Layout, ViewLayout};
+use crate::layout::{panic_bounds_check, Layout};
 use crate::ops::StepRange;
 use crate::order::{ColumnMajor, Order, RowMajor};
 
@@ -51,6 +51,8 @@ pub trait ViewIndex<D: Dim, F: Format> {
 }
 
 type EmptyParams<O> = (Rank<0, O>, Dense, Dense, Flat);
+
+type ViewLayout<P> = Layout<<P as Params>::Dim, <P as Params>::Format>;
 
 impl DimIndex for usize {
     type Params<P: Params, F: Format> = (P::Dim, P::Format, P::Split, P::Split);
@@ -246,5 +248,9 @@ impl_view_index!(6, 5, (1, 2, 3, 4, 5), 0, (Y, Z, W, U, V), X, (X, Y, Z, W, U, V
 fn div_ceil(this: usize, rhs: usize) -> usize {
     let d = this / rhs;
     let r = this % rhs;
-    if r > 0 && rhs > 0 { d + 1 } else { d }
+    if r > 0 && rhs > 0 {
+        d + 1
+    } else {
+        d
+    }
 }

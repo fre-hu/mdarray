@@ -3,14 +3,17 @@ use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
+use crate::dim::Dim;
+use crate::format::Format;
 use crate::grid::{SubGrid, SubGridMut};
+use crate::layout::Layout;
 use crate::span::SpanBase;
 
 /// Array axis iterator.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct AxisIter<'a, T, L: Copy> {
+pub struct AxisIter<'a, T, D: Dim, F: Format> {
     ptr: NonNull<T>,
-    layout: L,
+    layout: Layout<D, F>,
     index: usize,
     size: usize,
     stride: isize,
@@ -19,9 +22,9 @@ pub struct AxisIter<'a, T, L: Copy> {
 
 /// Mutable array axis iterator.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct AxisIterMut<'a, T, L: Copy> {
+pub struct AxisIterMut<'a, T, D: Dim, F: Format> {
     ptr: NonNull<T>,
-    layout: L,
+    layout: Layout<D, F>,
     index: usize,
     size: usize,
     stride: isize,
@@ -50,10 +53,10 @@ pub struct LinearIterMut<'a, T> {
 
 macro_rules! impl_axis_iter {
     ($name:tt, $grid:tt, $raw_mut:tt) => {
-        impl<'a, T, L: Copy> $name<'a, T, L> {
+        impl<'a, T, D: Dim, F: Format> $name<'a, T, D, F> {
             pub(crate) unsafe fn new_unchecked(
                 ptr: *$raw_mut T,
-                layout: L,
+                layout: Layout<D, F>,
                 size: usize,
                 stride: isize,
             ) -> Self {
@@ -68,16 +71,16 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, L: Copy> Debug for $name<'a, T, L>
+        impl<'a, T, D: Dim, F: Format> Debug for $name<'a, T, D, F>
         where
-            SpanBase<T, L>: Debug,
+            SpanBase<T, D, F>: Debug,
         {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                struct Value<'b, 'c, U, M: Copy>(&'b $name<'c, U, M>);
+                struct Value<'b, 'c, U, E: Dim, G: Format>(&'b $name<'c, U, E, G>);
 
-                impl<'b, 'c, U, M: Copy> Debug for Value<'b, 'c, U, M>
+                impl<'b, 'c, U, E: Dim, G: Format> Debug for Value<'b, 'c, U, E, G>
                 where
-                    SpanBase<U, M>: Debug,
+                    SpanBase<U, E, G>: Debug,
                 {
                     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
                         let mut list = f.debug_list();
@@ -98,7 +101,7 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, L: Copy> DoubleEndedIterator for $name<'a, T, L> {
+        impl<'a, T, D: Dim, F: Format> DoubleEndedIterator for $name<'a, T, D, F> {
             fn next_back(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -114,11 +117,11 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, L: Copy> ExactSizeIterator for $name<'a, T, L> {}
-        impl<'a, T, L: Copy> FusedIterator for $name<'a, T, L> {}
+        impl<'a, T, D: Dim, F: Format> ExactSizeIterator for $name<'a, T, D, F> {}
+        impl<'a, T, D: Dim, F: Format> FusedIterator for $name<'a, T, D, F> {}
 
-        impl<'a, T, L: Copy> Iterator for $name<'a, T, L> {
-            type Item = $grid<'a, T, L>;
+        impl<'a, T, D: Dim, F: Format> Iterator for $name<'a, T, D, F> {
+            type Item = $grid<'a, T, D, F>;
 
             fn next(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
@@ -146,7 +149,7 @@ macro_rules! impl_axis_iter {
 impl_axis_iter!(AxisIter, SubGrid, const);
 impl_axis_iter!(AxisIterMut, SubGridMut, mut);
 
-impl<'a, T, L: Copy> Clone for AxisIter<'a, T, L> {
+impl<'a, T, D: Dim, F: Format> Clone for AxisIter<'a, T, D, F> {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
@@ -159,11 +162,11 @@ impl<'a, T, L: Copy> Clone for AxisIter<'a, T, L> {
     }
 }
 
-unsafe impl<'a, T: Sync, L: Copy> Send for AxisIter<'a, T, L> {}
-unsafe impl<'a, T: Sync, L: Copy> Sync for AxisIter<'a, T, L> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Send for AxisIter<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for AxisIter<'a, T, D, F> {}
 
-unsafe impl<'a, T: Send, L: Copy> Send for AxisIterMut<'a, T, L> {}
-unsafe impl<'a, T: Sync, L: Copy> Sync for AxisIterMut<'a, T, L> {}
+unsafe impl<'a, T: Send, D: Dim, F: Format> Send for AxisIterMut<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for AxisIterMut<'a, T, D, F> {}
 
 macro_rules! impl_linear_iter {
     ($name:tt, $raw_mut:tt, {$($mut:tt)?}) => {

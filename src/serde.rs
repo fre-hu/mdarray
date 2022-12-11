@@ -9,7 +9,6 @@ use crate::buffer::Buffer;
 use crate::dim::{Dim, Rank};
 use crate::format::Format;
 use crate::grid::{DenseGrid, GridBase};
-use crate::layout::Layout;
 use crate::span::SpanBase;
 
 struct GridVisitor<T, D: Dim> {
@@ -87,14 +86,14 @@ impl<'a, T: Deserialize<'a>, D: Dim> Deserialize<'a> for DenseGrid<T, D> {
 
 impl<B: Buffer> Serialize for GridBase<B>
 where
-    SpanBase<B::Item, B::Layout>: Serialize,
+    SpanBase<B::Item, B::Dim, B::Format>: Serialize,
 {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.as_span().serialize(serializer)
     }
 }
 
-impl<T: Serialize, D: Dim, F: Format> Serialize for SpanBase<T, Layout<D, F>> {
+impl<T: Serialize, D: Dim, F: Format> Serialize for SpanBase<T, D, F> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if D::RANK == 0 {
             self[D::Shape::default()].serialize(serializer)

@@ -3,40 +3,40 @@ use std::ops::{
 };
 
 use crate::dim::{Dim, Shape};
-use crate::format::{Format, Uniform};
-use crate::layout::{panic_bounds_check, DenseLayout, Layout};
+use crate::format::{Dense, Format, Uniform};
+use crate::layout::panic_bounds_check;
 use crate::span::{DenseSpan, SpanBase};
 
 /// Array span index trait, for an element or a subslice.
-pub trait SpanIndex<T, L: Copy> {
+pub trait SpanIndex<T, D: Dim, F: Format> {
     /// Array element or subslice type.
     type Output: ?Sized;
 
     #[doc(hidden)]
-    unsafe fn get_unchecked(self, span: &SpanBase<T, L>) -> &Self::Output;
+    unsafe fn get_unchecked(self, span: &SpanBase<T, D, F>) -> &Self::Output;
 
     #[doc(hidden)]
-    unsafe fn get_unchecked_mut(self, span: &mut SpanBase<T, L>) -> &mut Self::Output;
+    unsafe fn get_unchecked_mut(self, span: &mut SpanBase<T, D, F>) -> &mut Self::Output;
 
     #[doc(hidden)]
-    fn index(self, span: &SpanBase<T, L>) -> &Self::Output;
+    fn index(self, span: &SpanBase<T, D, F>) -> &Self::Output;
 
     #[doc(hidden)]
-    fn index_mut(self, span: &mut SpanBase<T, L>) -> &mut Self::Output;
+    fn index_mut(self, span: &mut SpanBase<T, D, F>) -> &mut Self::Output;
 }
 
-impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, Layout<D, F>> for S {
+impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, D, F> for S {
     type Output = T;
 
-    unsafe fn get_unchecked(self, span: &SpanBase<T, Layout<D, F>>) -> &T {
+    unsafe fn get_unchecked(self, span: &SpanBase<T, D, F>) -> &T {
         &*span.as_ptr().offset(span.layout().offset(self))
     }
 
-    unsafe fn get_unchecked_mut(self, span: &mut SpanBase<T, Layout<D, F>>) -> &mut T {
+    unsafe fn get_unchecked_mut(self, span: &mut SpanBase<T, D, F>) -> &mut T {
         &mut *span.as_mut_ptr().offset(span.layout().offset(self))
     }
 
-    fn index(self, span: &SpanBase<T, Layout<D, F>>) -> &T {
+    fn index(self, span: &SpanBase<T, D, F>) -> &T {
         for i in 0..D::RANK {
             if self[i] >= span.size(i) {
                 panic_bounds_check(self[i], span.size(i))
@@ -46,7 +46,7 @@ impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, Layout<D, F>> for S
         unsafe { self.get_unchecked(span) }
     }
 
-    fn index_mut(self, span: &mut SpanBase<T, Layout<D, F>>) -> &mut T {
+    fn index_mut(self, span: &mut SpanBase<T, D, F>) -> &mut T {
         for i in 0..D::RANK {
             if self[i] >= span.size(i) {
                 panic_bounds_check(self[i], span.size(i))
@@ -57,22 +57,22 @@ impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, Layout<D, F>> for S
     }
 }
 
-impl<T, D: Dim, F: Uniform> SpanIndex<T, Layout<D, F>> for usize {
+impl<T, D: Dim, F: Uniform> SpanIndex<T, D, F> for usize {
     type Output = T;
 
-    unsafe fn get_unchecked(self, span: &SpanBase<T, Layout<D, F>>) -> &T {
+    unsafe fn get_unchecked(self, span: &SpanBase<T, D, F>) -> &T {
         debug_assert!(self < span.len(), "index out of bounds");
 
         &*span.as_ptr().offset(span.stride(D::dim(0)) * self as isize)
     }
 
-    unsafe fn get_unchecked_mut(self, span: &mut SpanBase<T, Layout<D, F>>) -> &mut T {
+    unsafe fn get_unchecked_mut(self, span: &mut SpanBase<T, D, F>) -> &mut T {
         debug_assert!(self < span.len(), "index out of bounds");
 
         &mut *span.as_mut_ptr().offset(span.stride(D::dim(0)) * self as isize)
     }
 
-    fn index(self, span: &SpanBase<T, Layout<D, F>>) -> &T {
+    fn index(self, span: &SpanBase<T, D, F>) -> &T {
         if self >= span.len() {
             panic_bounds_check(self, span.len())
         }
@@ -80,7 +80,7 @@ impl<T, D: Dim, F: Uniform> SpanIndex<T, Layout<D, F>> for usize {
         unsafe { self.get_unchecked(span) }
     }
 
-    fn index_mut(self, span: &mut SpanBase<T, Layout<D, F>>) -> &mut T {
+    fn index_mut(self, span: &mut SpanBase<T, D, F>) -> &mut T {
         if self >= span.len() {
             panic_bounds_check(self, span.len())
         }
@@ -91,7 +91,7 @@ impl<T, D: Dim, F: Uniform> SpanIndex<T, Layout<D, F>> for usize {
 
 macro_rules! impl_span_index {
     ($type:ty) => {
-        impl<T, D: Dim> SpanIndex<T, DenseLayout<D>> for $type {
+        impl<T, D: Dim> SpanIndex<T, D, Dense> for $type {
             type Output = [T];
 
             unsafe fn get_unchecked(self, span: &DenseSpan<T, D>) -> &[T] {

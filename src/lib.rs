@@ -212,7 +212,7 @@ pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, ColumnMajor>
 pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, RowMajor>, A>;
 
 /// Multidimensional array span with column-major element order.
-pub type Span<T, const N: usize, F = Dense> = SpanBase<T, Layout<Rank<N, ColumnMajor>, F>>;
+pub type Span<T, const N: usize, F = Dense> = SpanBase<T, Rank<N, ColumnMajor>, F>;
 
 /// Multidimensional array span with row-major element order.
-pub type CSpan<T, const N: usize, F = Dense> = SpanBase<T, Layout<Rank<N, RowMajor>, F>>;
+pub type CSpan<T, const N: usize, F = Dense> = SpanBase<T, Rank<N, RowMajor>, F>;
