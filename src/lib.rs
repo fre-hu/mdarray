@@ -20,18 +20,19 @@
 //!
 //! ## Array types
 //!
-//! The base types for multidimensional arrays are `GridBase` and `SpanBase`,
-//! similar to the Rust `Vec` and `slice` types.
+//! The base type for multidimensional arrays is `Array<B>`, where the generic
+//! parameter is a buffer for the array storage. The following variants exist:
 //!
-//! `GridBase` consists of a buffer for element storage and information about
-//! the array layout. The buffer can either own the storage like `Vec`, or refer
-//! to a parent array. The latter case occurs for example when creating a view
-//! of a larger array without duplicating elements.
-//!
-//! `SpanBase` is used as a generic array reference. It consists of a pointer
-//! to an internal structure that holds the buffer and the layout. It is useful
-//! for function parameters where the same `SpanBase` type can refer to either
-//! an owned array or an array view.
+//! - `Array<GridBuffer>` is a dense array that owns the storage, similar to
+//!   the Rust `Vec` type.
+//! - `Array<ViewBuffer>` and `Array<ViewBufferMut>` are arrays that refer to a
+//!   parent array. They are used for example when creating a view of a larger
+//!   array without duplicating elements.
+//! - `Array<SpanBuffer>` is used as a generic array reference, similar to the
+//!   Rust `slice` type. It consists of a pointer to an internal structure that
+//!   holds the storage and the layout. It is useful for function parameters
+//!   where the same type can refer to either an owned array or an array view.
+//!   Arrays and array views automatically dereference to an array span.
 //!
 //! The array layout describes how elements are stored in memory. The layout
 //! is parameterized by the rank (i.e. the number of dimensions), the element
@@ -76,6 +77,10 @@
 //! or `usize`. The resulting storage format depends on both the format inferred
 //! from the indices and the input format.
 //!
+//! The return type for the array view is `Array<ViewBuffer>` or
+//! `Array<ViewBufferMut>`. Type aliases `View`, `CView`, `ViewMut` and `CViewMut`
+//! are provided, similar to the ones above for arrays and array spans.
+//!
 //! ## Iteration
 //!
 //! If the array layout type supports linear indexing, an iterator can be created
@@ -115,7 +120,7 @@
 //! the compiler is able to vectorize the inner loop.
 //!
 //! ```
-//! use mdarray::{Grid, Span, SubGrid};
+//! use mdarray::{Grid, Span, View};
 //!
 //! fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
 //!     assert!(c.shape() == [a.size(0), b.size(1)] && a.size(1) == b.size(0), "shape mismatch");
@@ -129,15 +134,15 @@
 //!     }
 //! }
 //!
-//! let a = SubGrid::from(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-//! let b = SubGrid::from(&[[0.0, 1.0], [1.0, 1.0]]);
+//! let a = View::from(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+//! let b = View::from(&[[0.0, 1.0], [1.0, 1.0]]);
 //!
 //! let mut c = Grid::from_elem([3, 2], 0.0);
 //!
 //! matmul(&a, &b, &mut c);
 //!
 //! println!("{c:?}");
-//! # assert!(c == SubGrid::from(&[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]));
+//! # assert!(c == View::from(&[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]));
 //! ```
 //!
 //! This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
@@ -151,22 +156,23 @@
 
 /// Module for array span and view indexing, and for array axis subarray types.
 pub mod index {
-    mod axis;
-    mod span;
-    mod view;
+    pub(crate) mod axis;
+    pub(crate) mod span;
+    pub(crate) mod view;
 
     pub use axis::{Axis, Const};
     pub use span::SpanIndex;
     pub use view::{DimIndex, Params, ViewIndex};
 }
 
-/// Module for array axis and linear array span iterators.
+/// Module for array axis and flat array span iterators.
 pub mod iter {
-    mod sources;
+    pub(crate) mod sources;
 
-    pub use sources::{AxisIter, AxisIterMut, LinearIter, LinearIterMut};
+    pub use sources::{AxisIter, AxisIterMut, FlatIter, FlatIterMut};
 }
 
+mod array;
 mod buffer;
 mod dim;
 mod format;
@@ -177,6 +183,7 @@ mod ops;
 mod order;
 mod raw_span;
 mod span;
+mod view;
 
 #[cfg(feature = "serde")]
 mod serde;
@@ -196,23 +203,37 @@ use std::alloc::Global;
 
 #[cfg(not(feature = "nightly"))]
 use alloc::Global;
+use array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 
+pub use array::Array;
+pub use buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
+pub use buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 pub use dim::{Dim, Rank, Shape, Strides};
 pub use format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
-pub use grid::{DenseGrid, GridBase, SubGrid, SubGridMut};
 pub use layout::Layout;
 pub use ops::{fill, step, Fill, StepRange};
 pub use order::{ColumnMajor, Order, RowMajor};
-pub use span::{DenseSpan, SpanBase};
 
 /// Dense multidimensional array with column-major element order.
-pub type Grid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, ColumnMajor>, A>;
+pub type Grid<T, const N: usize, A = Global> = GridArray<T, Rank<N, ColumnMajor>, A>;
 
 /// Dense multidimensional array with row-major element order.
-pub type CGrid<T, const N: usize, A = Global> = DenseGrid<T, Rank<N, RowMajor>, A>;
+pub type CGrid<T, const N: usize, A = Global> = GridArray<T, Rank<N, RowMajor>, A>;
 
 /// Multidimensional array span with column-major element order.
-pub type Span<T, const N: usize, F = Dense> = SpanBase<T, Rank<N, ColumnMajor>, F>;
+pub type Span<T, const N: usize, F = Dense> = SpanArray<T, Rank<N, ColumnMajor>, F>;
 
 /// Multidimensional array span with row-major element order.
-pub type CSpan<T, const N: usize, F = Dense> = SpanBase<T, Rank<N, RowMajor>, F>;
+pub type CSpan<T, const N: usize, F = Dense> = SpanArray<T, Rank<N, RowMajor>, F>;
+
+/// Multidimensional array view with column-major element order.
+pub type View<'a, T, const N: usize, F = Dense> = ViewArray<'a, T, Rank<N, ColumnMajor>, F>;
+
+/// Multidimensional array view with row-major element order.
+pub type CView<'a, T, const N: usize, F = Dense> = ViewArray<'a, T, Rank<N, RowMajor>, F>;
+
+/// Mutable multidimensional array view with column-major element order.
+pub type ViewMut<'a, T, const N: usize, F = Dense> = ViewArrayMut<'a, T, Rank<N, ColumnMajor>, F>;
+
+/// Mutable multidimensional array view with row-major element order.
+pub type CViewMut<'a, T, const N: usize, F = Dense> = ViewArrayMut<'a, T, Rank<N, RowMajor>, F>;

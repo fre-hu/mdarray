@@ -1,10 +1,11 @@
 use std::mem;
 use std::ptr::NonNull;
 
+use crate::array::SpanArray;
+use crate::buffer::SpanBuffer;
 use crate::dim::Dim;
 use crate::format::Format;
 use crate::layout::Layout;
-use crate::span::SpanBase;
 
 pub struct RawSpan<T, D: Dim, F: Format> {
     ptr: NonNull<T>,
@@ -16,22 +17,22 @@ impl<T, D: Dim, F: Format> RawSpan<T, D, F> {
         self.ptr.as_ptr()
     }
 
-    pub fn as_mut_span(&mut self) -> &mut SpanBase<T, D, F> {
+    pub fn as_mut_span(&mut self) -> &mut SpanArray<T, D, F> {
         #[cfg(all(not(feature = "nightly"), feature = "permissive-provenance"))]
         let _ = self as *mut Self as usize; // Expose pointer provenance, see UCG issue #256.
 
-        unsafe { &mut *(self as *mut Self as *mut SpanBase<T, D, F>) }
+        unsafe { &mut *(self as *mut Self as *mut SpanArray<T, D, F>) }
     }
 
     pub fn as_ptr(&self) -> *const T {
         self.ptr.as_ptr()
     }
 
-    pub fn as_span(&self) -> &SpanBase<T, D, F> {
+    pub fn as_span(&self) -> &SpanArray<T, D, F> {
         #[cfg(all(not(feature = "nightly"), feature = "permissive-provenance"))]
         let _ = self as *const Self as usize; // Expose pointer provenance, see UCG issue #256.
 
-        unsafe { &*(self as *const Self as *const SpanBase<T, D, F>) }
+        unsafe { &*(self as *const Self as *const SpanArray<T, D, F>) }
     }
 
     pub fn layout(&self) -> Layout<D, F> {
@@ -39,28 +40,28 @@ impl<T, D: Dim, F: Format> RawSpan<T, D, F> {
     }
 
     #[cfg(any(feature = "nightly", not(feature = "permissive-provenance")))]
-    pub fn from_mut_span(span: &mut SpanBase<T, D, F>) -> &mut Self {
-        unsafe { &mut *(span as *mut SpanBase<T, D, F> as *mut Self) } // Use existing provenance.
+    pub fn from_mut_buffer(buffer: &mut SpanBuffer<T, D, F>) -> &mut Self {
+        unsafe { &mut *(buffer as *mut SpanBuffer<T, D, F> as *mut Self) } // Keep same provenance.
     }
 
     #[cfg(all(not(feature = "nightly"), feature = "permissive-provenance"))]
-    pub fn from_mut_span(span: &mut SpanBase<T, D, F>) -> &mut Self {
+    pub fn from_mut_buffer(buffer: &mut SpanBuffer<T, D, F>) -> &mut Self {
         unsafe {
-            let ptr = span as *mut SpanBase<T, D, F>;
+            let ptr = buffer as *mut SpanBuffer<T, D, F>;
 
             &mut *(ptr as usize as *mut Self) // Use exposed provenance, see UCG issue #256.
         }
     }
 
     #[cfg(any(feature = "nightly", not(feature = "permissive-provenance")))]
-    pub fn from_span(span: &SpanBase<T, D, F>) -> &Self {
-        unsafe { &*(span as *const SpanBase<T, D, F> as *const Self) } // Use existing provenance.
+    pub fn from_buffer(buffer: &SpanBuffer<T, D, F>) -> &Self {
+        unsafe { &*(buffer as *const SpanBuffer<T, D, F> as *const Self) } // Keep same provenance.
     }
 
     #[cfg(all(not(feature = "nightly"), feature = "permissive-provenance"))]
-    pub fn from_span(span: &SpanBase<T, D, F>) -> &Self {
+    pub fn from_buffer(buffer: &SpanBuffer<T, D, F>) -> &Self {
         unsafe {
-            let ptr = span as *const SpanBase<T, D, F>;
+            let ptr = buffer as *const SpanBuffer<T, D, F>;
 
             &*(ptr as usize as *const Self) // Use exposed provenance, see UCG issue #256.
         }

@@ -1,52 +1,30 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
-use std::fmt::{Debug, Formatter, Result};
-use std::hash::{Hash, Hasher};
-#[cfg(feature = "nightly")]
-use std::marker::PhantomData;
-#[cfg(not(feature = "nightly"))]
-use std::marker::{PhantomData, PhantomPinned};
-use std::ops::{Index, IndexMut};
 use std::slice;
 
+use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Dense, Format, Uniform};
-use crate::grid::{DenseGrid, SubGrid, SubGridMut};
-use crate::index::{Axis, Const, Params, SpanIndex, ViewIndex};
-use crate::iter::{AxisIter, AxisIterMut};
+use crate::index::axis::{Axis, Const};
+use crate::index::span::SpanIndex;
+use crate::index::view::{Params, ViewIndex};
+use crate::iter::sources::{AxisIter, AxisIterMut};
 use crate::layout::Layout;
 use crate::mapping::Mapping;
 use crate::raw_span::RawSpan;
 
-/// Multidimensional array span with static rank and element order.
-pub struct SpanBase<T, D: Dim, F: Format> {
-    phantom: PhantomData<(T, D, F)>,
-    #[cfg(not(feature = "nightly"))]
-    _pinned: PhantomPinned,
-    #[cfg(feature = "nightly")]
-    _opaque: Opaque,
-}
-
-/// Dense multidimensional array span with static rank and element order.
-pub type DenseSpan<T, D> = SpanBase<T, D, Dense>;
-
-#[cfg(feature = "nightly")]
-extern "C" {
-    type Opaque;
-}
-
-impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
+impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable pointer to the array buffer.
     #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        RawSpan::from_mut_span(self).as_mut_ptr()
+        RawSpan::from_mut_buffer(&mut self.buffer).as_mut_ptr()
     }
 
     /// Returns a raw pointer to the array buffer.
     #[must_use]
     pub fn as_ptr(&self) -> *const T {
-        RawSpan::from_span(self).as_ptr()
+        RawSpan::from_buffer(&self.buffer).as_ptr()
     }
 
     /// Returns an iterator that gives array views over the specified dimension.
@@ -110,7 +88,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// Clones an array span into the array span.
     /// # Panics
     /// Panics if the two spans have different shapes.
-    pub fn clone_from_span(&mut self, src: &SpanBase<T, D, impl Format>)
+    pub fn clone_from_span(&mut self, src: &SpanArray<T, D, impl Format>)
     where
         T: Clone,
     {
@@ -134,7 +112,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
     #[must_use]
-    pub fn flatten(&self) -> SubGrid<T, Rank<1, D::Order>, F::Uniform> {
+    pub fn flatten(&self) -> ViewArray<T, Rank<1, D::Order>, F::Uniform> {
         self.to_view().into_flattened()
     }
 
@@ -142,7 +120,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
     #[must_use]
-    pub fn flatten_mut(&mut self) -> SubGridMut<T, Rank<1, D::Order>, F::Uniform> {
+    pub fn flatten_mut(&mut self) -> ViewArrayMut<T, Rank<1, D::Order>, F::Uniform> {
         self.to_view_mut().into_flattened()
     }
 
@@ -166,7 +144,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the subarray is out of bounds.
     #[must_use]
-    pub fn grid<P: Params, I>(&self, index: I) -> DenseGrid<T, P::Dim>
+    pub fn grid<P: Params, I>(&self, index: I) -> GridArray<T, P::Dim>
     where
         T: Clone,
         I: ViewIndex<D, F, Params = P>,
@@ -179,7 +157,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// Panics if the subarray is out of bounds.
     #[cfg(feature = "nightly")]
     #[must_use]
-    pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> DenseGrid<T, P::Dim, A>
+    pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> GridArray<T, P::Dim, A>
     where
         T: Clone,
         I: ViewIndex<D, F, Params = P>,
@@ -267,7 +245,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// Returns the array layout.
     #[must_use]
     pub fn layout(&self) -> Layout<D, F> {
-        RawSpan::from_span(self).layout()
+        RawSpan::from_buffer(&self.buffer).layout()
     }
 
     /// Returns the number of elements in the array.
@@ -322,7 +300,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the array layout is not compatible with the new format.
     #[must_use]
-    pub fn reformat<G: Format>(&self) -> SubGrid<T, D, G> {
+    pub fn reformat<G: Format>(&self) -> ViewArray<T, D, G> {
         self.to_view().into_format()
     }
 
@@ -330,7 +308,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the array layout is not compatible with the new format.
     #[must_use]
-    pub fn reformat_mut<G: Format>(&mut self) -> SubGridMut<T, D, G> {
+    pub fn reformat_mut<G: Format>(&mut self) -> ViewArrayMut<T, D, G> {
         self.to_view_mut().into_format()
     }
 
@@ -341,7 +319,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     pub fn reshape<S: Shape>(
         &self,
         shape: S,
-    ) -> SubGrid<T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
+    ) -> ViewArray<T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
         self.to_view().into_shape(shape)
     }
 
@@ -352,7 +330,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     pub fn reshape_mut<S: Shape>(
         &mut self,
         shape: S,
-    ) -> SubGridMut<T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
+    ) -> ViewArrayMut<T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
         self.to_view_mut().into_shape(shape)
     }
 
@@ -372,7 +350,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
     #[must_use]
-    pub fn split_at(&self, mid: usize) -> (SubGrid<T, D, F>, SubGrid<T, D, F>) {
+    pub fn split_at(&self, mid: usize) -> (ViewArray<T, D, F>, ViewArray<T, D, F>) {
         self.to_view().into_split_at(mid)
     }
 
@@ -380,7 +358,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
     #[must_use]
-    pub fn split_at_mut(&mut self, mid: usize) -> (SubGridMut<T, D, F>, SubGridMut<T, D, F>) {
+    pub fn split_at_mut(&mut self, mid: usize) -> (ViewArrayMut<T, D, F>, ViewArrayMut<T, D, F>) {
         self.to_view_mut().into_split_at(mid)
     }
 
@@ -392,8 +370,8 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
         &self,
         mid: usize,
     ) -> (
-        SubGrid<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
-        SubGrid<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
+        ViewArray<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
+        ViewArray<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
     )
     where
         Const<DIM>: Axis<D>,
@@ -409,8 +387,8 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
         &mut self,
         mid: usize,
     ) -> (
-        SubGridMut<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
-        SubGridMut<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
+        ViewArrayMut<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
+        ViewArrayMut<T, D, <Const<DIM> as Axis<D>>::Split<F>>,
     )
     where
         Const<DIM>: Axis<D>,
@@ -433,11 +411,11 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// Copies the array span into a new array.
     #[cfg(not(feature = "nightly"))]
     #[must_use]
-    pub fn to_grid(&self) -> DenseGrid<T, D>
+    pub fn to_grid(&self) -> GridArray<T, D>
     where
         T: Clone,
     {
-        let mut grid = DenseGrid::new();
+        let mut grid = GridArray::new();
 
         grid.extend_from_span(self);
         grid
@@ -446,7 +424,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// Copies the array span into a new array.
     #[cfg(feature = "nightly")]
     #[must_use]
-    pub fn to_grid(&self) -> DenseGrid<T, D>
+    pub fn to_grid(&self) -> GridArray<T, D>
     where
         T: Clone,
     {
@@ -456,11 +434,11 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// Copies the array span into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
     #[must_use]
-    pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> DenseGrid<T, D, A>
+    pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> GridArray<T, D, A>
     where
         T: Clone,
     {
-        let mut grid = DenseGrid::new_in(alloc);
+        let mut grid = GridArray::new_in(alloc);
 
         grid.extend_from_span(self);
         grid
@@ -487,21 +465,21 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
 
     /// Returns an array view of the entire array span.
     #[must_use]
-    pub fn to_view(&self) -> SubGrid<T, D, F> {
-        unsafe { SubGrid::new_unchecked(self.as_ptr(), self.layout()) }
+    pub fn to_view(&self) -> ViewArray<T, D, F> {
+        unsafe { ViewArray::new_unchecked(self.as_ptr(), self.layout()) }
     }
 
     /// Returns a mutable array view of the entire array span.
     #[must_use]
-    pub fn to_view_mut(&mut self) -> SubGridMut<T, D, F> {
-        unsafe { SubGridMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
+    pub fn to_view_mut(&mut self) -> ViewArrayMut<T, D, F> {
+        unsafe { ViewArrayMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
     }
 
     /// Returns an array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
     #[must_use]
-    pub fn view<P: Params, I>(&self, index: I) -> SubGrid<T, P::Dim, P::Format>
+    pub fn view<P: Params, I>(&self, index: I) -> ViewArray<T, P::Dim, P::Format>
     where
         I: ViewIndex<D, F, Params = P>,
     {
@@ -512,7 +490,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     /// # Panics
     /// Panics if the subarray is out of bounds.
     #[must_use]
-    pub fn view_mut<P: Params, I>(&mut self, index: I) -> SubGridMut<T, P::Dim, P::Format>
+    pub fn view_mut<P: Params, I>(&mut self, index: I) -> ViewArrayMut<T, P::Dim, P::Format>
     where
         I: ViewIndex<D, F, Params = P>,
     {
@@ -520,7 +498,7 @@ impl<T, D: Dim, F: Format> SpanBase<T, D, F> {
     }
 }
 
-impl<T, D: Dim> DenseSpan<T, D> {
+impl<T, D: Dim> SpanArray<T, D, Dense> {
     /// Returns a mutable slice of all elements in the array.
     #[must_use]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
@@ -534,90 +512,8 @@ impl<T, D: Dim> DenseSpan<T, D> {
     }
 }
 
-impl<T, D: Dim> AsMut<[T]> for DenseSpan<T, D> {
-    fn as_mut(&mut self) -> &mut [T] {
-        self.as_mut_slice()
-    }
-}
-
-impl<T, D: Dim> AsRef<[T]> for DenseSpan<T, D> {
-    fn as_ref(&self) -> &[T] {
-        self.as_slice()
-    }
-}
-
-impl<T: Debug, D: Dim, F: Format> Debug for SpanBase<T, D, F> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if D::RANK == 0 {
-            self[D::Shape::default()].fmt(f)
-        } else {
-            let mut list = f.debug_list();
-
-            if !self.is_empty() {
-                if D::RANK == 1 {
-                    list.entries(self.flatten().iter());
-                } else {
-                    list.entries(self.outer_iter());
-                }
-            }
-
-            list.finish()
-        }
-    }
-}
-
-impl<T: Hash, D: Dim, F: Format> Hash for SpanBase<T, D, F> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let shape = if self.is_empty() { Default::default() } else { self.shape() };
-
-        for i in 0..D::RANK {
-            #[cfg(not(feature = "nightly"))]
-            state.write_usize(shape[D::dim(i)]);
-            #[cfg(feature = "nightly")]
-            state.write_length_prefix(shape[D::dim(i)]);
-        }
-
-        hash(self, state);
-    }
-}
-
-impl<T, D: Dim, F: Format, I: SpanIndex<T, D, F>> Index<I> for SpanBase<T, D, F> {
-    type Output = I::Output;
-
-    fn index(&self, index: I) -> &I::Output {
-        index.index(self)
-    }
-}
-
-impl<T, D: Dim, F: Format, I: SpanIndex<T, D, F>> IndexMut<I> for SpanBase<T, D, F> {
-    fn index_mut(&mut self, index: I) -> &mut I::Output {
-        index.index_mut(self)
-    }
-}
-
-impl<'a, T, D: Dim, F: Uniform> IntoIterator for &'a SpanBase<T, D, F> {
-    type Item = &'a T;
-    type IntoIter = F::Iter<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, T, D: Dim, F: Uniform> IntoIterator for &'a mut SpanBase<T, D, F> {
-    type Item = &'a mut T;
-    type IntoIter = F::IterMut<'a, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
-    }
-}
-
-unsafe impl<T: Send, D: Dim, F: Format> Send for SpanBase<T, D, F> {}
-unsafe impl<T: Sync, D: Dim, F: Format> Sync for SpanBase<T, D, F> {}
-
-impl<T: Clone, D: Dim> ToOwned for DenseSpan<T, D> {
-    type Owned = DenseGrid<T, D>;
+impl<T: Clone, D: Dim> ToOwned for SpanArray<T, D, Dense> {
+    type Owned = GridArray<T, D>;
 
     fn to_owned(&self) -> Self::Owned {
         self.to_grid()
@@ -625,8 +521,8 @@ impl<T: Clone, D: Dim> ToOwned for DenseSpan<T, D> {
 }
 
 fn clone_from_span<T: Clone, D: Dim, F: Format, G: Format>(
-    this: &mut SpanBase<T, D, G>,
-    src: &SpanBase<T, D, F>,
+    this: &mut SpanArray<T, D, G>,
+    src: &SpanArray<T, D, F>,
 ) {
     if F::IS_UNIFORM && G::IS_UNIFORM {
         assert!(src.shape()[..] == this.shape()[..], "shape mismatch");
@@ -649,7 +545,7 @@ fn clone_from_span<T: Clone, D: Dim, F: Format, G: Format>(
     }
 }
 
-fn fill_with<T, F: Format>(this: &mut SpanBase<T, impl Dim, F>, f: &mut impl FnMut() -> T) {
+fn fill_with<T, F: Format>(this: &mut SpanArray<T, impl Dim, F>, f: &mut impl FnMut() -> T) {
     if F::IS_UNIFORM {
         for x in this.flatten_mut().iter_mut() {
             *x = f();
@@ -657,18 +553,6 @@ fn fill_with<T, F: Format>(this: &mut SpanBase<T, impl Dim, F>, f: &mut impl FnM
     } else {
         for mut x in this.outer_iter_mut() {
             fill_with(&mut x, f);
-        }
-    }
-}
-
-fn hash<T: Hash, F: Format>(this: &SpanBase<T, impl Dim, F>, state: &mut impl Hasher) {
-    if F::IS_UNIFORM {
-        for x in this.flatten().iter() {
-            x.hash(state);
-        }
-    } else {
-        for x in this.outer_iter() {
-            hash(&x, state);
         }
     }
 }

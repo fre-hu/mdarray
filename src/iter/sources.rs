@@ -3,11 +3,10 @@ use std::iter::FusedIterator;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
+use crate::array::{ViewArray, ViewArrayMut};
 use crate::dim::Dim;
 use crate::format::Format;
-use crate::grid::{SubGrid, SubGridMut};
 use crate::layout::Layout;
-use crate::span::SpanBase;
 
 /// Array axis iterator.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
@@ -31,9 +30,9 @@ pub struct AxisIterMut<'a, T, D: Dim, F: Format> {
     phantom: PhantomData<&'a mut T>,
 }
 
-/// Linear array span iterator.
+/// Flat array span iterator.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct LinearIter<'a, T> {
+pub struct FlatIter<'a, T> {
     ptr: NonNull<T>,
     index: usize,
     size: usize,
@@ -41,9 +40,9 @@ pub struct LinearIter<'a, T> {
     phantom: PhantomData<&'a T>,
 }
 
-/// Mutable linear array span iterator.
+/// Mutable flat array span iterator.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct LinearIterMut<'a, T> {
+pub struct FlatIterMut<'a, T> {
     ptr: NonNull<T>,
     index: usize,
     size: usize,
@@ -71,17 +70,11 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, D: Dim, F: Format> Debug for $name<'a, T, D, F>
-        where
-            SpanBase<T, D, F>: Debug,
-        {
+        impl<'a, T: Debug, D: Dim, F: Format> Debug for $name<'a, T, D, F> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
                 struct Value<'b, 'c, U, E: Dim, G: Format>(&'b $name<'c, U, E, G>);
 
-                impl<'b, 'c, U, E: Dim, G: Format> Debug for Value<'b, 'c, U, E, G>
-                where
-                    SpanBase<U, E, G>: Debug,
-                {
+                impl<'b, 'c, U: Debug, E: Dim, G: Format> Debug for Value<'b, 'c, U, E, G> {
                     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
                         let mut list = f.debug_list();
 
@@ -89,7 +82,7 @@ macro_rules! impl_axis_iter {
                             unsafe {
                                 let ptr = self.0.ptr.as_ptr().offset(self.0.stride * i as isize);
 
-                                list.entry(&SubGrid::new_unchecked(ptr, self.0.layout));
+                                list.entry(&ViewArray::new_unchecked(ptr, self.0.layout));
                             }
                         }
 
@@ -146,8 +139,8 @@ macro_rules! impl_axis_iter {
     }
 }
 
-impl_axis_iter!(AxisIter, SubGrid, const);
-impl_axis_iter!(AxisIterMut, SubGridMut, mut);
+impl_axis_iter!(AxisIter, ViewArray, const);
+impl_axis_iter!(AxisIterMut, ViewArrayMut, mut);
 
 impl<'a, T, D: Dim, F: Format> Clone for AxisIter<'a, T, D, F> {
     fn clone(&self) -> Self {
@@ -168,7 +161,7 @@ unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for AxisIter<'a, T, D, F> {}
 unsafe impl<'a, T: Send, D: Dim, F: Format> Send for AxisIterMut<'a, T, D, F> {}
 unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for AxisIterMut<'a, T, D, F> {}
 
-macro_rules! impl_linear_iter {
+macro_rules! impl_flat_iter {
     ($name:tt, $raw_mut:tt, {$($mut:tt)?}) => {
         impl<'a, T> $name<'a, T> {
             pub(crate) unsafe fn new_unchecked(
@@ -249,10 +242,10 @@ macro_rules! impl_linear_iter {
     }
 }
 
-impl_linear_iter!(LinearIter, const, {});
-impl_linear_iter!(LinearIterMut, mut, {mut});
+impl_flat_iter!(FlatIter, const, {});
+impl_flat_iter!(FlatIterMut, mut, {mut});
 
-impl<'a, T> Clone for LinearIter<'a, T> {
+impl<'a, T> Clone for FlatIter<'a, T> {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
@@ -264,8 +257,8 @@ impl<'a, T> Clone for LinearIter<'a, T> {
     }
 }
 
-unsafe impl<'a, T: Sync> Send for LinearIter<'a, T> {}
-unsafe impl<'a, T: Sync> Sync for LinearIter<'a, T> {}
+unsafe impl<'a, T: Sync> Send for FlatIter<'a, T> {}
+unsafe impl<'a, T: Sync> Sync for FlatIter<'a, T> {}
 
-unsafe impl<'a, T: Send> Send for LinearIterMut<'a, T> {}
-unsafe impl<'a, T: Sync> Sync for LinearIterMut<'a, T> {}
+unsafe impl<'a, T: Send> Send for FlatIterMut<'a, T> {}
+unsafe impl<'a, T: Sync> Sync for FlatIterMut<'a, T> {}

@@ -6,7 +6,7 @@ use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, Strided
 
 /// Array layout, including rank, element order and storage format.
 pub struct Layout<D: Dim, F: Format> {
-    map: F::Mapping<D>,
+    mapping: F::Mapping<D>,
 }
 
 pub type DenseLayout<D> = Layout<D, Dense>;
@@ -18,7 +18,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns true if the array strides are consistent with contiguous memory layout.
     #[must_use]
     pub fn is_contiguous(self) -> bool {
-        self.map.is_contiguous()
+        self.mapping.is_contiguous()
     }
 
     /// Returns true if the array contains no elements.
@@ -30,19 +30,19 @@ impl<D: Dim, F: Format> Layout<D, F> {
     /// Returns true if the array strides are consistent with uniformly strided memory layout.
     #[must_use]
     pub fn is_uniformly_strided(self) -> bool {
-        self.map.is_uniformly_strided()
+        self.mapping.is_uniformly_strided()
     }
 
     /// Returns the number of elements in the array.
     #[must_use]
     pub fn len(self) -> usize {
-        self.map.len()
+        self.mapping.len()
     }
 
     /// Returns the shape of the array.
     #[must_use]
     pub fn shape(self) -> D::Shape {
-        self.map.shape()
+        self.mapping.shape()
     }
 
     /// Returns the number of elements in the specified dimension.
@@ -52,7 +52,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
     pub fn size(self, dim: usize) -> usize {
         assert!(dim < D::RANK, "invalid dimension");
 
-        self.map.shape()[dim]
+        self.mapping.shape()[dim]
     }
 
     /// Returns the distance between elements in the specified dimension.
@@ -62,13 +62,13 @@ impl<D: Dim, F: Format> Layout<D, F> {
     pub fn stride(self, dim: usize) -> isize {
         assert!(dim < D::RANK, "invalid dimension");
 
-        self.map.strides()[dim]
+        self.mapping.strides()[dim]
     }
 
     /// Returns the distance between elements in each dimension.
     #[must_use]
     pub fn strides(self) -> D::Strides {
-        self.map.strides()
+        self.mapping.strides()
     }
 
     pub(crate) fn add_dim<G: Format>(self, size: usize, stride: isize) -> Layout<D::Higher, G> {
@@ -76,15 +76,15 @@ impl<D: Dim, F: Format> Layout<D, F> {
     }
 
     pub(crate) fn flatten(self) -> Layout<Rank<1, D::Order>, F::Uniform> {
-        self.map.flatten()
+        self.mapping.flatten()
     }
 
     pub(crate) fn offset(self, index: D::Shape) -> isize {
         let mut offset = 0;
-        let strides = self.map.strides();
+        let strides = self.mapping.strides();
 
         for i in 0..D::RANK {
-            debug_assert!(index[i] < self.map.shape()[i], "index out of bounds");
+            debug_assert!(index[i] < self.mapping.shape()[i], "index out of bounds");
 
             offset += strides[i] * index[i] as isize;
         }
@@ -105,35 +105,35 @@ impl<D: Dim, F: Format> Layout<D, F> {
     }
 
     pub(crate) fn resize_dim(self, dim: usize, new_size: usize) -> Self {
-        self.map.resize_dim(dim, new_size)
+        self.mapping.resize_dim(dim, new_size)
     }
 }
 
 impl<D: Dim> DenseLayout<D> {
     /// Creates a new, dense array layout with the specified shape.
     pub fn new(shape: D::Shape) -> Self {
-        Self { map: DenseMapping::new(shape) }
+        Self { mapping: DenseMapping::new(shape) }
     }
 }
 
 impl<D: Dim> FlatLayout<D> {
     /// Creates a new, flat array layout with the specified shape and inner stride.
     pub fn new(shape: D::Shape, inner_stride: isize) -> Self {
-        Self { map: FlatMapping::new(shape, inner_stride) }
+        Self { mapping: FlatMapping::new(shape, inner_stride) }
     }
 }
 
 impl<D: Dim> GeneralLayout<D> {
     /// Creates a new, general array layout with the specified shape and outer strides.
     pub fn new(shape: D::Shape, outer_strides: <D::Lower as Dim>::Strides) -> Self {
-        Self { map: GeneralMapping::new(shape, outer_strides) }
+        Self { mapping: GeneralMapping::new(shape, outer_strides) }
     }
 }
 
 impl<D: Dim> StridedLayout<D> {
     /// Creates a new, strided array layout with the specified shape and strides.
     pub fn new(shape: D::Shape, strides: D::Strides) -> Self {
-        Self { map: StridedMapping::new(shape, strides) }
+        Self { mapping: StridedMapping::new(shape, strides) }
     }
 }
 
@@ -147,13 +147,13 @@ impl<D: Dim, F: Format> Copy for Layout<D, F> {}
 
 impl<D: Dim, F: Format> Debug for Layout<D, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        self.map.fmt(f)
+        self.mapping.fmt(f)
     }
 }
 
 impl<D: Dim, F: Format> Default for Layout<D, F> {
     fn default() -> Self {
-        Self { map: Default::default() }
+        Self { mapping: Default::default() }
     }
 }
 

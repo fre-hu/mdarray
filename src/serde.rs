@@ -5,11 +5,9 @@ use serde::de::{Error, SeqAccess, Unexpected, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::array::{Array, GridArray};
 use crate::buffer::Buffer;
 use crate::dim::{Dim, Rank};
-use crate::format::Format;
-use crate::grid::{DenseGrid, GridBase};
-use crate::span::SpanBase;
 
 struct GridVisitor<T, D: Dim> {
     phantom: PhantomData<(T, D)>,
@@ -17,9 +15,9 @@ struct GridVisitor<T, D: Dim> {
 
 impl<'a, T: Deserialize<'a>, D: Dim> Visitor<'a> for GridVisitor<T, D>
 where
-    DenseGrid<T, D::Lower>: Deserialize<'a>,
+    GridArray<T, D::Lower>: Deserialize<'a>,
 {
-    type Value = DenseGrid<T, D>;
+    type Value = GridArray<T, D>;
 
     fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
         write!(formatter, "an array of rank {}", D::RANK)
@@ -41,18 +39,18 @@ where
 
                 shape[0] = vec.len();
 
-                Ok(DenseGrid::<T, Rank<1, D::Order>>::from(vec).into_shape(shape))
+                Ok(GridArray::<T, Rank<1, D::Order>>::from(vec).into_shape(shape))
             } else {
-                Ok(DenseGrid::new())
+                Ok(GridArray::new())
             }
-        } else if let Some(value) = seq.next_element::<DenseGrid<T, D::Lower>>()? {
+        } else if let Some(value) = seq.next_element::<GridArray<T, D::Lower>>()? {
             if value.is_empty() {
                 Err(A::Error::invalid_length(value.len(), &self))
             } else {
                 let capacity = value.len() * seq.size_hint().unwrap_or(0);
                 let shape = value.shape();
 
-                let mut grid = DenseGrid::with_capacity(capacity);
+                let mut grid = GridArray::<T, D>::with_capacity(capacity);
                 let mut larger = D::Shape::default();
 
                 larger[D::dims(..D::RANK - 1)].copy_from_slice(&shape[..]);
@@ -60,7 +58,7 @@ where
 
                 grid.append(&mut value.into_shape(larger));
 
-                while let Some(value) = seq.next_element::<DenseGrid<T, D::Lower>>()? {
+                while let Some(value) = seq.next_element::<GridArray<T, D::Lower>>()? {
                     if value.shape()[..] != shape[..] {
                         return Err(A::Error::invalid_value(Unexpected::Seq, &self));
                     }
@@ -71,12 +69,12 @@ where
                 Ok(grid)
             }
         } else {
-            Ok(DenseGrid::new())
+            Ok(GridArray::new())
         }
     }
 }
 
-impl<'a, T: Deserialize<'a>, D: Dim> Deserialize<'a> for DenseGrid<T, D> {
+impl<'a, T: Deserialize<'a>, D: Dim> Deserialize<'a> for GridArray<T, D> {
     fn deserialize<S: Deserializer<'a>>(deserializer: S) -> Result<Self, S::Error> {
         let visitor = GridVisitor { phantom: PhantomData };
 
@@ -84,30 +82,23 @@ impl<'a, T: Deserialize<'a>, D: Dim> Deserialize<'a> for DenseGrid<T, D> {
     }
 }
 
-impl<B: Buffer> Serialize for GridBase<B>
-where
-    SpanBase<B::Item, B::Dim, B::Format>: Serialize,
-{
+impl<T: Serialize, B: Buffer<Item = T> + ?Sized> Serialize for Array<B> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        self.as_span().serialize(serializer)
-    }
-}
-
-impl<T: Serialize, D: Dim, F: Format> Serialize for SpanBase<T, D, F> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if D::RANK == 0 {
-            self[D::Shape::default()].serialize(serializer)
+        if B::Dim::RANK == 0 {
+            self[<B::Dim as Dim>::Shape::default()].serialize(serializer)
         } else {
-            let len = if self.is_empty() { 0 } else { self.size(D::dim(D::RANK - 1)) };
+            let dim = B::Dim::dim(B::Dim::RANK - 1);
+            let len = if self.as_span().is_empty() { 0 } else { self.as_span().size(dim) };
+
             let mut seq = serializer.serialize_seq(Some(len))?;
 
             if len > 0 {
-                if D::RANK == 1 {
-                    for x in self.flatten().iter() {
+                if B::Dim::RANK == 1 {
+                    for x in self.as_span().flatten().iter() {
                         seq.serialize_element(x)?;
                     }
                 } else {
-                    for x in self.outer_iter() {
+                    for x in self.as_span().outer_iter() {
                         seq.serialize_element(&x)?;
                     }
                 }

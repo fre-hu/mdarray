@@ -2,7 +2,7 @@ use std::iter::FusedIterator;
 use std::slice::{Iter, IterMut};
 
 use crate::dim::Dim;
-use crate::iter::{LinearIter, LinearIterMut};
+use crate::iter::sources::{FlatIter, FlatIterMut};
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Array format trait for memory layout.
@@ -88,8 +88,8 @@ impl Format for Flat {
 
     type Format<D: Dim, F: Format> = D::Format<F::NonUnitStrided>;
 
-    type Iter<'a, T: 'a> = LinearIter<'a, T>;
-    type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
+    type Iter<'a, T: 'a> = FlatIter<'a, T>;
+    type IterMut<'a, T: 'a> = FlatIterMut<'a, T>;
 
     type Mapping<D: Dim> = FlatMapping<D>;
 
@@ -122,8 +122,8 @@ impl Format for Strided {
 
     type Format<D: Dim, F: Format> = D::Format<Self>;
 
-    type Iter<'a, T: 'a> = LinearIter<'a, T>;
-    type IterMut<'a, T: 'a> = LinearIterMut<'a, T>;
+    type Iter<'a, T: 'a> = FlatIter<'a, T>;
+    type IterMut<'a, T: 'a> = FlatIterMut<'a, T>;
 
     type Mapping<D: Dim> = StridedMapping<D>;
 

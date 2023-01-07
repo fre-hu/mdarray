@@ -1,17 +1,20 @@
 #[cfg(feature = "nightly")]
 use std::alloc::Allocator;
+#[cfg(feature = "nightly")]
 use std::marker::PhantomData;
+#[cfg(not(feature = "nightly"))]
+use std::marker::{PhantomData, PhantomPinned};
 use std::mem::{self, ManuallyDrop};
 use std::ops::{Deref, DerefMut};
 use std::{cmp, ptr};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
+use crate::array::SpanArray;
 use crate::dim::Dim;
 use crate::format::{Dense, Format};
 use crate::layout::{DenseLayout, Layout};
 use crate::raw_span::RawSpan;
-use crate::span::{DenseSpan, SpanBase};
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -27,19 +30,35 @@ macro_rules! vec_t {
     };
 }
 
+/// Buffer trait for array storage.
 pub trait Buffer {
+    /// Array element type.
     type Item;
+
+    /// Array dimension type.
     type Dim: Dim;
+
+    /// Array format type.
     type Format: Format;
 
-    fn as_span(&self) -> &SpanBase<Self::Item, Self::Dim, Self::Format>;
+    #[doc(hidden)]
+    fn as_span(&self) -> &SpanArray<Self::Item, Self::Dim, Self::Format>;
 }
 
+/// Mutable buffer trait for array storage.
 pub trait BufferMut: Buffer {
-    fn as_mut_span(&mut self) -> &mut SpanBase<Self::Item, Self::Dim, Self::Format>;
+    #[doc(hidden)]
+    fn as_mut_span(&mut self) -> &mut SpanArray<Self::Item, Self::Dim, Self::Format>;
 }
 
-pub struct DenseBuffer<T, D: Dim, A: Allocator> {
+/// Sized buffer trait for array storage.
+pub trait SizedBuffer: Buffer {}
+
+/// Mutable sized buffer trait for array storage.
+pub trait SizedBufferMut: BufferMut + SizedBuffer {}
+
+/// Dense multidimensional array buffer.
+pub struct GridBuffer<T, D: Dim, A: Allocator> {
     span: RawSpan<T, D, Dense>,
     capacity: usize,
     #[cfg(not(feature = "nightly"))]
@@ -48,24 +67,35 @@ pub struct DenseBuffer<T, D: Dim, A: Allocator> {
     alloc: ManuallyDrop<A>,
 }
 
-pub struct SubBuffer<'a, T, D: Dim, F: Format> {
+/// Multidimensional array span buffer.
+pub struct SpanBuffer<T, D: Dim, F: Format> {
+    phantom: PhantomData<(T, D, F)>,
+    #[cfg(not(feature = "nightly"))]
+    _pinned: PhantomPinned,
+    #[cfg(feature = "nightly")]
+    _opaque: Opaque,
+}
+
+/// Multidimensional array view buffer.
+pub struct ViewBuffer<'a, T, D: Dim, F: Format> {
     span: RawSpan<T, D, F>,
     phantom: PhantomData<&'a T>,
 }
 
-pub struct SubBufferMut<'a, T, D: Dim, F: Format> {
+/// Mutable multidimensional array view buffer.
+pub struct ViewBufferMut<'a, T, D: Dim, F: Format> {
     span: RawSpan<T, D, F>,
     phantom: PhantomData<&'a mut T>,
 }
 
 pub struct VecGuard<'a, T, D: Dim, A: Allocator> {
     vec: ManuallyDrop<vec_t!(T, A)>,
-    phantom: PhantomData<&'a DenseBuffer<T, D, A>>,
+    phantom: PhantomData<&'a GridBuffer<T, D, A>>,
 }
 
 pub struct VecGuardMut<'a, T, D: Dim, A: Allocator> {
     vec: ManuallyDrop<vec_t!(T, A)>,
-    buffer: &'a mut DenseBuffer<T, D, A>,
+    buffer: &'a mut GridBuffer<T, D, A>,
 }
 
 struct DropGuard<'a, T, A: Allocator> {
@@ -77,18 +107,23 @@ struct DropGuard<'a, T, A: Allocator> {
     phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
-impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
+#[cfg(feature = "nightly")]
+extern "C" {
+    type Opaque;
+}
+
+impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
     #[cfg(feature = "nightly")]
-    pub fn allocator(&self) -> &A {
+    pub(crate) fn allocator(&self) -> &A {
         &self.alloc
     }
 
-    pub fn capacity(&self) -> usize {
+    pub(crate) fn capacity(&self) -> usize {
         self.capacity
     }
 
     #[cfg(not(feature = "nightly"))]
-    pub unsafe fn from_parts(vec: Vec<T>, layout: DenseLayout<D>) -> Self {
+    pub(crate) unsafe fn from_parts(vec: Vec<T>, layout: DenseLayout<D>) -> Self {
         assert!(D::RANK > 0, "invalid rank");
 
         let mut vec = ManuallyDrop::new(vec);
@@ -101,7 +136,7 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
     }
 
     #[cfg(feature = "nightly")]
-    pub unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D>) -> Self {
+    pub(crate) unsafe fn from_parts(vec: Vec<T, A>, layout: DenseLayout<D>) -> Self {
         assert!(D::RANK > 0, "invalid rank");
 
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
@@ -113,15 +148,15 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
         }
     }
 
-    pub fn guard(&self) -> VecGuard<T, D, A> {
+    pub(crate) fn guard(&self) -> VecGuard<T, D, A> {
         VecGuard::new(self)
     }
 
-    pub fn guard_mut(&mut self) -> VecGuardMut<T, D, A> {
+    pub(crate) fn guard_mut(&mut self) -> VecGuardMut<T, D, A> {
         VecGuardMut::new(self)
     }
 
-    pub fn into_parts(self) -> (vec_t!(T, A), DenseLayout<D>) {
+    pub(crate) fn into_parts(self) -> (vec_t!(T, A), DenseLayout<D>) {
         let mut me = mem::ManuallyDrop::new(self);
 
         #[cfg(not(feature = "nightly"))]
@@ -141,7 +176,7 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
         (vec, me.span.layout())
     }
 
-    pub fn resize_with<F: FnMut() -> T>(&mut self, new_shape: D::Shape, mut f: F)
+    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, new_shape: D::Shape, mut f: F)
     where
         A: Clone,
     {
@@ -180,28 +215,28 @@ impl<T, D: Dim, A: Allocator> DenseBuffer<T, D, A> {
         guard.set_layout(DenseLayout::new(new_shape));
     }
 
-    pub unsafe fn set_layout(&mut self, new_layout: DenseLayout<D>) {
+    pub(crate) unsafe fn set_layout(&mut self, new_layout: DenseLayout<D>) {
         self.span.set_layout(new_layout);
     }
 }
 
-impl<T, D: Dim, A: Allocator> Buffer for DenseBuffer<T, D, A> {
+impl<T, D: Dim, A: Allocator> Buffer for GridBuffer<T, D, A> {
     type Item = T;
     type Dim = D;
     type Format = Dense;
 
-    fn as_span(&self) -> &DenseSpan<T, D> {
+    fn as_span(&self) -> &SpanArray<T, D, Dense> {
         self.span.as_span()
     }
 }
 
-impl<T, D: Dim, A: Allocator> BufferMut for DenseBuffer<T, D, A> {
-    fn as_mut_span(&mut self) -> &mut DenseSpan<T, D> {
+impl<T, D: Dim, A: Allocator> BufferMut for GridBuffer<T, D, A> {
+    fn as_mut_span(&mut self) -> &mut SpanArray<T, D, Dense> {
         self.span.as_mut_span()
     }
 }
 
-impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for DenseBuffer<T, D, A> {
+impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for GridBuffer<T, D, A> {
     fn clone(&self) -> Self {
         unsafe { Self::from_parts(self.guard().clone(), self.span.layout()) }
     }
@@ -214,7 +249,7 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for DenseBuffer<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Drop for DenseBuffer<T, D, A> {
+impl<T, D: Dim, A: Allocator> Drop for GridBuffer<T, D, A> {
     fn drop(&mut self) {
         #[cfg(not(feature = "nightly"))]
         unsafe {
@@ -232,10 +267,35 @@ impl<T, D: Dim, A: Allocator> Drop for DenseBuffer<T, D, A> {
     }
 }
 
-macro_rules! impl_sub_buffer {
+impl<T, D: Dim, A: Allocator> SizedBuffer for GridBuffer<T, D, A> {}
+impl<T, D: Dim, A: Allocator> SizedBufferMut for GridBuffer<T, D, A> {}
+
+unsafe impl<T: Send, D: Dim, A: Allocator + Send> Send for GridBuffer<T, D, A> {}
+unsafe impl<T: Sync, D: Dim, A: Allocator + Sync> Sync for GridBuffer<T, D, A> {}
+
+impl<T, D: Dim, F: Format> Buffer for SpanBuffer<T, D, F> {
+    type Item = T;
+    type Dim = D;
+    type Format = F;
+
+    fn as_span(&self) -> &SpanArray<T, D, F> {
+        RawSpan::from_buffer(self).as_span()
+    }
+}
+
+impl<T, D: Dim, F: Format> BufferMut for SpanBuffer<T, D, F> {
+    fn as_mut_span(&mut self) -> &mut SpanArray<T, D, F> {
+        RawSpan::from_mut_buffer(self).as_mut_span()
+    }
+}
+
+unsafe impl<T: Send, D: Dim, F: Format> Send for SpanBuffer<T, D, F> {}
+unsafe impl<T: Sync, D: Dim, F: Format> Sync for SpanBuffer<T, D, F> {}
+
+macro_rules! impl_view_buffer {
     ($name:tt, $raw_mut:tt) => {
         impl<'a, T, D: Dim, F: Format> $name<'a, T, D, F> {
-            pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: Layout<D, F>) -> Self {
+            pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, layout: Layout<D, F>) -> Self {
                 Self {
                     span: RawSpan::new_unchecked(ptr as *mut T, layout),
                     phantom: PhantomData,
@@ -248,38 +308,43 @@ macro_rules! impl_sub_buffer {
             type Dim = D;
             type Format = F;
 
-            fn as_span(&self) -> &SpanBase<T, D, F> {
+            fn as_span(&self) -> &SpanArray<T, D, F> {
                 self.span.as_span()
             }
         }
     };
 }
 
-impl_sub_buffer!(SubBuffer, const);
-impl_sub_buffer!(SubBufferMut, mut);
+impl_view_buffer!(ViewBuffer, const);
+impl_view_buffer!(ViewBufferMut, mut);
 
-impl<'a, T, D: Dim, F: Format> BufferMut for SubBufferMut<'a, T, D, F> {
-    fn as_mut_span(&mut self) -> &mut SpanBase<T, D, F> {
+impl<'a, T, D: Dim, F: Format> BufferMut for ViewBufferMut<'a, T, D, F> {
+    fn as_mut_span(&mut self) -> &mut SpanArray<T, D, F> {
         self.span.as_mut_span()
     }
 }
 
-impl<'a, T, D: Dim, F: Format> Clone for SubBuffer<'a, T, D, F> {
+impl<'a, T, D: Dim, F: Format> Clone for ViewBuffer<'a, T, D, F> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, T, D: Dim, F: Format> Copy for SubBuffer<'a, T, D, F> {}
+impl<'a, T, D: Dim, F: Format> Copy for ViewBuffer<'a, T, D, F> {}
 
-unsafe impl<'a, T: Sync, D: Dim, F: Format> Send for SubBuffer<'a, T, D, F> {}
-unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for SubBuffer<'a, T, D, F> {}
+impl<'a, T, D: Dim, F: Format> SizedBuffer for ViewBuffer<'a, T, D, F> {}
 
-unsafe impl<'a, T: Send, D: Dim, F: Format> Send for SubBufferMut<'a, T, D, F> {}
-unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for SubBufferMut<'a, T, D, F> {}
+impl<'a, T, D: Dim, F: Format> SizedBuffer for ViewBufferMut<'a, T, D, F> {}
+impl<'a, T, D: Dim, F: Format> SizedBufferMut for ViewBufferMut<'a, T, D, F> {}
+
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Send for ViewBuffer<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for ViewBuffer<'a, T, D, F> {}
+
+unsafe impl<'a, T: Send, D: Dim, F: Format> Send for ViewBufferMut<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for ViewBufferMut<'a, T, D, F> {}
 
 impl<'a, T, D: Dim, A: Allocator> VecGuard<'a, T, D, A> {
-    pub fn new(buffer: &'a DenseBuffer<T, D, A>) -> Self {
+    pub fn new(buffer: &'a GridBuffer<T, D, A>) -> Self {
         #[cfg(not(feature = "nightly"))]
         let vec = unsafe {
             Vec::from_raw_parts(
@@ -311,7 +376,7 @@ impl<'a, T, D: Dim, A: Allocator> Deref for VecGuard<'a, T, D, A> {
 }
 
 impl<'a, T, D: Dim, A: Allocator> VecGuardMut<'a, T, D, A> {
-    pub fn new(buffer: &'a mut DenseBuffer<T, D, A>) -> Self {
+    pub fn new(buffer: &'a mut GridBuffer<T, D, A>) -> Self {
         #[cfg(not(feature = "nightly"))]
         let vec = unsafe {
             Vec::from_raw_parts(

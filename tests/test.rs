@@ -21,8 +21,8 @@ use serde_test::{assert_tokens, Token};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::{
-    fill, step, CGrid, ColumnMajor, Dense, Dim, Flat, Format, General, Grid, Layout, Rank,
-    StepRange, Strided, SubGrid, SubGridMut,
+    fill, step, CGrid, CViewMut, ColumnMajor, Dense, Dim, Flat, Format, General, Grid, Layout,
+    Rank, StepRange, Strided, View,
 };
 
 macro_rules! to_slice {
@@ -264,11 +264,11 @@ fn test_base() {
     assert!(format!("{:?}", a.view((2, 1..3, ..2))) == "[[1210, 1220], [1211, 1221]]");
     assert!(format!("{:?}", c.view((2, 1..3, ..2))) == "[[1210, 1211], [1220, 1221]]");
 
-    assert_eq!(a.view((2, 1, ..)), SubGrid::from([1210, 1211, 1212, 1213, 1214].as_slice()));
-    assert_eq!(c.view((.., 1, 2)), SubGridMut::from([1012, 1112, 1212].as_mut_slice()));
+    assert_eq!(a.view((2, 1, ..)), View::from([1210, 1211, 1212, 1213, 1214].as_slice()));
+    assert_eq!(c.view((.., 1, 2)), CViewMut::from([1012, 1112, 1212].as_mut_slice()));
 
-    assert_eq!(a.view((1, 2..3, 3..)), SubGrid::from(&[[1123], [1124]]));
-    assert_eq!(c.view((1, 2..3, 3..)), SubGridMut::from(&mut [[1123, 1124]]));
+    assert_eq!(a.view((1, 2..3, 3..)), View::from(&[[1123], [1124]]));
+    assert_eq!(c.view((1, 2..3, 3..)), CViewMut::from(&mut [[1123, 1124]]));
 
     assert_eq!(Grid::<usize, 3>::from_elem([3, 4, 5], 1).as_slice(), [1; 60]);
 
@@ -404,8 +404,8 @@ fn test_iter() {
     assert_eq!(format!("{:?}", grid.view((.., 0)).iter()), "Iter([1, 2, 3])");
     assert_eq!(format!("{:?}", grid.view_mut((.., 1)).iter_mut()), "IterMut([4, 5, 6])");
 
-    assert_eq!(format!("{:?}", grid.view((1, ..)).iter()), "LinearIter([2, 5])");
-    assert_eq!(format!("{:?}", grid.view_mut((2, ..)).iter_mut()), "LinearIterMut([3, 6])");
+    assert_eq!(format!("{:?}", grid.view((1, ..)).iter()), "FlatIter([2, 5])");
+    assert_eq!(format!("{:?}", grid.view_mut((2, ..)).iter_mut()), "FlatIterMut([3, 6])");
 }
 
 #[test]

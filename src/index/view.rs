@@ -248,9 +248,6 @@ impl_view_index!(6, 5, (1, 2, 3, 4, 5), 0, (Y, Z, W, U, V), X, (X, Y, Z, W, U, V
 fn div_ceil(this: usize, rhs: usize) -> usize {
     let d = this / rhs;
     let r = this % rhs;
-    if r > 0 && rhs > 0 {
-        d + 1
-    } else {
-        d
-    }
+
+    if r > 0 && rhs > 0 { d + 1 } else { d }
 }

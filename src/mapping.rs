@@ -1,11 +1,11 @@
 use std::fmt::{Debug, Formatter, Result};
 
+use crate::array::SpanArray;
 use crate::dim::{Dim, Rank, Shape};
 use crate::format::{Dense, Flat, Format, General, Strided};
-use crate::iter::{LinearIter, LinearIterMut};
+use crate::iter::sources::{FlatIter, FlatIterMut};
 use crate::layout::{DenseLayout, FlatLayout, GeneralLayout, Layout, StridedLayout};
 use crate::order::Order;
-use crate::span::SpanBase;
 
 pub trait Mapping: Copy + Debug + Default {
     type Dim: Dim;
@@ -23,8 +23,8 @@ pub trait Mapping: Copy + Debug + Default {
     fn reshape<S: Shape, F: Format>(layout: Reformat<Self, F>, new_shape: S) -> Reshape<Self, S>;
     fn resize_dim(self, dim: usize, new_size: usize) -> Layout<Self::Dim, Self::Format>;
 
-    fn iter<T>(span: &SpanBase<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self>;
-    fn iter_mut<T>(span: &mut SpanBase<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self>;
+    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self>;
+    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self>;
 
     fn len(self) -> usize {
         self.shape()[..].iter().product()
@@ -169,11 +169,11 @@ impl<D: Dim> Mapping for DenseMapping<D> {
         DenseLayout::new(self.shape)
     }
 
-    fn iter<T>(span: &SpanBase<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
+    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
         span.as_slice().iter()
     }
 
-    fn iter_mut<T>(span: &mut SpanBase<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
+    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
         span.as_mut_slice().iter_mut()
     }
 }
@@ -300,16 +300,16 @@ impl<D: Dim> Mapping for FlatMapping<D> {
         FlatLayout::new(self.shape, self.inner_stride)
     }
 
-    fn iter<T>(span: &SpanBase<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
+    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
         let layout = span.layout().flatten();
 
-        unsafe { LinearIter::new_unchecked(span.as_ptr(), layout.size(0), layout.stride(0)) }
+        unsafe { FlatIter::new_unchecked(span.as_ptr(), layout.size(0), layout.stride(0)) }
     }
 
-    fn iter_mut<T>(span: &mut SpanBase<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
+    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
         let layout = span.layout().flatten();
 
-        unsafe { LinearIterMut::new_unchecked(span.as_mut_ptr(), layout.size(0), layout.stride(0)) }
+        unsafe { FlatIterMut::new_unchecked(span.as_mut_ptr(), layout.size(0), layout.stride(0)) }
     }
 }
 
@@ -428,11 +428,11 @@ impl<D: Dim> Mapping for GeneralMapping<D> {
         GeneralLayout::new(self.shape, self.outer_strides)
     }
 
-    fn iter<T>(_: &SpanBase<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
+    fn iter<T>(_: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
         panic!("invalid format");
     }
 
-    fn iter_mut<T>(_: &mut SpanBase<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
+    fn iter_mut<T>(_: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
         panic!("invalid format");
     }
 }
@@ -618,11 +618,11 @@ impl<D: Dim> Mapping for StridedMapping<D> {
         StridedLayout::new(self.shape, self.strides)
     }
 
-    fn iter<T>(_: &SpanBase<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
+    fn iter<T>(_: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
         panic!("invalid format");
     }
 
-    fn iter_mut<T>(_: &mut SpanBase<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
+    fn iter_mut<T>(_: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
         panic!("invalid format");
     }
 }
