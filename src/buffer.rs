@@ -187,29 +187,25 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
 
         if new_len == 0 {
             guard.clear();
+        } else if new_shape[..D::RANK - 1] == old_shape[..D::RANK - 1] {
+            guard.resize_with(new_len, f);
         } else {
-            let inner_dims = D::dims(..D::RANK - 1);
+            #[cfg(not(feature = "nightly"))]
+            let mut vec = Vec::with_capacity(new_len);
+            #[cfg(feature = "nightly")]
+            let mut vec = Vec::with_capacity_in(new_len, guard.allocator().clone());
 
-            if new_shape[inner_dims.clone()] == old_shape[inner_dims] {
-                guard.resize_with(new_len, f);
-            } else {
-                #[cfg(not(feature = "nightly"))]
-                let mut vec = Vec::with_capacity(new_len);
-                #[cfg(feature = "nightly")]
-                let mut vec = Vec::with_capacity_in(new_len, guard.allocator().clone());
-
-                unsafe {
-                    copy_dim::<T, D, A, D::Lower>(
-                        &mut DropGuard::new(&mut guard),
-                        &mut vec,
-                        old_shape,
-                        new_shape,
-                        &mut f,
-                    );
-                }
-
-                *guard = vec;
+            unsafe {
+                copy_dim::<T, D, A, D::Lower>(
+                    &mut DropGuard::new(&mut guard),
+                    &mut vec,
+                    old_shape,
+                    new_shape,
+                    &mut f,
+                );
             }
+
+            *guard = vec;
         }
 
         guard.set_layout(DenseLayout::new(new_shape));
@@ -488,13 +484,11 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
     new_shape: D::Shape,
     f: &mut impl FnMut() -> T,
 ) {
-    let inner_dims = D::dims(..I::RANK);
+    let old_stride: usize = old_shape[..I::RANK].iter().product();
+    let new_stride: usize = new_shape[..I::RANK].iter().product();
 
-    let old_stride: usize = old_shape[inner_dims.clone()].iter().product();
-    let new_stride: usize = new_shape[inner_dims].iter().product();
-
-    let old_size = old_shape[D::dim(I::RANK)];
-    let new_size = new_shape[D::dim(I::RANK)];
+    let old_size = old_shape[I::RANK];
+    let new_size = new_shape[I::RANK];
 
     let min_size = cmp::min(old_size, new_size);
 

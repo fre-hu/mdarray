@@ -1,6 +1,5 @@
-use crate::dim::{Dim, Rank};
+use crate::dim::{Const, Dim};
 use crate::format::Format;
-use crate::order::{ColumnMajor, RowMajor};
 
 /// Array axis trait, for subarray types when iterating over or splitting along a dimension.
 pub trait Axis<D: Dim> {
@@ -11,30 +10,20 @@ pub trait Axis<D: Dim> {
     type Split<F: Format>: Format;
 }
 
-/// Type-level constant.
-pub struct Const<const N: usize>;
-
 macro_rules! impl_axis {
-    (($($n:tt),*), ($($k:tt),*), $order:ty, $remove:ty, $split:ty) => {
+    (($($n:tt),*), ($($k:tt),*), $remove:ty, $split:ty) => {
         $(
-            impl Axis<Rank<$n, $order>> for Const<$k> {
-                type Remove<F: Format> = <Rank<{ $n - 1 }, $order> as Dim>::Format<$remove>;
+            impl Axis<Const<$n>> for Const<$k> {
+                type Remove<F: Format> = <Const<{ $n - 1 }> as Dim>::Format<$remove>;
                 type Split<F: Format> = $split;
             }
         )*
     }
 }
 
-impl_axis!((1, 2, 3, 4, 5, 6), (0, 1, 2, 3, 4, 5), ColumnMajor, F, F);
-impl_axis!((2, 3, 4, 5, 6), (0, 0, 0, 0, 0), ColumnMajor, F::NonUnitStrided, F::NonUniform);
-impl_axis!((3, 4, 5, 6), (1, 1, 1, 1), ColumnMajor, F::NonUniform, F::NonUniform);
-impl_axis!((4, 5, 6), (2, 2, 2), ColumnMajor, F::NonUniform, F::NonUniform);
-impl_axis!((5, 6), (3, 3), ColumnMajor, F::NonUniform, F::NonUniform);
-impl_axis!((6), (4), ColumnMajor, F::NonUniform, F::NonUniform);
-
-impl_axis!((1, 2, 3, 4, 5, 6), (0, 0, 0, 0, 0, 0), RowMajor, F, F);
-impl_axis!((2, 3, 4, 5, 6), (1, 2, 3, 4, 5), RowMajor, F::NonUnitStrided, F::NonUniform);
-impl_axis!((3, 4, 5, 6), (1, 1, 1, 1), RowMajor, F::NonUniform, F::NonUniform);
-impl_axis!((4, 5, 6), (2, 2, 2), RowMajor, F::NonUniform, F::NonUniform);
-impl_axis!((5, 6), (3, 3), RowMajor, F::NonUniform, F::NonUniform);
-impl_axis!((6), (4), RowMajor, F::NonUniform, F::NonUniform);
+impl_axis!((1, 2, 3, 4, 5, 6), (0, 1, 2, 3, 4, 5), F, F);
+impl_axis!((2, 3, 4, 5, 6), (0, 0, 0, 0, 0), F::NonUnitStrided, F::NonUniform);
+impl_axis!((3, 4, 5, 6), (1, 1, 1, 1), F::NonUniform, F::NonUniform);
+impl_axis!((4, 5, 6), (2, 2, 2), F::NonUniform, F::NonUniform);
+impl_axis!((5, 6), (3, 3), F::NonUniform, F::NonUniform);
+impl_axis!((6), (4), F::NonUniform, F::NonUniform);

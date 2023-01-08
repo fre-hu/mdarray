@@ -4,9 +4,9 @@ use std::borrow::Borrow;
 use std::slice;
 
 use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
-use crate::dim::{Dim, Rank, Shape};
+use crate::dim::{Const, Dim, Shape};
 use crate::format::{Dense, Format, Uniform};
-use crate::index::axis::{Axis, Const};
+use crate::index::axis::Axis;
 use crate::index::span::SpanIndex;
 use crate::index::view::{Params, ViewIndex};
 use crate::iter::sources::{AxisIter, AxisIterMut};
@@ -112,7 +112,7 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
     #[must_use]
-    pub fn flatten(&self) -> ViewArray<T, Rank<1, D::Order>, F::Uniform> {
+    pub fn flatten(&self) -> ViewArray<T, Const<1>, F::Uniform> {
         self.to_view().into_flattened()
     }
 
@@ -120,7 +120,7 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
     #[must_use]
-    pub fn flatten_mut(&mut self) -> ViewArrayMut<T, Rank<1, D::Order>, F::Uniform> {
+    pub fn flatten_mut(&mut self) -> ViewArrayMut<T, Const<1>, F::Uniform> {
         self.to_view_mut().into_flattened()
     }
 
@@ -180,9 +180,9 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().remove_dim(D::dim(0)),
-                self.size(D::dim(0)),
-                self.stride(D::dim(0)),
+                self.layout().remove_dim(0),
+                self.size(0),
+                self.stride(0),
             )
         }
     }
@@ -201,9 +201,9 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().remove_dim(D::dim(0)),
-                self.size(D::dim(0)),
-                self.stride(D::dim(0)),
+                self.layout().remove_dim(0),
+                self.size(0),
+                self.stride(0),
             )
         }
     }
@@ -263,14 +263,12 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     pub fn outer_iter(&self) -> AxisIter<T, D::Lower, <D::Lower as Dim>::Format<F>> {
         assert!(D::RANK > 0, "invalid rank");
 
-        let dim = D::dim(D::RANK - 1);
-
         unsafe {
             AxisIter::new_unchecked(
                 self.as_ptr(),
-                self.layout().remove_dim(dim),
-                self.size(dim),
-                self.stride(dim),
+                self.layout().remove_dim(D::RANK - 1),
+                self.size(D::RANK - 1),
+                self.stride(D::RANK - 1),
             )
         }
     }
@@ -284,14 +282,12 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     pub fn outer_iter_mut(&mut self) -> AxisIterMut<T, D::Lower, <D::Lower as Dim>::Format<F>> {
         assert!(D::RANK > 0, "invalid rank");
 
-        let dim = D::dim(D::RANK - 1);
-
         unsafe {
             AxisIterMut::new_unchecked(
                 self.as_mut_ptr(),
-                self.layout().remove_dim(dim),
-                self.size(dim),
-                self.stride(dim),
+                self.layout().remove_dim(D::RANK - 1),
+                self.size(D::RANK - 1),
+                self.stride(D::RANK - 1),
             )
         }
     }
@@ -316,10 +312,7 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
     #[must_use]
-    pub fn reshape<S: Shape>(
-        &self,
-        shape: S,
-    ) -> ViewArray<T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
+    pub fn reshape<S: Shape>(&self, shape: S) -> ViewArray<T, S::Dim, <S::Dim as Dim>::Format<F>> {
         self.to_view().into_shape(shape)
     }
 
@@ -330,7 +323,7 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     pub fn reshape_mut<S: Shape>(
         &mut self,
         shape: S,
-    ) -> ViewArrayMut<T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
+    ) -> ViewArrayMut<T, S::Dim, <S::Dim as Dim>::Format<F>> {
         self.to_view_mut().into_shape(shape)
     }
 
@@ -535,9 +528,7 @@ fn clone_from_span<T: Clone, D: Dim, F: Format, G: Format>(
             }
         }
     } else {
-        let dim = D::dim(D::RANK - 1);
-
-        assert!(src.size(dim) == this.size(dim), "shape mismatch");
+        assert!(src.size(D::RANK - 1) == this.size(D::RANK - 1), "shape mismatch");
 
         for (mut x, y) in this.outer_iter_mut().zip(src.outer_iter()) {
             clone_from_span(&mut x, &y);

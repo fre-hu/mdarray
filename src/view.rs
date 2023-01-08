@@ -1,11 +1,10 @@
 use crate::array::{ViewArray, ViewArrayMut};
 use crate::buffer::{ViewBuffer, ViewBufferMut};
-use crate::dim::{Dim, Rank, Shape};
+use crate::dim::{Const, Dim, Shape};
 use crate::format::{Dense, Format};
-use crate::index::axis::{Axis, Const};
+use crate::index::axis::Axis;
 use crate::index::view::{Params, ViewIndex};
 use crate::layout::{panic_bounds_check, DenseLayout, Layout};
-use crate::order::Order;
 
 macro_rules! impl_view {
     ($name:tt, $buffer:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
@@ -16,7 +15,7 @@ macro_rules! impl_view {
             #[must_use]
             pub fn into_flattened(
                 $($mut)? self
-            ) -> $name<'a, T, Rank<1, D::Order>, F::Uniform> {
+            ) -> $name<'a, T, Const<1>, F::Uniform> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().flatten()) }
             }
 
@@ -35,7 +34,7 @@ macro_rules! impl_view {
             pub fn into_shape<S: Shape>(
                 $($mut)? self,
                 shape: S
-            ) -> $name<'a, T, S::Dim<D::Order>, <S::Dim<D::Order> as Dim>::Format<F>> {
+            ) -> $name<'a, T, S::Dim, <S::Dim as Dim>::Format<F>> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reshape(shape)) }
             }
 
@@ -49,7 +48,7 @@ macro_rules! impl_view {
             ) -> ($name<'a, T, D, F>, $name<'a, T, D, F>) {
                 assert!(D::RANK > 0, "invalid rank");
 
-                self.into_split_dim_at(D::dim(D::RANK - 1), mid)
+                self.into_split_dim_at(D::RANK - 1, mid)
             }
 
             /// Divides an array view into two at an index along the specified dimension.
@@ -121,35 +120,35 @@ macro_rules! impl_view {
 impl_view!(ViewArray, ViewBuffer, as_ptr, const, {});
 impl_view!(ViewArrayMut, ViewBufferMut, as_mut_ptr, mut, {mut});
 
-impl<'a, T, O: Order> From<&'a [T]> for ViewArray<'a, T, Rank<1, O>, Dense> {
+impl<'a, T> From<&'a [T]> for ViewArray<'a, T, Const<1>, Dense> {
     fn from(slice: &'a [T]) -> Self {
         unsafe { Self::new_unchecked(slice.as_ptr(), DenseLayout::new([slice.len()])) }
     }
 }
 
-impl<'a, T, O: Order> From<&'a mut [T]> for ViewArrayMut<'a, T, Rank<1, O>, Dense> {
+impl<'a, T> From<&'a mut [T]> for ViewArrayMut<'a, T, Const<1>, Dense> {
     fn from(slice: &'a mut [T]) -> Self {
         unsafe { Self::new_unchecked(slice.as_mut_ptr(), DenseLayout::new([slice.len()])) }
     }
 }
 
 macro_rules! impl_from_array_ref {
-    ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
-        impl<'a, T, O: Order, $(const $xyz: usize),+> From<&'a $array>
-            for ViewArray<'a, T, Rank<$n, O>, Dense>
+    ($n:tt, ($($size:tt),+), $array:tt) => {
+        impl<'a, T, $(const $size: usize),+> From<&'a $array>
+            for ViewArray<'a, T, Const<$n>, Dense>
         {
             fn from(array: &'a $array) -> Self {
-                let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
+                let layout = DenseLayout::new([$($size),+]);
 
                 unsafe { Self::new_unchecked(array.as_ptr().cast(), layout) }
             }
         }
 
-        impl<'a, T, O: Order, $(const $xyz: usize),+> From<&'a mut $array>
-            for ViewArrayMut<'a, T, Rank<$n, O>, Dense>
+        impl<'a, T, $(const $size: usize),+> From<&'a mut $array>
+            for ViewArrayMut<'a, T, Const<$n>, Dense>
         {
             fn from(array: &'a mut $array) -> Self {
-                let layout = DenseLayout::new(O::select([$($xyz),+], [$($zyx),+]));
+                let layout = DenseLayout::new([$($size),+]);
 
                 unsafe { Self::new_unchecked(array.as_mut_ptr().cast(), layout) }
             }
@@ -157,9 +156,9 @@ macro_rules! impl_from_array_ref {
     };
 }
 
-impl_from_array_ref!(1, (X), (X), [T; X]);
-impl_from_array_ref!(2, (X, Y), (Y, X), [[T; X]; Y]);
-impl_from_array_ref!(3, (X, Y, Z), (Z, Y, X), [[[T; X]; Y]; Z]);
-impl_from_array_ref!(4, (X, Y, Z, W), (W, Z, Y, X), [[[[T; X]; Y]; Z]; W]);
-impl_from_array_ref!(5, (X, Y, Z, W, U), (U, W, Z, Y, X), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_from_array_ref!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_from_array_ref!(1, (X), [T; X]);
+impl_from_array_ref!(2, (X, Y), [[T; X]; Y]);
+impl_from_array_ref!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
+impl_from_array_ref!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);

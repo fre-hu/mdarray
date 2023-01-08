@@ -14,7 +14,7 @@ use crate::dim::Dim;
 use crate::format::{Dense, Format, Uniform};
 use crate::index::span::SpanIndex;
 
-/// Multidimensional array with static rank and element order.
+/// Multidimensional array type with static rank.
 #[repr(transparent)]
 pub struct Array<B: ?Sized> {
     pub(crate) buffer: B,
@@ -130,9 +130,9 @@ impl<T: Hash, B: Buffer<Item = T> + ?Sized> Hash for Array<B> {
 
         for i in 0..B::Dim::RANK {
             #[cfg(not(feature = "nightly"))]
-            state.write_usize(shape[B::Dim::dim(i)]);
+            state.write_usize(shape[i]);
             #[cfg(feature = "nightly")]
-            state.write_length_prefix(shape[B::Dim::dim(i)]);
+            state.write_length_prefix(shape[i]);
         }
 
         if !is_empty {

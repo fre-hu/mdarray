@@ -12,10 +12,9 @@ use std::ops::{
 use crate::alloc::Allocator;
 use crate::array::{Array, GridArray, SpanArray};
 use crate::buffer::{Buffer, BufferMut};
-use crate::dim::{Dim, Rank};
+use crate::dim::{Const, Dim};
 use crate::format::Format;
 use crate::layout::DenseLayout;
-use crate::order::Order;
 
 /// Fill value to be used as scalar operand for array operators.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -56,7 +55,7 @@ pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
 
 impl<T: Eq, B: Buffer<Item = T> + ?Sized> Eq for Array<B> where Self: PartialEq {}
 
-impl<T: Ord, B: Buffer<Item = T, Dim = Rank<1, impl Order>> + ?Sized> Ord for Array<B> {
+impl<T: Ord, B: Buffer<Item = T, Dim = Const<1>> + ?Sized> Ord for Array<B> {
     fn cmp(&self, other: &Self) -> Ordering {
         if B::Format::IS_UNIFORM && B::Format::IS_UNIT_STRIDED {
             self.as_span().reformat().as_slice().cmp(other.as_span().reformat().as_slice())
@@ -66,8 +65,8 @@ impl<T: Ord, B: Buffer<Item = T, Dim = Rank<1, impl Order>> + ?Sized> Ord for Ar
     }
 }
 
-impl<O: Order, B: Buffer<Dim = Rank<1, O>> + ?Sized, C: Buffer<Dim = Rank<1, O>> + ?Sized>
-    PartialOrd<Array<C>> for Array<B>
+impl<B: Buffer<Dim = Const<1>> + ?Sized, C: Buffer<Dim = Const<1>> + ?Sized> PartialOrd<Array<C>>
+    for Array<B>
 where
     B::Item: PartialOrd<C::Item>,
 {
@@ -304,9 +303,7 @@ unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim>(
             vec.set_len(vec.len() + 1);
         }
     } else {
-        let dim = D::dim(D::RANK - 1);
-
-        assert!(lhs.size(dim) == rhs.size(dim), "shape mismatch");
+        assert!(lhs.size(D::RANK - 1) == rhs.size(D::RANK - 1), "shape mismatch");
 
         for (x, y) in lhs.outer_iter().zip(rhs.outer_iter()) {
             from_binary_op(vec, &x, &y, f);
@@ -341,9 +338,7 @@ fn map_binary_op<T, F: Format, G: Format, U, D: Dim>(
 
         this.flatten_mut().iter_mut().zip(other.flatten().iter()).for_each(f);
     } else {
-        let dim = D::dim(D::RANK - 1);
-
-        assert!(this.size(dim) == other.size(dim), "shape mismatch");
+        assert!(this.size(D::RANK - 1) == other.size(D::RANK - 1), "shape mismatch");
 
         for (mut x, y) in this.outer_iter_mut().zip(other.outer_iter()) {
             map_binary_op(&mut x, &y, f);

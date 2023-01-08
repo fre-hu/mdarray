@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::array::{Array, GridArray};
 use crate::buffer::Buffer;
-use crate::dim::{Dim, Rank};
+use crate::dim::{Const, Dim};
 
 struct GridVisitor<T, D: Dim> {
     phantom: PhantomData<(T, D)>,
@@ -39,7 +39,7 @@ where
 
                 shape[0] = vec.len();
 
-                Ok(GridArray::<T, Rank<1, D::Order>>::from(vec).into_shape(shape))
+                Ok(GridArray::<T, Const<1>>::from(vec).into_shape(shape))
             } else {
                 Ok(GridArray::new())
             }
@@ -53,8 +53,8 @@ where
                 let mut grid = GridArray::<T, D>::with_capacity(capacity);
                 let mut larger = D::Shape::default();
 
-                larger[D::dims(..D::RANK - 1)].copy_from_slice(&shape[..]);
-                larger[D::dim(D::RANK - 1)] = 1;
+                larger[..D::RANK - 1].copy_from_slice(&shape[..]);
+                larger[D::RANK - 1] = 1;
 
                 grid.append(&mut value.into_shape(larger));
 
@@ -87,7 +87,7 @@ impl<T: Serialize, B: Buffer<Item = T> + ?Sized> Serialize for Array<B> {
         if B::Dim::RANK == 0 {
             self[<B::Dim as Dim>::Shape::default()].serialize(serializer)
         } else {
-            let dim = B::Dim::dim(B::Dim::RANK - 1);
+            let dim = B::Dim::RANK - 1;
             let len = if self.as_span().is_empty() { 0 } else { self.as_span().size(dim) };
 
             let mut seq = serializer.serialize_seq(Some(len))?;

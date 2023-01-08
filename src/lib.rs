@@ -9,8 +9,7 @@
 //!
 //! Here are the main features of mdarray:
 //!
-//! - Dense array type, where the rank and element order is known at compile time.
-//! - Column-major and row-major element order.
+//! - Dense array type, where the rank is known at compile time.
 //! - Subarrays (views) can be created with arbitrary shapes and strides.
 //! - Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
 //!
@@ -30,14 +29,13 @@
 //!   array without duplicating elements.
 //! - `Array<SpanBuffer>` is used as a generic array reference, similar to the
 //!   Rust `slice` type. It consists of a pointer to an internal structure that
-//!   holds the storage and the layout. It is useful for function parameters
-//!   where the same type can refer to either an owned array or an array view.
-//!   Arrays and array views automatically dereference to an array span.
+//!   holds the storage and the layout. Arrays and array views automatically
+//!   dereference to an array span.
 //!
 //! The array layout describes how elements are stored in memory. The layout
-//! is parameterized by the rank (i.e. the number of dimensions), the element
-//! order and the storage format. It contains the shape (i.e. the size in each
-//! dimension), and the strides per dimension if needed.
+//! is parameterized by the rank (i.e. the number of dimensions) and the storage
+//! format. It contains the shape (i.e. the size in each dimension), and the
+//! strides per dimension if needed.
 //!
 //! The storage format is `Dense` if elements are stored contiguously without gaps.
 //! In this case, the strides are calculated from the shape and not stored as
@@ -49,19 +47,20 @@
 //! and the other dimensions must follow in order, allowing for linear indexing.
 //! The format is `Strided` if all dimensions can have arbitrary strides.
 //!
-//! The element order is `ColumnMajor` for Fortran order where the innermost
-//! dimension is the innermost one, or `RowMajor` for the opposite C order.
-//! Besides indexing for element access, the order affects how iteration is done
-//! over multiple dimensions.
+//! The array elements are stored in column-major order, also known as Fortran
+//! order where the innermost dimension is the innermost one.
 //!
 //! The following type aliases are provided:
 //!
-//! | Alias                                  | Description                         |
-//! | -------------------------------------- | ----------------------------------- |
-//! | `Grid<T, const N: usize, A = Global>`  | Dense array with column-major order |
-//! | `CGrid<T, const N: usize, A = Global>` | Dense array with row-major order    |
-//! | `Span<T, const N: usize, F = Dense>`   | Array span with column-major order  |
-//! | `CSpan<T, const N: usize, F = Dense>`  | Array span with row-major order     |
+//! - `Grid<T, const N: usize, A = Global>` for a dense array
+//! - `Span<T, const N: usize, F = Dense>` for an array span
+//! - `View<T, const N: usize, F = Dense>` for an array view
+//! - `View<T, const N: usize, F = Dense>` for a mutable array view
+//!
+//! Prefer using `Span` instead of array views for function parameters, since
+//! they can refer to either an owned array or an array view. Array views
+//! are useful for example when lifetimes need to be maintained in function
+//! return types.
 //!
 //! ## Indexing and views
 //!
@@ -76,10 +75,6 @@
 //! tuple of indices per dimension as argument. Each index can be either a range
 //! or `usize`. The resulting storage format depends on both the format inferred
 //! from the indices and the input format.
-//!
-//! The return type for the array view is `Array<ViewBuffer>` or
-//! `Array<ViewBufferMut>`. Type aliases `View`, `CView`, `ViewMut` and `CViewMut`
-//! are provided, similar to the ones above for arrays and array spans.
 //!
 //! ## Iteration
 //!
@@ -160,7 +155,7 @@ pub mod index {
     pub(crate) mod span;
     pub(crate) mod view;
 
-    pub use axis::{Axis, Const};
+    pub use axis::Axis;
     pub use span::SpanIndex;
     pub use view::{DimIndex, Params, ViewIndex};
 }
@@ -180,7 +175,6 @@ mod grid;
 mod layout;
 mod mapping;
 mod ops;
-mod order;
 mod raw_span;
 mod span;
 mod view;
@@ -208,32 +202,19 @@ use array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 pub use array::Array;
 pub use buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
 pub use buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
-pub use dim::{Dim, Rank, Shape, Strides};
+pub use dim::{Const, Dim, Shape, Strides};
 pub use format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
 pub use layout::Layout;
 pub use ops::{fill, step, Fill, StepRange};
-pub use order::{ColumnMajor, Order, RowMajor};
 
-/// Dense multidimensional array with column-major element order.
-pub type Grid<T, const N: usize, A = Global> = GridArray<T, Rank<N, ColumnMajor>, A>;
+/// Dense multidimensional array.
+pub type Grid<T, const N: usize, A = Global> = GridArray<T, Const<N>, A>;
 
-/// Dense multidimensional array with row-major element order.
-pub type CGrid<T, const N: usize, A = Global> = GridArray<T, Rank<N, RowMajor>, A>;
+/// Multidimensional array span.
+pub type Span<T, const N: usize, F = Dense> = SpanArray<T, Const<N>, F>;
 
-/// Multidimensional array span with column-major element order.
-pub type Span<T, const N: usize, F = Dense> = SpanArray<T, Rank<N, ColumnMajor>, F>;
+/// Multidimensional array view.
+pub type View<'a, T, const N: usize, F = Dense> = ViewArray<'a, T, Const<N>, F>;
 
-/// Multidimensional array span with row-major element order.
-pub type CSpan<T, const N: usize, F = Dense> = SpanArray<T, Rank<N, RowMajor>, F>;
-
-/// Multidimensional array view with column-major element order.
-pub type View<'a, T, const N: usize, F = Dense> = ViewArray<'a, T, Rank<N, ColumnMajor>, F>;
-
-/// Multidimensional array view with row-major element order.
-pub type CView<'a, T, const N: usize, F = Dense> = ViewArray<'a, T, Rank<N, RowMajor>, F>;
-
-/// Mutable multidimensional array view with column-major element order.
-pub type ViewMut<'a, T, const N: usize, F = Dense> = ViewArrayMut<'a, T, Rank<N, ColumnMajor>, F>;
-
-/// Mutable multidimensional array view with row-major element order.
-pub type CViewMut<'a, T, const N: usize, F = Dense> = ViewArrayMut<'a, T, Rank<N, RowMajor>, F>;
+/// Mutable multidimensional array view.
+pub type ViewMut<'a, T, const N: usize, F = Dense> = ViewArrayMut<'a, T, Const<N>, F>;

@@ -10,10 +10,9 @@ use std::result::Result;
 use crate::alloc::{Allocator, Global};
 use crate::array::{GridArray, SpanArray};
 use crate::buffer::GridBuffer;
-use crate::dim::{Dim, Rank, Shape};
+use crate::dim::{Const, Dim, Shape};
 use crate::format::Format;
 use crate::layout::{DenseLayout, Layout};
-use crate::order::Order;
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -46,15 +45,12 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         } else {
             let mut shape = self.shape();
 
-            let dim = D::dim(D::RANK - 1);
-            let inner_dims = D::dims(..D::RANK - 1);
-
             assert!(
-                other.shape()[inner_dims.clone()] == shape[inner_dims],
+                other.shape()[..D::RANK - 1] == shape[..D::RANK - 1],
                 "inner dimensions mismatch"
             );
 
-            shape[dim] += other.size(dim);
+            shape[D::RANK - 1] += other.size(D::RANK - 1);
             shape
         };
 
@@ -93,15 +89,12 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         } else {
             let mut shape = self.shape();
 
-            let dim = D::dim(D::RANK - 1);
-            let inner_dims = D::dims(..D::RANK - 1);
-
             assert!(
-                other.shape()[inner_dims.clone()] == shape[inner_dims],
+                other.shape()[..D::RANK - 1] == shape[..D::RANK - 1],
                 "inner dimensions mismatch"
             );
 
-            shape[dim] += other.size(dim);
+            shape[D::RANK - 1] += other.size(D::RANK - 1);
             shape
         };
 
@@ -170,7 +163,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Converts the array into a one-dimensional array.
     #[must_use]
-    pub fn into_flattened(self) -> GridArray<T, Rank<1, D::Order>, A> {
+    pub fn into_flattened(self) -> GridArray<T, Const<1>, A> {
         self.into_vec().into()
     }
 
@@ -187,7 +180,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     /// # Panics
     /// Panics if the array length is changed.
     #[must_use]
-    pub fn into_shape<S: Shape>(self, shape: S) -> GridArray<T, S::Dim<D::Order>, A> {
+    pub fn into_shape<S: Shape>(self, shape: S) -> GridArray<T, S::Dim, A> {
         let (vec, layout) = self.buffer.into_parts();
 
         unsafe { GridArray::from_parts(vec, layout.reshape(shape)) }
@@ -265,10 +258,8 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Shortens the array along the outer dimension, keeping the first `size` elements.
     pub fn truncate(&mut self, size: usize) {
-        let dim = D::dim(D::RANK - 1);
-
-        if size < self.size(dim) {
-            let new_layout = self.layout().resize_dim(dim, size);
+        if size < self.size(D::RANK - 1) {
+            let new_layout = self.layout().resize_dim(D::RANK - 1, size);
             let mut guard = self.buffer.guard_mut();
 
             guard.set_layout(new_layout);
@@ -417,7 +408,7 @@ impl<T, D: Dim> Default for GridArray<T, D> {
     }
 }
 
-impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for GridArray<T, Rank<1, O>, A> {
+impl<'a, T: 'a + Copy, A: 'a + Allocator> Extend<&'a T> for GridArray<T, Const<1>, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         let mut guard = self.buffer.guard_mut();
 
@@ -426,7 +417,7 @@ impl<'a, T: 'a + Copy, O: Order, A: 'a + Allocator> Extend<&'a T> for GridArray<
     }
 }
 
-impl<T, O: Order, A: Allocator> Extend<T> for GridArray<T, Rank<1, O>, A> {
+impl<T, A: Allocator> Extend<T> for GridArray<T, Const<1>, A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         let mut guard = self.buffer.guard_mut();
 
@@ -435,49 +426,47 @@ impl<T, O: Order, A: Allocator> Extend<T> for GridArray<T, Rank<1, O>, A> {
     }
 }
 
-impl<T: Clone, O: Order> From<&[T]> for GridArray<T, Rank<1, O>> {
+impl<T: Clone> From<&[T]> for GridArray<T, Const<1>> {
     fn from(slice: &[T]) -> Self {
         Self::from(slice.to_vec())
     }
 }
 
 macro_rules! impl_from_array {
-    ($n:tt, ($($xyz:tt),+), ($($zyx:tt),+), $array:tt) => {
-        impl<T, O: Order, $(const $xyz: usize),+> From<$array> for GridArray<T, Rank<$n, O>> {
+    ($n:tt, ($($size:tt),+), $array:tt) => {
+        impl<T, $(const $size: usize),+> From<$array> for GridArray<T, Const<$n,>> {
             #[cfg(not(feature = "nightly"))]
             fn from(array: $array) -> Self {
                 let mut vec = std::mem::ManuallyDrop::new(Vec::from(array));
                 let (ptr, mut capacity) = (vec.as_mut_ptr(), vec.capacity());
-                let shape = O::select([$($xyz),+], [$($zyx),+]);
 
                 unsafe {
                     capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
 
-                    Self::from_raw_parts(ptr.cast(), shape, capacity)
+                    Self::from_raw_parts(ptr.cast(), [$($size),+], capacity)
                 }
             }
 
             #[cfg(feature = "nightly")]
             fn from(array: $array) -> Self {
                 let (ptr, _, mut capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
-                let shape = O::select([$($xyz),+], [$($zyx),+]);
 
                 unsafe {
                     capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
 
-                    Self::from_raw_parts_in(ptr.cast(), shape, capacity, alloc)
+                    Self::from_raw_parts_in(ptr.cast(), [$($size),+], capacity, alloc)
                 }
             }
         }
     };
 }
 
-impl_from_array!(1, (X), (X), [T; X]);
-impl_from_array!(2, (X, Y), (Y, X), [[T; X]; Y]);
-impl_from_array!(3, (X, Y, Z), (Z, Y, X), [[[T; X]; Y]; Z]);
-impl_from_array!(4, (X, Y, Z, W), (W, Z, Y, X), [[[[T; X]; Y]; Z]; W]);
-impl_from_array!(5, (X, Y, Z, W, U), (U, W, Z, Y, X), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_from_array!(6, (X, Y, Z, W, U, V), (V, U, W, Z, Y, X), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_from_array!(1, (X), [T; X]);
+impl_from_array!(2, (X, Y), [[T; X]; Y]);
+impl_from_array!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
+impl_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
 impl<T, D: Dim, A: Allocator> From<GridArray<T, D, A>> for vec_t!(T, A) {
     fn from(grid: GridArray<T, D, A>) -> Self {
@@ -485,7 +474,7 @@ impl<T, D: Dim, A: Allocator> From<GridArray<T, D, A>> for vec_t!(T, A) {
     }
 }
 
-impl<T, O: Order, A: Allocator> From<vec_t!(T, A)> for GridArray<T, Rank<1, O>, A> {
+impl<T, A: Allocator> From<vec_t!(T, A)> for GridArray<T, Const<1>, A> {
     fn from(vec: vec_t!(T, A)) -> Self {
         let layout = DenseLayout::new([vec.len()]);
 
@@ -493,7 +482,7 @@ impl<T, O: Order, A: Allocator> From<vec_t!(T, A)> for GridArray<T, Rank<1, O>, 
     }
 }
 
-impl<T, O: Order> FromIterator<T> for GridArray<T, Rank<1, O>> {
+impl<T> FromIterator<T> for GridArray<T, Const<1>> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
     }
@@ -533,10 +522,8 @@ unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim>(
     mut index: D::Shape,
     f: &mut impl FnMut(D::Shape) -> T,
 ) {
-    let dim = D::dim(I::RANK);
-
-    for i in 0..shape[dim] {
-        index[dim] = i;
+    for i in 0..shape[I::RANK] {
+        index[I::RANK] = i;
 
         if I::RANK == 0 {
             vec.as_mut_ptr().add(vec.len()).write(f(index));

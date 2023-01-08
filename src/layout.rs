@@ -1,10 +1,10 @@
 use std::fmt::{Debug, Formatter, Result};
 
-use crate::dim::{Dim, Rank, Shape};
+use crate::dim::{Const, Dim, Shape};
 use crate::format::{Dense, Flat, Format, General, Strided};
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
-/// Array layout, including rank, element order and storage format.
+/// Array layout, including shape and strides.
 pub struct Layout<D: Dim, F: Format> {
     mapping: F::Mapping<D>,
 }
@@ -75,7 +75,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
         G::Mapping::add_dim(self, size, stride)
     }
 
-    pub(crate) fn flatten(self) -> Layout<Rank<1, D::Order>, F::Uniform> {
+    pub(crate) fn flatten(self) -> Layout<Const<1>, F::Uniform> {
         self.mapping.flatten()
     }
 
@@ -100,7 +100,7 @@ impl<D: Dim, F: Format> Layout<D, F> {
         G::Mapping::remove_dim(self, dim)
     }
 
-    pub(crate) fn reshape<S: Shape, G: Format>(self, new_shape: S) -> Layout<S::Dim<D::Order>, G> {
+    pub(crate) fn reshape<S: Shape, G: Format>(self, new_shape: S) -> Layout<S::Dim, G> {
         G::Mapping::reshape(self, new_shape)
     }
 
