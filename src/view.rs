@@ -138,10 +138,10 @@ macro_rules! impl_from_array_ref {
             for ViewArray<'a, T, Const<$n>, Dense>
         {
             fn from(array: &'a $array) -> Self {
-                let layout = if [$($size),*].contains(&0) {
+                let layout = if [$($size),+].contains(&0) {
                     DenseLayout::new([0; $n])
                 } else {
-                    DenseLayout::new([$($size),*])
+                    DenseLayout::new([$($size),+])
                 };
 
                 unsafe { Self::new_unchecked(array.as_ptr().cast(), layout) }
@@ -152,10 +152,10 @@ macro_rules! impl_from_array_ref {
             for ViewArrayMut<'a, T, Const<$n>, Dense>
         {
             fn from(array: &'a mut $array) -> Self {
-                let layout = if [$($size),*].contains(&0) {
+                let layout = if [$($size),+].contains(&0) {
                     DenseLayout::new([0; $n])
                 } else {
-                    DenseLayout::new([$($size),*])
+                    DenseLayout::new([$($size),+])
                 };
 
                 unsafe { Self::new_unchecked(array.as_mut_ptr().cast(), layout) }
