@@ -21,8 +21,8 @@ use serde_test::{assert_tokens, Token};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::{
-    fill, step, Const, Dense, Dim, Flat, Format, General, Grid, Layout, StepRange, Strided, View,
-    ViewMut,
+    fill, grid, step, view, Const, Dense, Dim, Flat, Format, General, Grid, Layout, StepRange,
+    Strided, View, ViewMut,
 };
 
 macro_rules! to_slice {
@@ -427,6 +427,65 @@ fn test_layout() {
     assert_eq!(format!("{:?}", f), "FlatLayout { shape: [1, 2, 3], inner_stride: 4 }");
     assert_eq!(format!("{:?}", g), "GeneralLayout { shape: [1, 2, 3], outer_strides: [4, 5] }");
     assert_eq!(format!("{:?}", s), "StridedLayout { shape: [1, 2, 3], strides: [4, 5, 6] }");
+}
+
+#[test]
+fn test_macros() {
+    let grid1: Grid<usize, 1> = grid![];
+    let grid2: Grid<usize, 2> = grid![[]];
+    let grid3: Grid<usize, 3> = grid![[[]]];
+    let grid4: Grid<usize, 4> = grid![[[[]]]];
+    let grid5: Grid<usize, 5> = grid![[[[[]]]]];
+    let grid6: Grid<usize, 6> = grid![[[[[[]]]]]];
+
+    let view1: View<usize, 1> = view![];
+    let view2: View<usize, 2> = view![[]];
+    let view3: View<usize, 3> = view![[[]]];
+    let view4: View<usize, 4> = view![[[[]]]];
+    let view5: View<usize, 5> = view![[[[[]]]]];
+    let view6: View<usize, 6> = view![[[[[[]]]]]];
+
+    assert_eq!(grid1, Grid::new());
+    assert_eq!(grid2, Grid::new());
+    assert_eq!(grid3, Grid::new());
+    assert_eq!(grid4, Grid::new());
+    assert_eq!(grid5, Grid::new());
+    assert_eq!(grid6, Grid::new());
+
+    assert_eq!(view1, Grid::new());
+    assert_eq!(view2, Grid::new());
+    assert_eq!(view3, Grid::new());
+    assert_eq!(view4, Grid::new());
+    assert_eq!(view5, Grid::new());
+    assert_eq!(view6, Grid::new());
+
+    assert_eq!(grid![1, 2, 3], Grid::from([1, 2, 3]));
+    assert_eq!(grid![[1, 2, 3], [4, 5, 6]], Grid::from([[1, 2, 3], [4, 5, 6]]));
+    assert_eq!(grid![[[1, 2, 3], [4, 5, 6]]], Grid::from([[[1, 2, 3], [4, 5, 6]]]));
+    assert_eq!(grid![[[[1, 2, 3], [4, 5, 6]]]], Grid::from([[[[1, 2, 3], [4, 5, 6]]]]));
+    assert_eq!(grid![[[[[1, 2, 3], [4, 5, 6]]]]], Grid::from([[[[[1, 2, 3], [4, 5, 6]]]]]));
+    assert_eq!(grid![[[[[[1, 2, 3], [4, 5, 6]]]]]], Grid::from([[[[[[1, 2, 3], [4, 5, 6]]]]]]));
+
+    assert_eq!(view![1, 2, 3], View::from(&[1, 2, 3]));
+    assert_eq!(view![[1, 2, 3], [4, 5, 6]], View::from(&[[1, 2, 3], [4, 5, 6]]));
+    assert_eq!(view![[[1, 2, 3], [4, 5, 6]]], View::from(&[[[1, 2, 3], [4, 5, 6]]]));
+    assert_eq!(view![[[[1, 2, 3], [4, 5, 6]]]], View::from(&[[[[1, 2, 3], [4, 5, 6]]]]));
+    assert_eq!(view![[[[[1, 2, 3], [4, 5, 6]]]]], View::from(&[[[[[1, 2, 3], [4, 5, 6]]]]]));
+    assert_eq!(view![[[[[[1, 2, 3], [4, 5, 6]]]]]], View::from(&[[[[[[1, 2, 3], [4, 5, 6]]]]]]));
+
+    assert_eq!(grid![0; 1], Grid::from_elem([1], 0));
+    assert_eq!(grid![[0; 1]; 2], Grid::from_elem([1, 2], 0));
+    assert_eq!(grid![[[0; 1]; 2]; 3], Grid::from_elem([1, 2, 3], 0));
+    assert_eq!(grid![[[[0; 1]; 2]; 3]; 4], Grid::from_elem([1, 2, 3, 4], 0));
+    assert_eq!(grid![[[[[0; 1]; 2]; 3]; 4]; 5], Grid::from_elem([1, 2, 3, 4, 5], 0));
+    assert_eq!(grid![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], Grid::from_elem([1, 2, 3, 4, 5, 6], 0));
+
+    assert_eq!(view![0; 1], View::from(&[0; 1]));
+    assert_eq!(view![[0; 1]; 2], View::from(&[[0; 1]; 2]));
+    assert_eq!(view![[[0; 1]; 2]; 3], View::from(&[[[0; 1]; 2]; 3]));
+    assert_eq!(view![[[[0; 1]; 2]; 3]; 4], View::from(&[[[[0; 1]; 2]; 3]; 4]));
+    assert_eq!(view![[[[[0; 1]; 2]; 3]; 4]; 5], View::from(&[[[[[0; 1]; 2]; 3]; 4]; 5]));
+    assert_eq!(view![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], View::from(&[[[[[[0; 1]; 2]; 3]; 4]; 5]; 6]));
 }
 
 #[test]

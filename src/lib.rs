@@ -115,7 +115,7 @@
 //! the compiler is able to vectorize the inner loop.
 //!
 //! ```
-//! use mdarray::{Grid, Span, View};
+//! use mdarray::{grid, view, Grid, Span, View};
 //!
 //! fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
 //!     assert!(c.shape() == [a.size(0), b.size(1)] && a.size(1) == b.size(0), "shape mismatch");
@@ -129,18 +129,15 @@
 //!     }
 //! }
 //!
-//! let a = View::from(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-//! let b = View::from(&[[0.0, 1.0], [1.0, 1.0]]);
+//! let a = view![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+//! let b = view![[0.0, 1.0], [1.0, 1.0]];
 //!
-//! let mut c = Grid::from_elem([3, 2], 0.0);
+//! let mut c = grid![[0.0; 3]; 2];
 //!
 //! matmul(&a, &b, &mut c);
 //!
-//! println!("{c:?}");
-//! # assert!(c == View::from(&[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]));
+//! assert_eq!(c, view![[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]);
 //! ```
-//!
-//! This will produce the result `[[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]`.
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
@@ -173,6 +170,7 @@ mod dim;
 mod format;
 mod grid;
 mod layout;
+mod macros;
 mod mapping;
 mod ops;
 mod raw_span;

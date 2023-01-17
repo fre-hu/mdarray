@@ -294,7 +294,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 }
 
 #[cfg(not(feature = "nightly"))]
-impl<T, D: Dim> GridArray<T, D, Global> {
+impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
     #[must_use]
     pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
@@ -359,7 +359,7 @@ impl<T, D: Dim> GridArray<T, D, Global> {
 }
 
 #[cfg(feature = "nightly")]
-impl<T, D: Dim> GridArray<T, D, Global> {
+impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
     #[must_use]
     pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
@@ -437,24 +437,32 @@ macro_rules! impl_from_array {
         impl<T, $(const $size: usize),+> From<$array> for GridArray<T, Const<$n,>> {
             #[cfg(not(feature = "nightly"))]
             fn from(array: $array) -> Self {
-                let mut vec = std::mem::ManuallyDrop::new(Vec::from(array));
-                let (ptr, mut capacity) = (vec.as_mut_ptr(), vec.capacity());
+                if [$($size),+].contains(&0) {
+                    Self::new()
+                } else {
+                    let mut vec = std::mem::ManuallyDrop::new(Vec::from(array));
+                    let (ptr, capacity) = (vec.as_mut_ptr(), vec.capacity());
 
-                unsafe {
-                    capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
+                    unsafe {
+                        let capacity = capacity * (mem::size_of_val(&*ptr) / mem::size_of::<T>());
 
-                    Self::from_raw_parts(ptr.cast(), [$($size),+], capacity)
+                        Self::from_raw_parts(ptr.cast(), [$($size),+], capacity)
+                    }
                 }
             }
 
             #[cfg(feature = "nightly")]
             fn from(array: $array) -> Self {
-                let (ptr, _, mut capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
+                if [$($size),+].contains(&0) {
+                    Self::new()
+                } else {
+                    let (ptr, _, capacity, alloc) = Vec::from(array).into_raw_parts_with_alloc();
 
-                unsafe {
-                    capacity *= mem::size_of_val(&*ptr) / mem::size_of::<T>();
+                    unsafe {
+                        let capacity = capacity * (mem::size_of_val(&*ptr) / mem::size_of::<T>());
 
-                    Self::from_raw_parts_in(ptr.cast(), [$($size),+], capacity, alloc)
+                        Self::from_raw_parts_in(ptr.cast(), [$($size),+], capacity, alloc)
+                    }
                 }
             }
         }
