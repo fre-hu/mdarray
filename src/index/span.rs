@@ -63,13 +63,17 @@ impl<T, D: Dim, F: Uniform> SpanIndex<T, D, F> for usize {
     unsafe fn get_unchecked(self, span: &SpanArray<T, D, F>) -> &T {
         debug_assert!(self < span.len(), "index out of bounds");
 
-        &*span.as_ptr().offset(span.stride(0) * self as isize)
+        let offset = if D::RANK > 0 { span.stride(0) * self as isize } else { 0 };
+
+        &*span.as_ptr().offset(offset)
     }
 
     unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, F>) -> &mut T {
         debug_assert!(self < span.len(), "index out of bounds");
 
-        &mut *span.as_mut_ptr().offset(span.stride(0) * self as isize)
+        let offset = if D::RANK > 0 { span.stride(0) * self as isize } else { 0 };
+
+        &mut *span.as_mut_ptr().offset(offset)
     }
 
     fn index(self, span: &SpanArray<T, D, F>) -> &T {

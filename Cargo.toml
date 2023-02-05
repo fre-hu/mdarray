@@ -16,6 +16,5 @@ serde = { version = "1.0", optional = true }
 serde_test = "1.0"
 
 [features]
-nightly = []
-permissive-provenance = [] # Required for testing in Miri without extern types, see:
-                           # https://github.com/rust-lang/unsafe-code-guidelines/issues/256
+nightly = [] # Required for testing in Miri by using extern types, see:
+             # https://github.com/rust-lang/unsafe-code-guidelines/issues/256

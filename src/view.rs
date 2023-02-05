@@ -170,3 +170,15 @@ impl_from_array_ref!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
 impl_from_array_ref!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
 impl_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+
+impl<'a, T> From<&'a T> for ViewArray<'a, T, Const<0>, Dense> {
+    fn from(value: &'a T) -> Self {
+        unsafe { Self::new_unchecked(value, Layout::default()) }
+    }
+}
+
+impl<'a, T> From<&'a mut T> for ViewArrayMut<'a, T, Const<0>, Dense> {
+    fn from(value: &'a mut T) -> Self {
+        unsafe { Self::new_unchecked(value, Layout::default()) }
+    }
+}

@@ -299,6 +299,8 @@ unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim>(
         assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
         for (x, y) in lhs.flatten().iter().zip(rhs.flatten().iter()) {
+            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
+
             vec.as_mut_ptr().add(vec.len()).write(f(x, y));
             vec.set_len(vec.len() + 1);
         }
@@ -318,6 +320,8 @@ unsafe fn from_unary_op<T, F: Format, U>(
 ) {
     if F::IS_UNIFORM {
         for x in other.flatten().iter() {
+            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
+
             vec.as_mut_ptr().add(vec.len()).write(f(x));
             vec.set_len(vec.len() + 1);
         }

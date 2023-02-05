@@ -176,6 +176,15 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         (ptr, layout.shape(), capacity, alloc)
     }
 
+    /// Converts an array with a single element into the contained value.
+    /// # Panics
+    /// Panics if the array length is not equal to one.
+    pub fn into_scalar(self) -> T {
+        assert!(self.len() == 1, "invalid length");
+
+        self.into_vec().pop().unwrap()
+    }
+
     /// Converts the array into a reshaped array, which must have the same length.
     /// # Panics
     /// Panics if the array length is changed.
@@ -289,6 +298,8 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), layout: DenseLayout<D>) -> Self {
+        debug_assert!(vec.len() == layout.len(), "length mismatch");
+
         Self { buffer: GridBuffer::from_parts(vec, layout) }
     }
 }
@@ -511,6 +522,8 @@ unsafe fn extend_from_span<T: Clone, F: Format, A: Allocator>(
 ) {
     if F::IS_UNIFORM {
         for x in other.flatten().iter() {
+            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
+
             vec.as_mut_ptr().add(vec.len()).write(x.clone());
             vec.set_len(vec.len() + 1);
         }
@@ -534,6 +547,8 @@ unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim>(
         index[I::RANK] = i;
 
         if I::RANK == 0 {
+            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
+
             vec.as_mut_ptr().add(vec.len()).write(f(index));
             vec.set_len(vec.len() + 1);
         } else {

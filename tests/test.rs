@@ -363,6 +363,9 @@ fn test_base() {
 
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
+    assert_eq!(grid![123].into_scalar(), grid![[123]].into_scalar());
+    assert_eq!(View::from(&456)[[]], ViewMut::from(&mut 456)[0]);
+
     #[cfg(feature = "nightly")]
     let u = Grid::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 

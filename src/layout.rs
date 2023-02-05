@@ -15,19 +15,19 @@ pub type GeneralLayout<D> = Layout<D, General>;
 pub type StridedLayout<D> = Layout<D, Strided>;
 
 impl<D: Dim, F: Format> Layout<D, F> {
-    /// Returns true if the array strides are consistent with contiguous memory layout.
+    /// Returns `true` if the array strides are consistent with contiguous memory layout.
     #[must_use]
     pub fn is_contiguous(self) -> bool {
         self.mapping.is_contiguous()
     }
 
-    /// Returns true if the array contains no elements.
+    /// Returns `true` if the array contains no elements.
     #[must_use]
     pub fn is_empty(self) -> bool {
         self.len() == 0
     }
 
-    /// Returns true if the array strides are consistent with uniformly strided memory layout.
+    /// Returns `true` if the array strides are consistent with uniformly strided memory layout.
     #[must_use]
     pub fn is_uniformly_strided(self) -> bool {
         self.mapping.is_uniformly_strided()

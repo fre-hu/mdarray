@@ -275,13 +275,13 @@ impl<T, D: Dim, F: Format> Buffer for SpanBuffer<T, D, F> {
     type Format = F;
 
     fn as_span(&self) -> &SpanArray<T, D, F> {
-        RawSpan::from_buffer(self).as_span()
+        unsafe { &*(self as *const Self as *const SpanArray<T, D, F>) }
     }
 }
 
 impl<T, D: Dim, F: Format> BufferMut for SpanBuffer<T, D, F> {
     fn as_mut_span(&mut self) -> &mut SpanArray<T, D, F> {
-        RawSpan::from_mut_buffer(self).as_mut_span()
+        unsafe { &mut *(self as *mut Self as *mut SpanArray<T, D, F>) }
     }
 }
 
@@ -493,6 +493,9 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
     let min_size = cmp::min(old_size, new_size);
 
     if I::RANK == 0 {
+        debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");
+        debug_assert!(new_vec.len() + min_size <= new_vec.capacity(), "slice exceeds capacity");
+
         ptr::copy_nonoverlapping(old_vec.ptr, new_vec.as_mut_ptr().add(new_vec.len()), min_size);
 
         old_vec.ptr = old_vec.ptr.add(min_size);
@@ -509,6 +512,8 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
         let count = (old_size - min_size) * old_stride;
         let slice = ptr::slice_from_raw_parts_mut(old_vec.ptr, count);
 
+        debug_assert!(old_vec.len >= count, "slice exceeds remainder");
+
         old_vec.ptr = old_vec.ptr.add(count);
         old_vec.len -= count;
 
@@ -516,6 +521,8 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
     }
 
     for _ in 0..(new_size - min_size) * new_stride {
+        debug_assert!(new_vec.len() < new_vec.capacity(), "index exceeds capacity");
+
         new_vec.as_mut_ptr().add(new_vec.len()).write(f());
         new_vec.set_len(new_vec.len() + 1);
     }

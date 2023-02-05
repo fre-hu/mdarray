@@ -18,13 +18,21 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable pointer to the array buffer.
     #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        RawSpan::from_mut_buffer(&mut self.buffer).as_mut_ptr()
+        if D::RANK > 0 {
+            RawSpan::from_mut_span(self).as_mut_ptr()
+        } else {
+            self as *mut Self as *mut T
+        }
     }
 
     /// Returns a raw pointer to the array buffer.
     #[must_use]
     pub fn as_ptr(&self) -> *const T {
-        RawSpan::from_buffer(&self.buffer).as_ptr()
+        if D::RANK > 0 {
+            RawSpan::from_span(self).as_ptr()
+        } else {
+            self as *const Self as *const T
+        }
     }
 
     /// Returns an iterator that gives array views over the specified dimension.
@@ -208,19 +216,19 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
         }
     }
 
-    /// Returns true if the array strides are consistent with contiguous memory layout.
+    /// Returns `true` if the array strides are consistent with contiguous memory layout.
     #[must_use]
     pub fn is_contiguous(&self) -> bool {
         self.layout().is_contiguous()
     }
 
-    /// Returns true if the array contains no elements.
+    /// Returns `true` if the array contains no elements.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.layout().is_empty()
     }
 
-    /// Returns true if the array strides are consistent with uniformly strided memory layout.
+    /// Returns `true` if the array strides are consistent with uniformly strided memory layout.
     #[must_use]
     pub fn is_uniformly_strided(&self) -> bool {
         self.layout().is_uniformly_strided()
@@ -245,7 +253,7 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns the array layout.
     #[must_use]
     pub fn layout(&self) -> Layout<D, F> {
-        RawSpan::from_buffer(&self.buffer).layout()
+        if D::RANK > 0 { RawSpan::from_span(self).layout() } else { Layout::default() }
     }
 
     /// Returns the number of elements in the array.

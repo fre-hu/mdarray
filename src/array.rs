@@ -65,9 +65,21 @@ impl<B: Buffer + ?Sized> AsRef<SpanArray<B::Item, B::Dim, B::Format>> for Array<
     }
 }
 
+impl<B: Buffer<Format = Dense> + ?Sized> Borrow<[B::Item]> for Array<B> {
+    fn borrow(&self) -> &[B::Item] {
+        self.as_span().as_slice()
+    }
+}
+
 impl<B: SizedBuffer> Borrow<SpanArray<B::Item, B::Dim, B::Format>> for Array<B> {
     fn borrow(&self) -> &SpanArray<B::Item, B::Dim, B::Format> {
         self.as_span()
+    }
+}
+
+impl<B: BufferMut<Format = Dense> + ?Sized> BorrowMut<[B::Item]> for Array<B> {
+    fn borrow_mut(&mut self) -> &mut [B::Item] {
+        self.as_mut_span().as_mut_slice()
     }
 }
 
