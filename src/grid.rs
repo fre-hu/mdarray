@@ -1,6 +1,5 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
-use std::borrow::Borrow;
 use std::collections::TryReserveError;
 use std::iter::FromIterator;
 use std::mem;
@@ -112,7 +111,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn from_elem_in(shape: D::Shape, elem: impl Borrow<T>, alloc: A) -> Self
+    pub fn from_elem_in(shape: D::Shape, elem: &T, alloc: A) -> Self
     where
         T: Clone,
     {
@@ -121,7 +120,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
         unsafe {
             for i in 0..len {
-                vec.as_mut_ptr().add(i).write(elem.borrow().clone());
+                vec.as_mut_ptr().add(i).write(elem.clone());
                 vec.set_len(i + 1);
             }
 
@@ -223,12 +222,12 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Resizes the array to the new shape, creating new elements with the given value.
-    pub fn resize(&mut self, new_shape: D::Shape, value: impl Borrow<T>)
+    pub fn resize(&mut self, new_shape: D::Shape, value: &T)
     where
         T: Clone,
         A: Clone,
     {
-        self.buffer.resize_with(new_shape, || value.borrow().clone());
+        self.buffer.resize_with(new_shape, || value.clone());
     }
 
     /// Resizes the array to the new shape, creating new elements from the given closure.
@@ -297,7 +296,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 #[cfg(not(feature = "nightly"))]
 impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
-    pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
+    pub fn from_elem(shape: D::Shape, elem: &T) -> Self
     where
         T: Clone,
     {
@@ -306,7 +305,7 @@ impl<T, D: Dim> GridArray<T, D> {
 
         unsafe {
             for i in 0..len {
-                vec.as_mut_ptr().add(i).write(elem.borrow().clone());
+                vec.as_mut_ptr().add(i).write(elem.clone());
                 vec.set_len(i + 1);
             }
 
@@ -358,7 +357,7 @@ impl<T, D: Dim> GridArray<T, D> {
 #[cfg(feature = "nightly")]
 impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
-    pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
+    pub fn from_elem(shape: D::Shape, elem: &T) -> Self
     where
         T: Clone,
     {

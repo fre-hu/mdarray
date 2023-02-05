@@ -1,6 +1,5 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
-use std::borrow::Borrow;
 use std::slice;
 
 use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
@@ -101,12 +100,20 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
         clone_from_span(self, src);
     }
 
+    /// Returns `true` if the array span contains an element with the given value.
+    pub fn contains(&self, x: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        contains(self, x)
+    }
+
     /// Fills the array span with elements by cloning `value`.
-    pub fn fill(&mut self, value: impl Borrow<T>)
+    pub fn fill(&mut self, value: &T)
     where
         T: Clone,
     {
-        fill_with(self, &mut || value.borrow().clone());
+        fill_with(self, &mut || value.clone());
     }
 
     /// Fills the array span with elements returned by calling a closure repeatedly.
@@ -505,6 +512,18 @@ fn clone_from_span<T: Clone, D: Dim, F: Format, G: Format>(
         for (mut x, y) in this.outer_iter_mut().zip(src.outer_iter()) {
             clone_from_span(&mut x, &y);
         }
+    }
+}
+
+fn contains<T: PartialEq, D: Dim, F: Format>(this: &SpanArray<T, D, F>, value: &T) -> bool {
+    if F::IS_UNIFORM {
+        if F::IS_UNIT_STRIDED {
+            this.reformat().as_slice().contains(value)
+        } else {
+            this.as_span().flatten().iter().any(|x| x == value)
+        }
+    } else {
+        this.outer_iter().any(|x| x.contains(value))
     }
 }
 

@@ -20,7 +20,7 @@
 ///
 /// let a = grid![[1; 2]; 3];
 ///
-/// assert_eq!(a, Grid::from_elem([2, 3], 1));
+/// assert_eq!(a, Grid::from_elem([2, 3], &1));
 /// ```
 ///
 /// In the second form, like for vectors the shape does not have to be constant.
@@ -45,22 +45,22 @@ macro_rules! grid {
         Grid::<_, 1>::from([$($x),*])
     );
     ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
-        Grid::<_, 6>::from_elem([$i, $j, $k, $l, $m, $n], $elem)
+        Grid::<_, 6>::from_elem([$i, $j, $k, $l, $m, $n], &$elem)
     );
     ([[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr) => (
-        Grid::<_, 5>::from_elem([$i, $j, $k, $l, $m], $elem)
+        Grid::<_, 5>::from_elem([$i, $j, $k, $l, $m], &$elem)
     );
     ([[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr) => (
-        Grid::<_, 4>::from_elem([$i, $j, $k, $l], $elem)
+        Grid::<_, 4>::from_elem([$i, $j, $k, $l], &$elem)
     );
     ([[$elem:expr; $i:expr]; $j:expr]; $k:expr) => (
-        Grid::<_, 3>::from_elem([$i, $j, $k], $elem)
+        Grid::<_, 3>::from_elem([$i, $j, $k], &$elem)
     );
     ([$elem:expr; $i:expr]; $j:expr) => (
-        Grid::<_, 2>::from_elem([$i, $j], $elem)
+        Grid::<_, 2>::from_elem([$i, $j], &$elem)
     );
     ($elem:expr; $i:expr) => (
-        Grid::<_, 1>::from_elem([$i], $elem)
+        Grid::<_, 1>::from_elem([$i], &$elem)
     );
 }
 
