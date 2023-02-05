@@ -145,6 +145,7 @@
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
+#![warn(unused_results)]
 
 /// Module for array span and view indexing, and for array axis subarray types.
 pub mod index {

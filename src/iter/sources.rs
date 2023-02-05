@@ -9,7 +9,6 @@ use crate::format::Format;
 use crate::layout::Layout;
 
 /// Array axis iterator.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct AxisIter<'a, T, D: Dim, F: Format> {
     ptr: NonNull<T>,
     layout: Layout<D, F>,
@@ -20,7 +19,6 @@ pub struct AxisIter<'a, T, D: Dim, F: Format> {
 }
 
 /// Mutable array axis iterator.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct AxisIterMut<'a, T, D: Dim, F: Format> {
     ptr: NonNull<T>,
     layout: Layout<D, F>,
@@ -31,7 +29,6 @@ pub struct AxisIterMut<'a, T, D: Dim, F: Format> {
 }
 
 /// Flat array span iterator.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct FlatIter<'a, T> {
     ptr: NonNull<T>,
     index: usize,
@@ -41,7 +38,6 @@ pub struct FlatIter<'a, T> {
 }
 
 /// Mutable flat array span iterator.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
 pub struct FlatIterMut<'a, T> {
     ptr: NonNull<T>,
     index: usize,
@@ -81,8 +77,7 @@ macro_rules! impl_axis_iter {
                         for i in self.0.index..self.0.size {
                             unsafe {
                                 let ptr = self.0.ptr.as_ptr().offset(self.0.stride * i as isize);
-
-                                list.entry(&ViewArray::new_unchecked(ptr, self.0.layout));
+                                let _ = list.entry(&ViewArray::new_unchecked(ptr, self.0.layout));
                             }
                         }
 
@@ -189,8 +184,7 @@ macro_rules! impl_flat_iter {
 
                         for i in self.0.index..self.0.size {
                             let count = self.0.stride * i as isize;
-
-                            list.entry(unsafe { &*self.0.ptr.as_ptr().offset(count) });
+                            let _ = list.entry(unsafe { &*self.0.ptr.as_ptr().offset(count) });
                         }
 
                         list.finish()

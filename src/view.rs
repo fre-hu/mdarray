@@ -12,7 +12,6 @@ macro_rules! impl_view {
             /// Converts the array view into a one-dimensional array view.
             /// # Panics
             /// Panics if the array layout is not uniformly strided.
-            #[must_use]
             pub fn into_flattened(
                 $($mut)? self
             ) -> $name<'a, T, Const<1>, F::Uniform> {
@@ -22,7 +21,6 @@ macro_rules! impl_view {
             /// Converts the array view into a reformatted array view.
             /// # Panics
             /// Panics if the array layout is not compatible with the new format.
-            #[must_use]
             pub fn into_format<G: Format>($($mut)? self) -> $name<'a, T, D, G> {
                 unsafe { $name::new_unchecked(self.$as_ptr(), self.layout().reformat()) }
             }
@@ -30,7 +28,6 @@ macro_rules! impl_view {
             /// Converts the array view into a reshaped array view with similar layout.
             /// # Panics
             /// Panics if the array length is changed, or the memory layout is not compatible.
-            #[must_use]
             pub fn into_shape<S: Shape>(
                 $($mut)? self,
                 shape: S
@@ -41,7 +38,6 @@ macro_rules! impl_view {
             /// Divides an array view into two at an index along the outer dimension.
             /// # Panics
             /// Panics if the split point is larger than the number of elements in that dimension.
-            #[must_use]
             pub fn into_split_at(
                 self,
                 mid: usize,
@@ -54,7 +50,6 @@ macro_rules! impl_view {
             /// Divides an array view into two at an index along the specified dimension.
             /// # Panics
             /// Panics if the split point is larger than the number of elements in that dimension.
-            #[must_use]
             pub fn into_split_axis_at<const DIM: usize>(
                 self,
                 mid: usize,
@@ -71,7 +66,6 @@ macro_rules! impl_view {
              /// Converts an array view into a new array view for the specified subarray.
             /// # Panics
             /// Panics if the subarray is out of bounds.
-            #[must_use]
             pub fn into_view<P: Params, I: ViewIndex<D, F, Params = P>>(
                 $($mut)? self,
                 index: I
@@ -86,7 +80,6 @@ macro_rules! impl_view {
             /// Creates an array view from a raw pointer and layout.
             /// # Safety
             /// The pointer must be non-null and a valid array view for the given layout.
-            #[must_use]
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, layout: Layout<D, F>) -> Self {
                 Self { buffer: $buffer::new_unchecked(ptr, layout) }
             }

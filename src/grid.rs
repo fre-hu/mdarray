@@ -31,7 +31,6 @@ macro_rules! vec_t {
 impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     /// Returns a reference to the underlying allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn allocator(&self) -> &A {
         self.buffer.allocator()
     }
@@ -64,7 +63,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Returns the number of elements the array can hold without reallocating.
-    #[must_use]
     pub fn capacity(&self) -> usize {
         self.buffer.capacity()
     }
@@ -114,7 +112,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn from_elem_in(shape: D::Shape, elem: impl Borrow<T>, alloc: A) -> Self
     where
         T: Clone,
@@ -134,7 +131,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Creates an array with the results from the given function with the specified allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn from_fn_in(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T, alloc: A) -> Self {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
         let mut vec = Vec::with_capacity_in(len, alloc);
@@ -162,7 +158,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Converts the array into a one-dimensional array.
-    #[must_use]
     pub fn into_flattened(self) -> GridArray<T, Const<1>, A> {
         self.into_vec().into()
     }
@@ -188,7 +183,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     /// Converts the array into a reshaped array, which must have the same length.
     /// # Panics
     /// Panics if the array length is changed.
-    #[must_use]
     pub fn into_shape<S: Shape>(self, shape: S) -> GridArray<T, S::Dim, A> {
         let (vec, layout) = self.buffer.into_parts();
 
@@ -196,7 +190,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Converts the array into a vector.
-    #[must_use]
     pub fn into_vec(self) -> vec_t!(T, A) {
         let (vec, _) = self.buffer.into_parts();
 
@@ -204,7 +197,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Returns the array with the given closure applied to each element.
-    #[must_use]
     pub fn map(mut self, mut f: impl FnMut(T) -> T) -> Self
     where
         T: Default,
@@ -216,7 +208,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Creates a new, empty array with the specified allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn new_in(alloc: A) -> Self {
         unsafe { Self::from_parts(Vec::new_in(alloc), Layout::default()) }
     }
@@ -292,7 +283,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Creates a new, empty array with the specified capacity and allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         unsafe { Self::from_parts(Vec::with_capacity_in(capacity, alloc), Layout::default()) }
     }
@@ -307,7 +297,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 #[cfg(not(feature = "nightly"))]
 impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
-    #[must_use]
     pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
     where
         T: Clone,
@@ -326,7 +315,6 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates an array with the results from the given function.
-    #[must_use]
     pub fn from_fn(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T) -> Self {
         let len = shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
         let mut vec = Vec::with_capacity(len);
@@ -357,13 +345,11 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates a new, empty array.
-    #[must_use]
     pub fn new() -> Self {
         unsafe { Self::from_parts(Vec::new(), Layout::default()) }
     }
 
     /// Creates a new, empty array with the specified capacity.
-    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         unsafe { Self::from_parts(Vec::with_capacity(capacity), Layout::default()) }
     }
@@ -372,7 +358,6 @@ impl<T, D: Dim> GridArray<T, D> {
 #[cfg(feature = "nightly")]
 impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
-    #[must_use]
     pub fn from_elem(shape: D::Shape, elem: impl Borrow<T>) -> Self
     where
         T: Clone,
@@ -381,7 +366,6 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates an array with the results from the given function.
-    #[must_use]
     pub fn from_fn(shape: D::Shape, f: impl FnMut(D::Shape) -> T) -> Self {
         Self::from_fn_in(shape, f, Global)
     }
@@ -401,13 +385,11 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates a new, empty array.
-    #[must_use]
     pub fn new() -> Self {
         Self::new_in(Global)
     }
 
     /// Creates a new, empty array with the specified capacity.
-    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_in(capacity, Global)
     }

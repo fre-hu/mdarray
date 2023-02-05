@@ -27,7 +27,6 @@ pub type ViewArrayMut<'a, T, D, F> = Array<ViewBufferMut<'a, T, D, F>>;
 
 impl<B: Buffer + ?Sized> Array<B> {
     /// Returns an array span of the entire array.
-    #[must_use]
     pub fn as_span(&self) -> &SpanArray<B::Item, B::Dim, B::Format> {
         self.buffer.as_span()
     }
@@ -35,7 +34,6 @@ impl<B: Buffer + ?Sized> Array<B> {
 
 impl<B: BufferMut + ?Sized> Array<B> {
     /// Returns a mutable array span of the entire array.
-    #[must_use]
     pub fn as_mut_span(&mut self) -> &mut SpanArray<B::Item, B::Dim, B::Format> {
         self.buffer.as_mut_span()
     }
@@ -109,11 +107,11 @@ impl<T: Debug, B: Buffer<Item = T> + ?Sized> Debug for Array<B> {
             let mut list = f.debug_list();
 
             if !self.as_span().is_empty() {
-                if B::Dim::RANK == 1 {
-                    list.entries(self.as_span().flatten().iter());
+                let _ = if B::Dim::RANK == 1 {
+                    list.entries(self.as_span().flatten().iter())
                 } else {
-                    list.entries(self.as_span().outer_iter());
-                }
+                    list.entries(self.as_span().outer_iter())
+                };
             }
 
             list.finish()

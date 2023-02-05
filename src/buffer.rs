@@ -248,18 +248,18 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for GridBuffer<T, D, A> {
 impl<T, D: Dim, A: Allocator> Drop for GridBuffer<T, D, A> {
     fn drop(&mut self) {
         #[cfg(not(feature = "nightly"))]
-        unsafe {
-            Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.layout().len(), self.capacity);
-        }
+        let _ = unsafe {
+            Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.layout().len(), self.capacity)
+        };
         #[cfg(feature = "nightly")]
-        unsafe {
+        let _ = unsafe {
             Vec::from_raw_parts_in(
                 self.span.as_mut_ptr(),
                 self.span.layout().len(),
                 self.capacity,
                 ptr::read(&*self.alloc),
-            );
-        }
+            )
+        };
     }
 }
 

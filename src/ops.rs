@@ -36,7 +36,6 @@ pub struct StepRange<R, S> {
 /// Returns a fill value to be used as scalar operand for array operators.
 ///
 /// If the type does not implement the `Copy` trait, a reference must be passed as input.
-#[must_use]
 pub fn fill<T: Copy>(value: T) -> Fill<T> {
     Fill { value }
 }
@@ -48,7 +47,6 @@ pub fn fill<T: Copy>(value: T) -> Fill<T> {
 ///
 /// For example, `step(0..10, 2)` gives the values `0, 2, 4, 6, 8` and `step(0..10, -2)`
 /// gives the values `8, 6, 4, 2, 0`.
-#[must_use]
 pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }

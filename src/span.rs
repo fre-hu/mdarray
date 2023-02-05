@@ -16,7 +16,6 @@ use crate::raw_span::RawSpan;
 
 impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable pointer to the array buffer.
-    #[must_use]
     pub fn as_mut_ptr(&mut self) -> *mut T {
         if D::RANK > 0 {
             RawSpan::from_mut_span(self).as_mut_ptr()
@@ -26,7 +25,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Returns a raw pointer to the array buffer.
-    #[must_use]
     pub fn as_ptr(&self) -> *const T {
         if D::RANK > 0 {
             RawSpan::from_span(self).as_ptr()
@@ -119,7 +117,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a one-dimensional array view of the array span.
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
-    #[must_use]
     pub fn flatten(&self) -> ViewArray<T, Const<1>, F::Uniform> {
         self.to_view().into_flattened()
     }
@@ -127,7 +124,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable one-dimensional array view over the array span.
     /// # Panics
     /// Panics if the array layout is not uniformly strided.
-    #[must_use]
     pub fn flatten_mut(&mut self) -> ViewArrayMut<T, Const<1>, F::Uniform> {
         self.to_view_mut().into_flattened()
     }
@@ -135,7 +131,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a reference to an element or a subslice, without doing bounds checking.
     /// # Safety
     /// The index must be within bounds of the array span.
-    #[must_use]
     pub unsafe fn get_unchecked<I: SpanIndex<T, D, F>>(&self, index: I) -> &I::Output {
         index.get_unchecked(self)
     }
@@ -143,7 +138,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable reference to an element or a subslice, without doing bounds checking.
     /// # Safety
     /// The index must be within bounds of the array span.
-    #[must_use]
     pub unsafe fn get_unchecked_mut<I: SpanIndex<T, D, F>>(&mut self, index: I) -> &mut I::Output {
         index.get_unchecked_mut(self)
     }
@@ -151,7 +145,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Copies the specified subarray into a new array.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    #[must_use]
     pub fn grid<P: Params, I>(&self, index: I) -> GridArray<T, P::Dim>
     where
         T: Clone,
@@ -164,7 +157,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// # Panics
     /// Panics if the subarray is out of bounds.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> GridArray<T, P::Dim, A>
     where
         T: Clone,
@@ -217,19 +209,16 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Returns `true` if the array strides are consistent with contiguous memory layout.
-    #[must_use]
     pub fn is_contiguous(&self) -> bool {
         self.layout().is_contiguous()
     }
 
     /// Returns `true` if the array contains no elements.
-    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.layout().is_empty()
     }
 
     /// Returns `true` if the array strides are consistent with uniformly strided memory layout.
-    #[must_use]
     pub fn is_uniformly_strided(&self) -> bool {
         self.layout().is_uniformly_strided()
     }
@@ -251,13 +240,11 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Returns the array layout.
-    #[must_use]
     pub fn layout(&self) -> Layout<D, F> {
         if D::RANK > 0 { RawSpan::from_span(self).layout() } else { Layout::default() }
     }
 
     /// Returns the number of elements in the array.
-    #[must_use]
     pub fn len(&self) -> usize {
         self.layout().len()
     }
@@ -303,7 +290,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a reformatted array view of the array span.
     /// # Panics
     /// Panics if the array layout is not compatible with the new format.
-    #[must_use]
     pub fn reformat<G: Format>(&self) -> ViewArray<T, D, G> {
         self.to_view().into_format()
     }
@@ -311,7 +297,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable reformatted array view of the array span.
     /// # Panics
     /// Panics if the array layout is not compatible with the new format.
-    #[must_use]
     pub fn reformat_mut<G: Format>(&mut self) -> ViewArrayMut<T, D, G> {
         self.to_view_mut().into_format()
     }
@@ -319,7 +304,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a reshaped array view of the array span, with similar layout.
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
-    #[must_use]
     pub fn reshape<S: Shape>(&self, shape: S) -> ViewArray<T, S::Dim, <S::Dim as Dim>::Format<F>> {
         self.to_view().into_shape(shape)
     }
@@ -327,7 +311,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable reshaped array view of the array span, with similar layout.
     /// # Panics
     /// Panics if the array length is changed, or the memory layout is not compatible.
-    #[must_use]
     pub fn reshape_mut<S: Shape>(
         &mut self,
         shape: S,
@@ -336,13 +319,11 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Returns the shape of the array.
-    #[must_use]
     pub fn shape(&self) -> D::Shape {
         self.layout().shape()
     }
 
     /// Returns the number of elements in the specified dimension.
-    #[must_use]
     pub fn size(&self, dim: usize) -> usize {
         self.layout().size(dim)
     }
@@ -350,7 +331,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Divides an array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    #[must_use]
     pub fn split_at(&self, mid: usize) -> (ViewArray<T, D, F>, ViewArray<T, D, F>) {
         self.to_view().into_split_at(mid)
     }
@@ -358,7 +338,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Divides a mutable array span into two at an index along the outer dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    #[must_use]
     pub fn split_at_mut(&mut self, mid: usize) -> (ViewArrayMut<T, D, F>, ViewArrayMut<T, D, F>) {
         self.to_view_mut().into_split_at(mid)
     }
@@ -366,7 +345,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Divides an array span into two at an index along the specified dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    #[must_use]
     pub fn split_axis_at<const DIM: usize>(
         &self,
         mid: usize,
@@ -383,7 +361,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Divides a mutable array span into two at an index along the specified dimension.
     /// # Panics
     /// Panics if the split point is larger than the number of elements in that dimension.
-    #[must_use]
     pub fn split_axis_at_mut<const DIM: usize>(
         &mut self,
         mid: usize,
@@ -398,20 +375,17 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Returns the distance between elements in the specified dimension.
-    #[must_use]
     pub fn stride(&self, dim: usize) -> isize {
         self.layout().stride(dim)
     }
 
     /// Returns the distance between elements in each dimension.
-    #[must_use]
     pub fn strides(&self) -> D::Strides {
         self.layout().strides()
     }
 
     /// Copies the array span into a new array.
     #[cfg(not(feature = "nightly"))]
-    #[must_use]
     pub fn to_grid(&self) -> GridArray<T, D>
     where
         T: Clone,
@@ -424,7 +398,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
 
     /// Copies the array span into a new array.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn to_grid(&self) -> GridArray<T, D>
     where
         T: Clone,
@@ -434,7 +407,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
 
     /// Copies the array span into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> GridArray<T, D, A>
     where
         T: Clone,
@@ -446,7 +418,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Copies the array span into a new vector.
-    #[must_use]
     pub fn to_vec(&self) -> Vec<T>
     where
         T: Clone,
@@ -456,7 +427,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
 
     /// Copies the array span into a new vector with the specified allocator.
     #[cfg(feature = "nightly")]
-    #[must_use]
     pub fn to_vec_in<A: Allocator>(&self, alloc: A) -> Vec<T, A>
     where
         T: Clone,
@@ -465,13 +435,11 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     }
 
     /// Returns an array view of the entire array span.
-    #[must_use]
     pub fn to_view(&self) -> ViewArray<T, D, F> {
         unsafe { ViewArray::new_unchecked(self.as_ptr(), self.layout()) }
     }
 
     /// Returns a mutable array view of the entire array span.
-    #[must_use]
     pub fn to_view_mut(&mut self) -> ViewArrayMut<T, D, F> {
         unsafe { ViewArrayMut::new_unchecked(self.as_mut_ptr(), self.layout()) }
     }
@@ -479,7 +447,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns an array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    #[must_use]
     pub fn view<P: Params, I>(&self, index: I) -> ViewArray<T, P::Dim, P::Format>
     where
         I: ViewIndex<D, F, Params = P>,
@@ -490,7 +457,6 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
     /// Returns a mutable array view for the specified subarray.
     /// # Panics
     /// Panics if the subarray is out of bounds.
-    #[must_use]
     pub fn view_mut<P: Params, I>(&mut self, index: I) -> ViewArrayMut<T, P::Dim, P::Format>
     where
         I: ViewIndex<D, F, Params = P>,
@@ -501,13 +467,11 @@ impl<T, D: Dim, F: Format> SpanArray<T, D, F> {
 
 impl<T, D: Dim> SpanArray<T, D, Dense> {
     /// Returns a mutable slice of all elements in the array.
-    #[must_use]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
     }
 
     /// Returns a slice of all elements in the array.
-    #[must_use]
     pub fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
