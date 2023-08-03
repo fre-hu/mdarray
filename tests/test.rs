@@ -21,8 +21,8 @@ use serde_test::{assert_tokens, Token};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::{
-    fill, grid, step, view, Const, Dense, Dim, Flat, Format, General, Grid, Layout, StepRange,
-    Strided, View, ViewMut,
+    fill, grid, step, view, Const, Dense, DenseMapping, Dim, Flat, FlatMapping, General,
+    GeneralMapping, Grid, Layout, Mapping, StepRange, Strided, StridedMapping, View, ViewMut,
 };
 
 macro_rules! to_slice {
@@ -31,189 +31,189 @@ macro_rules! to_slice {
     };
 }
 
-fn check_layout<D: Dim, F: Format, L: Copy>(_: L) {
-    assert_eq!(any::type_name::<Layout<D, F>>(), any::type_name::<L>());
+fn check_mapping<D: Dim, L: Layout, M: Mapping>(_: M) {
+    assert_eq!(any::type_name::<L::Mapping<D>>(), any::type_name::<M>());
 }
 
-fn check_view<F: Format>() {
+fn check_view<L: Layout>() {
     let a = Grid::from([[[[0]]]]);
-    let a = a.reformat::<F>();
+    let a = a.remap::<L>();
 
     // a.view((_, _, 0, 0))
 
-    check_layout::<Const<0>, Dense, _>(a.view((0, 0, 0, 0)).layout());
-    check_layout::<Const<1>, F::Uniform, _>(a.view((.., 0, 0, 0)).layout());
-    check_layout::<Const<1>, F::Uniform, _>(a.view((1.., 0, 0, 0)).layout());
-    check_layout::<Const<1>, Flat, _>(a.view((sr(), 0, 0, 0)).layout());
+    check_mapping::<Const<0>, Dense, _>(a.view((0, 0, 0, 0)).mapping());
+    check_mapping::<Const<1>, L::Uniform, _>(a.view((.., 0, 0, 0)).mapping());
+    check_mapping::<Const<1>, L::Uniform, _>(a.view((1.., 0, 0, 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view((sr(), 0, 0, 0)).mapping());
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, .., 0, 0)).layout());
-    check_layout::<Const<2>, F, _>(a.view((.., .., 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., .., 0, 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), .., 0, 0)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, .., 0, 0)).mapping());
+    check_mapping::<Const<2>, L, _>(a.view((.., .., 0, 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., .., 0, 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), .., 0, 0)).mapping());
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 1.., 0, 0)).layout());
-    check_layout::<Const<2>, F, _>(a.view((.., 1.., 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 1.., 0, 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 1.., 0, 0)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, 1.., 0, 0)).mapping());
+    check_mapping::<Const<2>, L, _>(a.view((.., 1.., 0, 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 1.., 0, 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 1.., 0, 0)).mapping());
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, sr(), 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., sr(), 0, 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., sr(), 0, 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), sr(), 0, 0)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, sr(), 0, 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., sr(), 0, 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., sr(), 0, 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), sr(), 0, 0)).mapping());
 
     // a.view((_, _, .., 0))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, .., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, .., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, .., 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, .., 0)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, .., 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, .., 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, .., 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, .., 0)).mapping());
 
-    check_layout::<Const<2>, F::NonUnitStrided, _>(a.view((0, .., .., 0)).layout());
-    check_layout::<Const<3>, F, _>(a.view((.., .., .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., .., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., .., 0)).layout());
+    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view((0, .., .., 0)).mapping());
+    check_mapping::<Const<3>, L, _>(a.view((.., .., .., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., .., 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., .., 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., .., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., .., 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., .., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., .., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., .., 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., .., 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), .., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), .., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), .., 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), .., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), .., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), .., 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), .., 0)).mapping());
 
     // a.view((_, _, 1.., 0))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, 1.., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, 1.., 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, 1.., 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, 1.., 0)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, 1.., 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, 1.., 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, 1.., 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, 1.., 0)).mapping());
 
-    check_layout::<Const<2>, F::NonUnitStrided, _>(a.view((0, .., 1.., 0)).layout());
-    check_layout::<Const<3>, F, _>(a.view((.., .., 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., 1.., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., 1.., 0)).layout());
+    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view((0, .., 1.., 0)).mapping());
+    check_mapping::<Const<3>, L, _>(a.view((.., .., 1.., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., 1.., 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., 1.., 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., 1.., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., 1.., 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., 1.., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., 1.., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., 1.., 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., 1.., 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), 1.., 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), 1.., 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), 1.., 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), 1.., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), 1.., 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), 1.., 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), 1.., 0)).mapping());
 
     // a.view((_, _, sr(), 0))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, sr(), 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, sr(), 0)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, sr(), 0)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, sr(), 0)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, sr(), 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, sr(), 0)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, sr(), 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, sr(), 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, .., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., .., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., sr(), 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., sr(), 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, .., sr(), 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., .., sr(), 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., sr(), 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., sr(), 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., sr(), 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., sr(), 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., sr(), 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., sr(), 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., sr(), 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., sr(), 0)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), sr(), 0)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), sr(), 0)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), sr(), 0)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), sr(), 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), sr(), 0)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), sr(), 0)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), sr(), 0)).mapping());
 
     // a.view((_, _, 0, ..))
 
-    check_layout::<Const<1>, Flat, _>(a.view((0, 0, 0, ..)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((.., 0, 0, ..)).layout());
-    check_layout::<Const<2>, F::NonUniform, _>(a.view((1.., 0, 0, ..)).layout());
-    check_layout::<Const<2>, Strided, _>(a.view((sr(), 0, 0, ..)).layout());
+    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, 0, ..)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, 0, ..)).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, 0, ..)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, 0, ..)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, .., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., .., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., .., 0, ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), .., 0, ..)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, .., 0, ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., .., 0, ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., 0, ..)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., 0, ..)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 1.., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 1.., 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 1.., 0, ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 1.., 0, ..)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., 0, ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., 0, ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., 0, ..)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., 0, ..)).mapping());
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, sr(), 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., sr(), 0, ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., sr(), 0, ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), sr(), 0, ..)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), 0, ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), 0, ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), 0, ..)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), 0, ..)).mapping());
 
     // a.view((_, _, .., ..))
 
-    check_layout::<Const<2>, F::NonUnitStrided, _>(a.view((0, 0, .., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 0, .., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 0, .., ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 0, .., ..)).layout());
+    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view((0, 0, .., ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 0, .., ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 0, .., ..)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 0, .., ..)).mapping());
 
-    check_layout::<Const<3>, F::NonUnitStrided, _>(a.view((0, .., .., ..)).layout());
-    check_layout::<Const<4>, F, _>(a.view((.., .., .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., .., .., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), .., .., ..)).layout());
+    check_mapping::<Const<3>, L::NonUnitStrided, _>(a.view((0, .., .., ..)).mapping());
+    check_mapping::<Const<4>, L, _>(a.view((.., .., .., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., .., .., ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), .., .., ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, 1.., .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., 1.., .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., 1.., .., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), 1.., .., ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, 1.., .., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., 1.., .., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., 1.., .., ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), 1.., .., ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, sr(), .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., sr(), .., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., sr(), .., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), sr(), .., ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, sr(), .., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., sr(), .., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., sr(), .., ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), sr(), .., ..)).mapping());
 
     // a.view((_, _, 1.., ..))
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 0, 1.., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 0, 1.., ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 0, 1.., ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 0, 1.., ..)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, 0, 1.., ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 0, 1.., ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 0, 1.., ..)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 0, 1.., ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, .., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., .., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., .., 1.., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), .., 1.., ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, .., 1.., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., .., 1.., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., .., 1.., ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), .., 1.., ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, 1.., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., 1.., 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., 1.., 1.., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), 1.., 1.., ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, 1.., 1.., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., 1.., 1.., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., 1.., 1.., ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), 1.., 1.., ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, sr(), 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., sr(), 1.., ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., sr(), 1.., ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), sr(), 1.., ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, sr(), 1.., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., sr(), 1.., ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., sr(), 1.., ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), sr(), 1.., ..)).mapping());
 
     // a.view((_, _, sr(), ..))
 
-    check_layout::<Const<2>, Strided, _>(a.view((0, 0, sr(), ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((.., 0, sr(), ..)).layout());
-    check_layout::<Const<3>, F::NonUniform, _>(a.view((1.., 0, sr(), ..)).layout());
-    check_layout::<Const<3>, Strided, _>(a.view((sr(), 0, sr(), ..)).layout());
+    check_mapping::<Const<2>, Strided, _>(a.view((0, 0, sr(), ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 0, sr(), ..)).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 0, sr(), ..)).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 0, sr(), ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, .., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., .., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., .., sr(), ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), .., sr(), ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, .., sr(), ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., .., sr(), ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., .., sr(), ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), .., sr(), ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, 1.., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., 1.., sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., 1.., sr(), ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), 1.., sr(), ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, 1.., sr(), ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., 1.., sr(), ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., 1.., sr(), ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), 1.., sr(), ..)).mapping());
 
-    check_layout::<Const<3>, Strided, _>(a.view((0, sr(), sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((.., sr(), sr(), ..)).layout());
-    check_layout::<Const<4>, F::NonUniform, _>(a.view((1.., sr(), sr(), ..)).layout());
-    check_layout::<Const<4>, Strided, _>(a.view((sr(), sr(), sr(), ..)).layout());
+    check_mapping::<Const<3>, Strided, _>(a.view((0, sr(), sr(), ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., sr(), sr(), ..)).mapping());
+    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., sr(), sr(), ..)).mapping());
+    check_mapping::<Const<4>, Strided, _>(a.view((sr(), sr(), sr(), ..)).mapping());
 }
 
 fn sr() -> StepRange<RangeFull, isize> {
@@ -413,29 +413,6 @@ fn test_iter() {
 }
 
 #[test]
-fn test_layout() {
-    let d = Layout::<Const<3>, Dense>::new([1, 2, 3]);
-    let f = Layout::<Const<3>, Flat>::new([1, 2, 3], 4);
-    let g = Layout::<Const<3>, General>::new([1, 2, 3], [4, 5]);
-    let s = Layout::<Const<3>, Strided>::new([1, 2, 3], [4, 5, 6]);
-
-    assert_eq!(d.is_contiguous(), true);
-    assert_eq!(f.is_empty(), false);
-    assert_eq!(g.is_uniformly_strided(), false);
-    assert_eq!(s.len(), 6);
-
-    assert_eq!(d.shape(), [1, 2, 3]);
-    assert_eq!(f.size(2), 3);
-    assert_eq!(g.stride(0), 1);
-    assert_eq!(s.strides(), [4, 5, 6]);
-
-    assert_eq!(format!("{:?}", d), "DenseLayout { shape: [1, 2, 3] }");
-    assert_eq!(format!("{:?}", f), "FlatLayout { shape: [1, 2, 3], inner_stride: 4 }");
-    assert_eq!(format!("{:?}", g), "GeneralLayout { shape: [1, 2, 3], outer_strides: [4, 5] }");
-    assert_eq!(format!("{:?}", s), "StridedLayout { shape: [1, 2, 3], strides: [4, 5, 6] }");
-}
-
-#[test]
 fn test_macros() {
     let grid1: Grid<usize, 1> = grid![];
     let grid2: Grid<usize, 2> = grid![[]];
@@ -492,6 +469,29 @@ fn test_macros() {
     assert_eq!(view![[[[0; 1]; 2]; 3]; 4], View::from(&[[[[0; 1]; 2]; 3]; 4]));
     assert_eq!(view![[[[[0; 1]; 2]; 3]; 4]; 5], View::from(&[[[[[0; 1]; 2]; 3]; 4]; 5]));
     assert_eq!(view![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], View::from(&[[[[[[0; 1]; 2]; 3]; 4]; 5]; 6]));
+}
+
+#[test]
+fn test_mapping() {
+    let d = DenseMapping::<Const<3>>::new([1, 2, 3]);
+    let f = FlatMapping::<Const<3>>::new([1, 2, 3], 4);
+    let g = GeneralMapping::<Const<3>>::new([1, 2, 3], [4, 5]);
+    let s = StridedMapping::<Const<3>>::new([1, 2, 3], [4, 5, 6]);
+
+    assert_eq!(d.is_contiguous(), true);
+    assert_eq!(f.is_empty(), false);
+    assert_eq!(g.is_uniformly_strided(), false);
+    assert_eq!(s.len(), 6);
+
+    assert_eq!(d.shape(), [1, 2, 3]);
+    assert_eq!(f.size(2), 3);
+    assert_eq!(g.stride(0), 1);
+    assert_eq!(s.strides(), [4, 5, 6]);
+
+    assert_eq!(format!("{:?}", d), "DenseMapping { shape: [1, 2, 3] }");
+    assert_eq!(format!("{:?}", f), "FlatMapping { shape: [1, 2, 3], inner_stride: 4 }");
+    assert_eq!(format!("{:?}", g), "GeneralMapping { shape: [1, 2, 3], outer_strides: [4, 5] }");
+    assert_eq!(format!("{:?}", s), "StridedMapping { shape: [1, 2, 3], strides: [4, 5, 6] }");
 }
 
 #[test]

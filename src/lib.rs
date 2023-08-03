@@ -29,23 +29,23 @@
 //!   array without duplicating elements.
 //! - `Array<SpanBuffer>` is used as a generic array reference, similar to the
 //!   Rust `slice` type. It consists of a pointer to an internal structure that
-//!   holds the storage and the layout. Arrays and array views automatically
-//!   dereference to an array span.
+//!   holds the storage and the layout mapping. Arrays and array views can be
+//!   dereferenced to an array span.
 //!
-//! The array layout describes how elements are stored in memory. The layout
-//! is parameterized by the rank (i.e. the number of dimensions) and the storage
-//! format. It contains the shape (i.e. the size in each dimension), and the
+//! The layout mapping describes how elements are stored in memory. The mapping
+//! is parameterized by the rank (i.e. the number of dimensions) and the array
+//! layout. It contains the shape (i.e. the size in each dimension), and the
 //! strides per dimension if needed.
 //!
-//! The storage format is `Dense` if elements are stored contiguously without gaps.
+//! The array layout is `Dense` if elements are stored contiguously without gaps.
 //! In this case, the strides are calculated from the shape and not stored as
-//! part of the layout. The format is `General` if each dimension can have
+//! part of the layout. The layout is `General` if each dimension can have
 //! arbitrary stride except for the innermost one, which has unit stride. It is
 //! compatible with the BLAS/LAPACK general matrix storage.
 //!
-//! The format is `Flat` if the innermost dimension can have arbitrary stride
+//! The layout is `Flat` if the innermost dimension can have arbitrary stride
 //! and the other dimensions must follow in order, allowing for linear indexing.
-//! The format is `Strided` if all dimensions can have arbitrary strides.
+//! The layout is `Strided` if all dimensions can have arbitrary strides.
 //!
 //! The array elements are stored in column-major order, also known as Fortran
 //! order where the innermost dimension is the innermost one.
@@ -67,18 +67,18 @@
 //! Scalar indexing is done using the normal square-bracket index operator and
 //! an array of `usize` per dimension as index.
 //!
-//! If the array layout type supports linear indexing, a scalar `usize` can also
-//! be used as index. If the array layout type supports slice indexing, a range
-//! can be used as index to select a slice.
+//! If the array layout supports linear indexing, a scalar `usize` can also
+//! be used as index. If the layout supports slice indexing, a range can be used
+//! as index to select a slice.
 //!
 //! An array view can be created with the `view` and `view_mut` methods and a
 //! tuple of indices per dimension as argument. Each index can be either a range
-//! or `usize`. The resulting storage format depends on both the format inferred
-//! from the indices and the input format.
+//! or `usize`. The resulting array layout depends on both the layout inferred
+//! from the indices and the input layout.
 //!
 //! ## Iteration
 //!
-//! If the array layout type supports linear indexing, an iterator can be created
+//! If the array layout supports linear indexing, an iterator can be created
 //! with the `iter`, `iter_mut` and `into_iter` methods like `Vec` and `slice`.
 //!
 //! For multidimensional arrays, indexing over a single dimension is done
@@ -86,9 +86,9 @@
 //! `axis_iter`/`axis_iter_mut` methods. The iterators give array views of
 //! the remaining dimensions.
 //!
-//! If linear indexing is possible but the array layout type is not known, the
-//! `reformat`, `reformat_mut` and `into_format` methods can be used to change
-//! format with runtime checking. Alternatively, the `flatten`, `flatten_mut`
+//! If linear indexing is possible but the array layout is not known, the
+//! `remap`, `remap_mut` and `into_mapping` methods can be used to change
+//! layout with runtime checking. Alternatively, the `flatten`, `flatten_mut`
 //! and `into_flattened` methods can be used to change to a one-dimensional
 //! array.
 //!
@@ -168,7 +168,6 @@ pub mod iter {
 mod array;
 mod buffer;
 mod dim;
-mod format;
 mod grid;
 mod layout;
 mod macros;
@@ -202,8 +201,8 @@ pub use array::Array;
 pub use buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
 pub use buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 pub use dim::{Const, Dim, Shape, Strides};
-pub use format::{Dense, Flat, Format, General, Strided, Uniform, UnitStrided};
-pub use layout::Layout;
+pub use layout::{Dense, Flat, General, Layout, Strided, Uniform, UnitStrided};
+pub use mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 pub use ops::{fill, step, Fill, StepRange};
 
 /// Dense multidimensional array.

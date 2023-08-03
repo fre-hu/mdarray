@@ -13,8 +13,8 @@ use crate::alloc::Allocator;
 use crate::array::{Array, GridArray, SpanArray};
 use crate::buffer::{Buffer, BufferMut};
 use crate::dim::{Const, Dim};
-use crate::format::Format;
-use crate::layout::DenseLayout;
+use crate::layout::Layout;
+use crate::mapping::DenseMapping;
 
 /// Fill value to be used as scalar operand for array operators.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -55,8 +55,8 @@ impl<T: Eq, B: Buffer<Item = T> + ?Sized> Eq for Array<B> where Self: PartialEq 
 
 impl<T: Ord, B: Buffer<Item = T, Dim = Const<1>> + ?Sized> Ord for Array<B> {
     fn cmp(&self, other: &Self) -> Ordering {
-        if B::Format::IS_UNIFORM && B::Format::IS_UNIT_STRIDED {
-            self.as_span().reformat().as_slice().cmp(other.as_span().reformat().as_slice())
+        if B::Layout::IS_UNIFORM && B::Layout::IS_UNIT_STRIDED {
+            self.as_span().remap().as_slice().cmp(other.as_span().remap().as_slice())
         } else {
             self.as_span().flatten().iter().cmp(other.as_span().flatten().iter())
         }
@@ -79,10 +79,10 @@ where
     B::Item: PartialEq<C::Item>,
 {
     fn eq(&self, other: &Array<C>) -> bool {
-        if B::Format::IS_UNIFORM && C::Format::IS_UNIFORM {
+        if B::Layout::IS_UNIFORM && C::Layout::IS_UNIFORM {
             if self.as_span().shape()[..] == other.as_span().shape()[..] {
-                if B::Format::IS_UNIT_STRIDED && C::Format::IS_UNIT_STRIDED {
-                    self.as_span().reformat().as_slice().eq(other.as_span().reformat().as_slice())
+                if B::Layout::IS_UNIT_STRIDED && C::Layout::IS_UNIT_STRIDED {
+                    self.as_span().remap().as_slice().eq(other.as_span().remap().as_slice())
                 } else {
                     self.as_span().flatten().iter().eq(other.as_span().flatten().iter())
                 }
@@ -110,7 +110,7 @@ macro_rules! impl_binary_op {
                 unsafe {
                     from_binary_op(&mut vec, self.as_span(), rhs.as_span(), &|x, y| x.$fn(y));
 
-                    GridArray::from_parts(vec, DenseLayout::new(self.as_span().shape()))
+                    GridArray::from_parts(vec, DenseMapping::new(self.as_span().shape()))
                 }
             }
         }
@@ -127,7 +127,7 @@ macro_rules! impl_binary_op {
                 unsafe {
                     from_unary_op(&mut vec, self.as_span(), &|x| x.$fn(rhs.value));
 
-                    GridArray::from_parts(vec, DenseLayout::new(self.as_span().shape()))
+                    GridArray::from_parts(vec, DenseMapping::new(self.as_span().shape()))
                 }
             }
         }
@@ -158,7 +158,7 @@ macro_rules! impl_binary_op {
                 unsafe {
                     from_unary_op(&mut vec, rhs.as_span(), &|x| self.value.$fn(x));
 
-                    GridArray::from_parts(vec, DenseLayout::new(rhs.as_span().shape()))
+                    GridArray::from_parts(vec, DenseMapping::new(rhs.as_span().shape()))
                 }
             }
         }
@@ -264,7 +264,7 @@ macro_rules! impl_unary_op {
                 unsafe {
                     from_unary_op(&mut vec, self.as_span(), &|x| x.$fn());
 
-                    GridArray::from_parts(vec, DenseLayout::new(self.as_span().shape()))
+                    GridArray::from_parts(vec, DenseMapping::new(self.as_span().shape()))
                 }
             }
         }
@@ -287,13 +287,13 @@ macro_rules! impl_unary_op {
 impl_unary_op!(Neg, neg);
 impl_unary_op!(Not, not);
 
-unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim>(
+unsafe fn from_binary_op<T, L: Layout, M: Layout, U, V, D: Dim>(
     vec: &mut Vec<V>,
-    lhs: &SpanArray<T, D, F>,
-    rhs: &SpanArray<U, D, G>,
+    lhs: &SpanArray<T, D, L>,
+    rhs: &SpanArray<U, D, M>,
     f: &impl Fn(&T, &U) -> V,
 ) {
-    if F::IS_UNIFORM && G::IS_UNIFORM {
+    if L::IS_UNIFORM && M::IS_UNIFORM {
         assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
 
         for (x, y) in lhs.flatten().iter().zip(rhs.flatten().iter()) {
@@ -311,12 +311,12 @@ unsafe fn from_binary_op<T, F: Format, G: Format, U, V, D: Dim>(
     }
 }
 
-unsafe fn from_unary_op<T, F: Format, U>(
+unsafe fn from_unary_op<T, L: Layout, U>(
     vec: &mut Vec<U>,
-    other: &SpanArray<T, impl Dim, F>,
+    other: &SpanArray<T, impl Dim, L>,
     f: &impl Fn(&T) -> U,
 ) {
-    if F::IS_UNIFORM {
+    if L::IS_UNIFORM {
         for x in other.flatten().iter() {
             debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
 
@@ -330,12 +330,12 @@ unsafe fn from_unary_op<T, F: Format, U>(
     }
 }
 
-fn map_binary_op<T, F: Format, G: Format, U, D: Dim>(
-    this: &mut SpanArray<T, D, F>,
-    other: &SpanArray<U, D, G>,
+fn map_binary_op<T, L: Layout, M: Layout, U, D: Dim>(
+    this: &mut SpanArray<T, D, L>,
+    other: &SpanArray<U, D, M>,
     f: &impl Fn((&mut T, &U)),
 ) {
-    if F::IS_UNIFORM && G::IS_UNIFORM {
+    if L::IS_UNIFORM && M::IS_UNIFORM {
         assert!(this.shape()[..] == other.shape()[..], "shape mismatch");
 
         this.flatten_mut().iter_mut().zip(other.flatten().iter()).for_each(f);
@@ -348,8 +348,8 @@ fn map_binary_op<T, F: Format, G: Format, U, D: Dim>(
     }
 }
 
-fn map_unary_op<T, F: Format>(this: &mut SpanArray<T, impl Dim, F>, f: &impl Fn(&mut T)) {
-    if F::IS_UNIFORM {
+fn map_unary_op<T, L: Layout>(this: &mut SpanArray<T, impl Dim, L>, f: &impl Fn(&mut T)) {
+    if L::IS_UNIFORM {
         this.flatten_mut().iter_mut().for_each(f);
     } else {
         for mut x in this.outer_iter_mut() {

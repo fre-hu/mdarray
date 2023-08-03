@@ -1,64 +1,128 @@
 use std::fmt::{Debug, Formatter, Result};
 
 use crate::array::SpanArray;
-use crate::dim::{Const, Dim, Shape};
-use crate::format::{Dense, Flat, Format, General, Strided};
+use crate::dim::{Const, Dim};
 use crate::iter::sources::{FlatIter, FlatIterMut};
-use crate::layout::{DenseLayout, FlatLayout, GeneralLayout, Layout, StridedLayout};
+use crate::layout::{Dense, Flat, General, Layout, Strided};
 
+/// Array layout mapping, including shape and strides.
 pub trait Mapping: Copy + Debug + Default {
+    /// Array dimension type.
     type Dim: Dim;
-    type Format: Format;
 
+    /// Array layout type.
+    type Layout: Layout<Mapping<Self::Dim> = Self>;
+
+    /// Returns `true` if the array strides are consistent with contiguous memory layout.
     fn is_contiguous(self) -> bool;
+
+    /// Returns `true` if the array strides are consistent with uniformly strided memory layout.
     fn is_uniformly_strided(self) -> bool;
+
+    /// Returns the shape of the array.
     fn shape(self) -> <Self::Dim as Dim>::Shape;
+
+    /// Returns the distance between elements in each dimension.
     fn strides(self) -> <Self::Dim as Dim>::Strides;
 
-    fn add_dim<F: Format>(layout: Reformat<Self, F>, size: usize, stride: isize) -> Higher<Self>;
-    fn flatten(self) -> Flatten<Self>;
-    fn reformat<F: Format>(layout: Reformat<Self, F>) -> Layout<Self::Dim, Self::Format>;
-    fn remove_dim<F: Format>(layout: Reformat<Self, F>, dim: usize) -> Lower<Self>;
-    fn reshape<S: Shape, F: Format>(layout: Reformat<Self, F>, new_shape: S) -> Reshape<Self, S>;
-    fn resize_dim(self, dim: usize, new_size: usize) -> Layout<Self::Dim, Self::Format>;
+    /// Returns `true` if the array contains no elements.
+    fn is_empty(self) -> bool {
+        self.len() == 0
+    }
 
-    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self>;
-    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self>;
-
+    /// Returns the number of elements in the array.
     fn len(self) -> usize {
         self.shape()[..].iter().product()
     }
+
+    /// Returns the number of elements in the specified dimension.
+    /// # Panics
+    /// Panics if the dimension is out of bounds.
+    fn size(self, dim: usize) -> usize {
+        assert!(dim < Self::Dim::RANK, "invalid dimension");
+
+        self.shape()[dim]
+    }
+
+    /// Returns the distance between elements in the specified dimension.
+    /// # Panics
+    /// Panics if the dimension is out of bounds.
+    fn stride(self, dim: usize) -> isize {
+        assert!(dim < Self::Dim::RANK, "invalid dimension");
+
+        self.strides()[dim]
+    }
+
+    #[doc(hidden)]
+    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self
+    where
+        M::Dim: Dim<Higher = Self::Dim>;
+
+    #[doc(hidden)]
+    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Layout>) -> Iter<T, Self>;
+
+    #[doc(hidden)]
+    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Layout>) -> IterMut<T, Self>;
+
+    #[doc(hidden)]
+    fn remap<M: Mapping<Dim = Self::Dim>>(mapping: M) -> Self;
+
+    #[doc(hidden)]
+    fn remove_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        M::Dim: Dim<Lower = Self::Dim>;
+
+    #[doc(hidden)]
+    fn reshape<M: Mapping>(mapping: M, new_shape: <Self::Dim as Dim>::Shape) -> Self;
+
+    #[doc(hidden)]
+    fn resize_dim(self, dim: usize, new_size: usize) -> Self;
+
+    #[doc(hidden)]
+    fn offset(self, index: <Self::Dim as Dim>::Shape) -> isize {
+        let shape = self.shape();
+        let strides = self.strides();
+
+        let mut offset = 0;
+
+        for i in 0..Self::Dim::RANK {
+            debug_assert!(index[i] < shape[i], "index out of bounds");
+
+            offset += strides[i] * index[i] as isize;
+        }
+
+        offset
+    }
 }
 
+/// Dense layout mapping type.
 pub struct DenseMapping<D: Dim> {
     shape: D::Shape,
 }
 
+/// Flat layout mapping type.
 pub struct FlatMapping<D: Dim> {
     shape: D::Shape,
     inner_stride: isize,
 }
 
+/// General layout mapping type.
 pub struct GeneralMapping<D: Dim> {
     shape: D::Shape,
     outer_strides: <D::Lower as Dim>::Strides,
 }
 
+/// Strided layout mapping type.
 pub struct StridedMapping<D: Dim> {
     shape: D::Shape,
     strides: D::Strides,
 }
 
-type Flatten<M> = Layout<Const<1>, <<M as Mapping>::Format as Format>::Uniform>;
-type Higher<M> = Redim<M, <<M as Mapping>::Dim as Dim>::Higher>;
-type Iter<'a, T, M> = <<M as Mapping>::Format as Format>::Iter<'a, T>;
-type IterMut<'a, T, M> = <<M as Mapping>::Format as Format>::IterMut<'a, T>;
-type Lower<M> = Redim<M, <<M as Mapping>::Dim as Dim>::Lower>;
-type Redim<M, D> = Layout<D, <M as Mapping>::Format>;
-type Reformat<M, F> = Layout<<M as Mapping>::Dim, F>;
-type Reshape<M, S> = Redim<M, <S as Shape>::Dim>;
+type Iter<'a, T, M> = <<M as Mapping>::Layout as Layout>::Iter<'a, T>;
+type IterMut<'a, T, M> = <<M as Mapping>::Layout as Layout>::IterMut<'a, T>;
 
 impl<D: Dim> DenseMapping<D> {
+    /// Creates a new, dense layout mapping with the specified shape.
     pub fn new(shape: D::Shape) -> Self {
         Self { shape }
     }
@@ -74,7 +138,7 @@ impl<D: Dim> Copy for DenseMapping<D> {}
 
 impl<D: Dim> Debug for DenseMapping<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.debug_struct("DenseLayout").field("shape", &self.shape).finish()
+        f.debug_struct("DenseMapping").field("shape", &self.shape).finish()
     }
 }
 
@@ -86,7 +150,7 @@ impl<D: Dim> Default for DenseMapping<D> {
 
 impl<D: Dim> Mapping for DenseMapping<D> {
     type Dim = D;
-    type Format = Dense;
+    type Layout = Dense;
 
     fn is_contiguous(self) -> bool {
         true
@@ -112,71 +176,57 @@ impl<D: Dim> Mapping for DenseMapping<D> {
         strides
     }
 
-    fn add_dim<F: Format>(layout: Reformat<Self, F>, size: usize, stride: isize) -> Higher<Self> {
-        assert!(D::Higher::RANK > D::RANK, "invalid rank");
-        assert!(F::IS_UNIFORM && F::IS_UNIT_STRIDED, "invalid format");
-        assert!(stride == layout.len() as isize, "invalid stride");
+    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self
+    where
+        M::Dim: Dim<Higher = D>,
+    {
+        assert!(M::Layout::IS_UNIFORM && M::Layout::IS_UNIT_STRIDED, "invalid layout");
+        assert!(stride == mapping.len() as isize, "invalid stride");
 
-        let mut shape = <D::Higher as Dim>::Shape::default();
-
-        shape[..D::RANK].copy_from_slice(&layout.shape()[..]);
-        shape[D::RANK] = size;
-
-        DenseLayout::new(shape)
+        Self::new(M::Dim::add_dim(mapping.shape(), size))
     }
 
-    fn flatten(self) -> Flatten<Self> {
-        DenseLayout::new([self.len()])
-    }
-
-    fn reformat<F: Format>(layout: Reformat<Self, F>) -> Layout<Self::Dim, Self::Format> {
-        assert!(layout.is_contiguous(), "array layout not contiguous");
-
-        DenseLayout::new(layout.shape())
-    }
-
-    fn remove_dim<F: Format>(layout: Reformat<Self, F>, dim: usize) -> Lower<Self> {
-        assert!(D::RANK < 2 || F::IS_UNIT_STRIDED, "invalid format");
-        assert!(D::RANK < 3 || F::IS_UNIFORM, "invalid format");
-        assert!(D::RANK > 0 && dim == D::RANK - 1, "invalid dimension");
-
-        let mut shape = <D::Lower as Dim>::Shape::default();
-
-        if D::RANK > 1 {
-            shape[..].copy_from_slice(&layout.shape()[..D::RANK - 1]);
-        }
-
-        DenseLayout::new(shape)
-    }
-
-    fn reshape<S: Shape, F: Format>(layout: Reformat<Self, F>, new_shape: S) -> Reshape<Self, S> {
-        assert!(F::IS_UNIFORM && F::IS_UNIT_STRIDED, "invalid format");
-
-        let new_len = new_shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
-
-        assert!(new_len == layout.len(), "array length must not change");
-
-        DenseLayout::new(new_shape)
-    }
-
-    fn resize_dim(mut self, dim: usize, new_size: usize) -> Layout<Self::Dim, Self::Format> {
-        assert!(D::RANK > 0 && dim == D::RANK - 1, "invalid dimension");
-
-        self.shape[dim] = new_size;
-
-        DenseLayout::new(self.shape)
-    }
-
-    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
+    fn iter<T>(span: &SpanArray<T, D, Dense>) -> Iter<T, Self> {
         span.as_slice().iter()
     }
 
-    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
+    fn iter_mut<T>(span: &mut SpanArray<T, D, Dense>) -> IterMut<T, Self> {
         span.as_mut_slice().iter_mut()
+    }
+
+    fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
+        assert!(mapping.is_contiguous(), "mapping not contiguous");
+
+        Self::new(mapping.shape())
+    }
+
+    fn remove_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        M::Dim: Dim<Lower = D>,
+    {
+        assert!(D::RANK < 1 || M::Layout::IS_UNIT_STRIDED, "invalid layout");
+        assert!(D::RANK < 2 || M::Layout::IS_UNIFORM, "invalid layout");
+        assert!(dim == D::RANK, "invalid dimension");
+
+        Self::new(M::Dim::remove_dim(mapping.shape(), dim))
+    }
+
+    fn reshape<M: Mapping>(mapping: M, new_shape: D::Shape) -> Self {
+        assert!(mapping.is_contiguous(), "mapping not contiguous");
+        assert!(D::checked_len(new_shape) == mapping.len(), "length must not change");
+
+        Self::new(new_shape)
+    }
+
+    fn resize_dim(self, dim: usize, new_size: usize) -> Self {
+        assert!(dim + 1 == D::RANK, "invalid dimension");
+
+        Self::new(D::resize_dim(self.shape, dim, new_size))
     }
 }
 
 impl<D: Dim> FlatMapping<D> {
+    /// Creates a new, flat layout mapping with the specified shape and inner stride.
     pub fn new(shape: D::Shape, inner_stride: isize) -> Self {
         assert!(D::RANK > 0, "invalid rank");
 
@@ -194,7 +244,7 @@ impl<D: Dim> Copy for FlatMapping<D> {}
 
 impl<D: Dim> Debug for FlatMapping<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.debug_struct("FlatLayout")
+        f.debug_struct("FlatMapping")
             .field("shape", &self.shape)
             .field("inner_stride", &self.inner_stride)
             .finish()
@@ -211,7 +261,7 @@ impl<D: Dim> Default for FlatMapping<D> {
 
 impl<D: Dim> Mapping for FlatMapping<D> {
     type Dim = D;
-    type Format = Flat;
+    type Layout = Flat;
 
     fn is_contiguous(self) -> bool {
         self.inner_stride == 1
@@ -237,81 +287,67 @@ impl<D: Dim> Mapping for FlatMapping<D> {
         strides
     }
 
-    fn add_dim<F: Format>(layout: Reformat<Self, F>, size: usize, stride: isize) -> Higher<Self> {
-        assert!(D::Higher::RANK > D::RANK, "invalid rank");
-        assert!(F::IS_UNIFORM, "invalid format");
+    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self
+    where
+        M::Dim: Dim<Higher = D>,
+    {
+        assert!(M::Layout::IS_UNIFORM, "invalid layout");
 
-        let inner_stride = if D::RANK > 0 { layout.stride(0) } else { stride };
+        let inner_stride = if M::Dim::RANK > 0 { mapping.stride(0) } else { stride };
 
-        assert!(stride == inner_stride * layout.len() as isize, "invalid stride");
+        assert!(stride == inner_stride * mapping.len() as isize, "invalid stride");
 
-        let mut shape = <D::Higher as Dim>::Shape::default();
-
-        shape[..D::RANK].copy_from_slice(&layout.shape()[..]);
-        shape[D::RANK] = size;
-
-        FlatLayout::new(shape, inner_stride)
+        Self::new(M::Dim::add_dim(mapping.shape(), size), inner_stride)
     }
 
-    fn flatten(self) -> Flatten<Self> {
-        FlatLayout::new([self.len()], self.inner_stride)
+    fn iter<T>(span: &SpanArray<T, D, Flat>) -> Iter<T, Self> {
+        let mapping = FlatMapping::<Const<1>>::reshape(span.mapping(), [span.len()]);
+
+        unsafe { FlatIter::new_unchecked(span.as_ptr(), mapping.size(0), mapping.stride(0)) }
     }
 
-    fn reformat<F: Format>(layout: Reformat<Self, F>) -> Layout<Self::Dim, Self::Format> {
+    fn iter_mut<T>(span: &mut SpanArray<T, D, Flat>) -> IterMut<T, Self> {
+        let mapping = FlatMapping::<Const<1>>::reshape(span.mapping(), [span.len()]);
+
+        unsafe { FlatIterMut::new_unchecked(span.as_mut_ptr(), mapping.size(0), mapping.stride(0)) }
+    }
+
+    fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
         assert!(D::RANK > 0, "invalid rank");
-        assert!(layout.is_uniformly_strided(), "array layout not uniformly strided");
+        assert!(mapping.is_uniformly_strided(), "mapping not uniformly strided");
 
-        FlatLayout::new(layout.shape(), layout.stride(0))
+        Self::new(mapping.shape(), mapping.stride(0))
     }
 
-    fn remove_dim<F: Format>(layout: Reformat<Self, F>, dim: usize) -> Lower<Self> {
-        assert!(D::RANK > 1, "invalid rank");
-        assert!(D::RANK < 3 || F::IS_UNIFORM, "invalid format");
-        assert!(dim == 0 || dim == D::RANK - 1, "invalid dimension");
+    fn remove_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        M::Dim: Dim<Lower = D>,
+    {
+        assert!(D::RANK > 0, "invalid rank");
+        assert!(D::RANK < 2 || M::Layout::IS_UNIFORM, "invalid layout");
+        assert!(dim == 0 || dim == D::RANK, "invalid dimension");
 
-        let mut shape = <D::Lower as Dim>::Shape::default();
+        let inner_stride = if dim > 0 { mapping.stride(0) } else { mapping.stride(1) };
 
-        shape[..dim].copy_from_slice(&layout.shape()[..dim]);
-        shape[dim..].copy_from_slice(&layout.shape()[dim + 1..]);
-
-        let size = if dim == 0 { layout.size(dim) } else { 1 };
-
-        FlatLayout::new(shape, layout.stride(0) * size as isize)
+        Self::new(M::Dim::remove_dim(mapping.shape(), dim), inner_stride)
     }
 
-    fn reshape<S: Shape, F: Format>(layout: Reformat<Self, F>, new_shape: S) -> Reshape<Self, S> {
-        assert!(<S::Dim as Dim>::RANK > 0, "invalid rank");
-        assert!(F::IS_UNIFORM, "invalid format");
+    fn reshape<M: Mapping>(mapping: M, new_shape: D::Shape) -> Self {
+        assert!(mapping.is_uniformly_strided(), "mapping not uniformly strided");
+        assert!(D::checked_len(new_shape) == mapping.len(), "length must not change");
 
-        let new_len = new_shape[..].iter().fold(1usize, |acc, &x| acc.saturating_mul(x));
-
-        assert!(new_len == layout.len(), "array length must not change");
-
-        FlatLayout::new(new_shape, if D::RANK > 0 { layout.stride(0) } else { 1 })
+        Self::new(new_shape, if M::Dim::RANK > 0 { mapping.stride(0) } else { 1 })
     }
 
-    fn resize_dim(mut self, dim: usize, new_size: usize) -> Layout<Self::Dim, Self::Format> {
-        assert!(dim == D::RANK - 1, "invalid dimension");
+    fn resize_dim(self, dim: usize, new_size: usize) -> Self {
+        assert!(dim + 1 == D::RANK, "invalid dimension");
 
-        self.shape[dim] = new_size;
-
-        FlatLayout::new(self.shape, self.inner_stride)
-    }
-
-    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
-        let layout = span.layout().flatten();
-
-        unsafe { FlatIter::new_unchecked(span.as_ptr(), layout.size(0), layout.stride(0)) }
-    }
-
-    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
-        let layout = span.layout().flatten();
-
-        unsafe { FlatIterMut::new_unchecked(span.as_mut_ptr(), layout.size(0), layout.stride(0)) }
+        Self::new(D::resize_dim(self.shape, dim, new_size), self.inner_stride)
     }
 }
 
 impl<D: Dim> GeneralMapping<D> {
+    /// Creates a new, general layout mapping with the specified shape and outer strides.
     pub fn new(shape: D::Shape, outer_strides: <D::Lower as Dim>::Strides) -> Self {
         assert!(D::RANK > 1, "invalid rank");
 
@@ -329,7 +365,7 @@ impl<D: Dim> Copy for GeneralMapping<D> {}
 
 impl<D: Dim> Debug for GeneralMapping<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.debug_struct("GeneralLayout")
+        f.debug_struct("GeneralMapping")
             .field("shape", &self.shape)
             .field("outer_strides", &self.outer_strides)
             .finish()
@@ -346,7 +382,7 @@ impl<D: Dim> Default for GeneralMapping<D> {
 
 impl<D: Dim> Mapping for GeneralMapping<D> {
     type Dim = D;
-    type Format = General;
+    type Layout = General;
 
     fn is_contiguous(self) -> bool {
         let mut stride = self.shape[0];
@@ -379,63 +415,55 @@ impl<D: Dim> Mapping for GeneralMapping<D> {
         strides
     }
 
-    fn add_dim<F: Format>(layout: Reformat<Self, F>, size: usize, stride: isize) -> Higher<Self> {
-        assert!(D::RANK > 0 && D::Higher::RANK > D::RANK, "invalid rank");
-        assert!(F::IS_UNIT_STRIDED, "invalid format");
+    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self
+    where
+        M::Dim: Dim<Higher = D>,
+    {
+        assert!(M::Layout::IS_UNIT_STRIDED, "invalid layout");
 
-        StridedMapping::add_dim(layout, size, stride).reformat()
+        Self::remap(StridedMapping::add_dim(mapping, size, stride))
     }
 
-    fn flatten(self) -> Flatten<Self> {
-        assert!(self.is_contiguous(), "array layout not contiguous");
-
-        DenseLayout::new([self.len()])
+    fn iter<T>(_: &SpanArray<T, D, General>) -> Iter<T, Self> {
+        panic!("invalid layout");
     }
 
-    fn reformat<F: Format>(layout: Reformat<Self, F>) -> Layout<Self::Dim, Self::Format> {
+    fn iter_mut<T>(_: &mut SpanArray<T, D, General>) -> IterMut<T, Self> {
+        panic!("invalid layout");
+    }
+
+    fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
         assert!(D::RANK > 1, "invalid rank");
-        assert!(layout.stride(0) == 1, "inner stride not unitary");
+        assert!(mapping.stride(0) == 1, "inner stride not unitary");
 
         let mut outer_strides = <D::Lower as Dim>::Strides::default();
 
-        outer_strides[..].copy_from_slice(&layout.strides()[1..]);
+        outer_strides[..].copy_from_slice(&mapping.strides()[1..]);
 
-        GeneralLayout::new(layout.shape(), outer_strides)
+        Self::new(mapping.shape(), outer_strides)
     }
 
-    fn remove_dim<F: Format>(layout: Reformat<Self, F>, dim: usize) -> Lower<Self> {
-        assert!(D::RANK > 2, "invalid rank");
-        assert!(F::IS_UNIT_STRIDED, "invalid format");
-        assert!(dim != 0, "invalid dimension");
+    fn remove_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        M::Dim: Dim<Lower = D>,
+    {
+        assert!(M::Layout::IS_UNIT_STRIDED, "invalid layout");
+        assert!(dim > 0, "invalid dimension");
 
-        StridedMapping::remove_dim(layout, dim).reformat()
+        Self::remap(StridedMapping::remove_dim(mapping, dim))
     }
 
-    fn reshape<S: Shape, F: Format>(layout: Reformat<Self, F>, new_shape: S) -> Reshape<Self, S> {
-        assert!(<S::Dim as Dim>::RANK > 1, "invalid rank");
-        assert!(F::IS_UNIT_STRIDED, "invalid format");
-
-        StridedMapping::reshape(layout, new_shape).reformat()
+    fn reshape<M: Mapping>(mapping: M, new_shape: D::Shape) -> Self {
+        Self::remap(StridedMapping::reshape(mapping, new_shape))
     }
 
-    fn resize_dim(mut self, dim: usize, new_size: usize) -> Layout<Self::Dim, Self::Format> {
-        assert!(dim < D::RANK, "invalid dimension");
-
-        self.shape[dim] = new_size;
-
-        GeneralLayout::new(self.shape, self.outer_strides)
-    }
-
-    fn iter<T>(_: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
-        panic!("invalid format");
-    }
-
-    fn iter_mut<T>(_: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
-        panic!("invalid format");
+    fn resize_dim(self, dim: usize, new_size: usize) -> Self {
+        Self::new(D::resize_dim(self.shape, dim, new_size), self.outer_strides)
     }
 }
 
 impl<D: Dim> StridedMapping<D> {
+    /// Creates a new, strided layout mapping with the specified shape and strides.
     pub fn new(shape: D::Shape, strides: D::Strides) -> Self {
         assert!(D::RANK > 1, "invalid rank");
 
@@ -453,7 +481,7 @@ impl<D: Dim> Copy for StridedMapping<D> {}
 
 impl<D: Dim> Debug for StridedMapping<D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        f.debug_struct("StridedLayout")
+        f.debug_struct("StridedMapping")
             .field("shape", &self.shape)
             .field("strides", &self.strides)
             .finish()
@@ -474,7 +502,7 @@ impl<D: Dim> Default for StridedMapping<D> {
 
 impl<D: Dim> Mapping for StridedMapping<D> {
     type Dim = D;
-    type Format = Strided;
+    type Layout = Strided;
 
     fn is_contiguous(self) -> bool {
         self.strides[0] == 1 && self.is_uniformly_strided()
@@ -502,56 +530,52 @@ impl<D: Dim> Mapping for StridedMapping<D> {
         self.strides
     }
 
-    fn add_dim<F: Format>(layout: Reformat<Self, F>, size: usize, stride: isize) -> Higher<Self> {
-        assert!(D::RANK > 0 && D::Higher::RANK > D::RANK, "invalid rank");
+    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self
+    where
+        M::Dim: Dim<Higher = D>,
+    {
+        assert!(D::RANK > M::Dim::RANK, "invalid rank");
 
-        let mut shape = <D::Higher as Dim>::Shape::default();
-        let mut strides = <D::Higher as Dim>::Strides::default();
+        let mut strides = D::Strides::default();
 
-        shape[..D::RANK].copy_from_slice(&layout.shape()[..]);
-        shape[D::RANK] = size;
+        strides[..D::RANK - 1].copy_from_slice(&mapping.strides()[..]);
+        strides[D::RANK - 1] = stride;
 
-        strides[..D::RANK].copy_from_slice(&layout.strides()[..]);
-        strides[D::RANK] = stride;
-
-        StridedLayout::new(shape, strides)
+        Self::new(M::Dim::add_dim(mapping.shape(), size), strides)
     }
 
-    fn flatten(self) -> Flatten<Self> {
-        assert!(self.is_uniformly_strided(), "array layout not uniformly strided");
-
-        FlatLayout::new([self.len()], self.strides[0])
+    fn iter<T>(_: &SpanArray<T, D, Strided>) -> Iter<T, Self> {
+        panic!("invalid layout");
     }
 
-    fn reformat<F: Format>(layout: Reformat<Self, F>) -> Layout<Self::Dim, Self::Format> {
+    fn iter_mut<T>(_: &mut SpanArray<T, D, Strided>) -> IterMut<T, Self> {
+        panic!("invalid layout");
+    }
+
+    fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
+        Self::new(mapping.shape(), mapping.strides())
+    }
+
+    fn remove_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        M::Dim: Dim<Lower = D>,
+    {
         assert!(D::RANK > 1, "invalid rank");
+        assert!(dim <= D::RANK, "invalid dimension");
 
-        StridedLayout::new(layout.shape(), layout.strides())
+        let mut strides = D::Strides::default();
+
+        strides[..dim].copy_from_slice(&mapping.strides()[..dim]);
+        strides[dim..].copy_from_slice(&mapping.strides()[dim + 1..]);
+
+        Self::new(M::Dim::remove_dim(mapping.shape(), dim), strides)
     }
 
-    fn remove_dim<F: Format>(layout: Reformat<Self, F>, dim: usize) -> Lower<Self> {
-        assert!(D::RANK > 2, "invalid rank");
-        assert!(dim < D::RANK, "invalid dimension");
+    fn reshape<M: Mapping>(mapping: M, new_shape: D::Shape) -> Self {
+        let old_shape = mapping.shape();
+        let old_strides = mapping.strides();
 
-        let mut shape = <D::Lower as Dim>::Shape::default();
-        let mut strides = <D::Lower as Dim>::Strides::default();
-
-        shape[..dim].copy_from_slice(&layout.shape()[..dim]);
-        shape[dim..].copy_from_slice(&layout.shape()[dim + 1..]);
-
-        strides[..dim].copy_from_slice(&layout.strides()[..dim]);
-        strides[dim..].copy_from_slice(&layout.strides()[dim + 1..]);
-
-        StridedLayout::new(shape, strides)
-    }
-
-    fn reshape<S: Shape, F: Format>(layout: Reformat<Self, F>, new_shape: S) -> Reshape<Self, S> {
-        assert!(<S::Dim as Dim>::RANK > 1, "invalid rank");
-
-        let old_shape = layout.shape();
-        let old_strides = layout.strides();
-
-        let mut new_strides = <S::Dim as Dim>::Strides::default();
+        let mut new_strides = D::Strides::default();
 
         let mut old_len = 1usize;
         let mut new_len = 1usize;
@@ -561,7 +585,7 @@ impl<D: Dim> Mapping for StridedMapping<D> {
 
         let mut k = 0;
 
-        for i in 0..D::RANK {
+        for i in 0..M::Dim::RANK {
             // Set strides for the next region or extend the current region.
             if old_len == new_len {
                 old_stride = old_strides[i];
@@ -574,8 +598,8 @@ impl<D: Dim> Mapping for StridedMapping<D> {
             old_stride *= old_shape[i] as isize;
 
             // Add dimensions within the current region.
-            while k < <S::Dim as Dim>::RANK {
-                let len = new_len.saturating_mul(new_shape[k]);
+            while k < D::RANK {
+                let len = new_len.checked_mul(new_shape[k]).expect("length too large");
 
                 if len > old_len {
                     break;
@@ -591,33 +615,28 @@ impl<D: Dim> Mapping for StridedMapping<D> {
         }
 
         // Add remaining dimensions.
-        while k < <S::Dim as Dim>::RANK {
+        while k < D::RANK {
             new_strides[k] = new_stride;
 
-            new_len = new_len.saturating_mul(new_shape[k]);
+            new_len = new_len.checked_mul(new_shape[k]).expect("length too large");
             new_stride *= new_shape[k] as isize;
 
             k += 1;
         }
 
-        assert!(new_len == old_len, "array length must not change");
+        assert!(new_len == old_len, "length must not change");
 
-        StridedLayout::new(new_shape, new_strides)
+        Self::new(new_shape, new_strides)
     }
 
-    fn resize_dim(mut self, dim: usize, new_size: usize) -> Layout<Self::Dim, Self::Format> {
-        assert!(dim < D::RANK, "invalid dimension");
-
-        self.shape[dim] = new_size;
-
-        StridedLayout::new(self.shape, self.strides)
+    fn resize_dim(self, dim: usize, new_size: usize) -> Self {
+        Self::new(D::resize_dim(self.shape, dim, new_size), self.strides)
     }
+}
 
-    fn iter<T>(_: &SpanArray<T, Self::Dim, Self::Format>) -> Iter<'_, T, Self> {
-        panic!("invalid format");
-    }
-
-    fn iter_mut<T>(_: &mut SpanArray<T, Self::Dim, Self::Format>) -> IterMut<'_, T, Self> {
-        panic!("invalid format");
-    }
+#[cold]
+#[inline(never)]
+#[track_caller]
+pub fn panic_bounds_check(index: usize, len: usize) -> ! {
+    panic!("index out of bounds: the len is {len} but the index is {index}")
 }

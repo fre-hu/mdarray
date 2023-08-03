@@ -4,39 +4,39 @@ use std::ops::{
 
 use crate::array::SpanArray;
 use crate::dim::{Dim, Shape};
-use crate::format::{Dense, Format, Uniform};
-use crate::layout::panic_bounds_check;
+use crate::layout::{Dense, Layout, Uniform};
+use crate::mapping::{panic_bounds_check, Mapping};
 
 /// Array span index trait, for an element or a subslice.
-pub trait SpanIndex<T, D: Dim, F: Format> {
+pub trait SpanIndex<T, D: Dim, L: Layout> {
     /// Array element or subslice type.
     type Output: ?Sized;
 
     #[doc(hidden)]
-    unsafe fn get_unchecked(self, span: &SpanArray<T, D, F>) -> &Self::Output;
+    unsafe fn get_unchecked(self, span: &SpanArray<T, D, L>) -> &Self::Output;
 
     #[doc(hidden)]
-    unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, F>) -> &mut Self::Output;
+    unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, L>) -> &mut Self::Output;
 
     #[doc(hidden)]
-    fn index(self, span: &SpanArray<T, D, F>) -> &Self::Output;
+    fn index(self, span: &SpanArray<T, D, L>) -> &Self::Output;
 
     #[doc(hidden)]
-    fn index_mut(self, span: &mut SpanArray<T, D, F>) -> &mut Self::Output;
+    fn index_mut(self, span: &mut SpanArray<T, D, L>) -> &mut Self::Output;
 }
 
-impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, D, F> for S {
+impl<T, S: Shape, D: Dim<Shape = S>, L: Layout> SpanIndex<T, D, L> for S {
     type Output = T;
 
-    unsafe fn get_unchecked(self, span: &SpanArray<T, D, F>) -> &T {
-        &*span.as_ptr().offset(span.layout().offset(self))
+    unsafe fn get_unchecked(self, span: &SpanArray<T, D, L>) -> &T {
+        &*span.as_ptr().offset(span.mapping().offset(self))
     }
 
-    unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, F>) -> &mut T {
-        &mut *span.as_mut_ptr().offset(span.layout().offset(self))
+    unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, L>) -> &mut T {
+        &mut *span.as_mut_ptr().offset(span.mapping().offset(self))
     }
 
-    fn index(self, span: &SpanArray<T, D, F>) -> &T {
+    fn index(self, span: &SpanArray<T, D, L>) -> &T {
         for i in 0..D::RANK {
             if self[i] >= span.size(i) {
                 panic_bounds_check(self[i], span.size(i))
@@ -46,7 +46,7 @@ impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, D, F> for S {
         unsafe { self.get_unchecked(span) }
     }
 
-    fn index_mut(self, span: &mut SpanArray<T, D, F>) -> &mut T {
+    fn index_mut(self, span: &mut SpanArray<T, D, L>) -> &mut T {
         for i in 0..D::RANK {
             if self[i] >= span.size(i) {
                 panic_bounds_check(self[i], span.size(i))
@@ -57,10 +57,10 @@ impl<T, S: Shape, D: Dim<Shape = S>, F: Format> SpanIndex<T, D, F> for S {
     }
 }
 
-impl<T, D: Dim, F: Uniform> SpanIndex<T, D, F> for usize {
+impl<T, D: Dim, L: Uniform> SpanIndex<T, D, L> for usize {
     type Output = T;
 
-    unsafe fn get_unchecked(self, span: &SpanArray<T, D, F>) -> &T {
+    unsafe fn get_unchecked(self, span: &SpanArray<T, D, L>) -> &T {
         debug_assert!(self < span.len(), "index out of bounds");
 
         let offset = if D::RANK > 0 { span.stride(0) * self as isize } else { 0 };
@@ -68,7 +68,7 @@ impl<T, D: Dim, F: Uniform> SpanIndex<T, D, F> for usize {
         &*span.as_ptr().offset(offset)
     }
 
-    unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, F>) -> &mut T {
+    unsafe fn get_unchecked_mut(self, span: &mut SpanArray<T, D, L>) -> &mut T {
         debug_assert!(self < span.len(), "index out of bounds");
 
         let offset = if D::RANK > 0 { span.stride(0) * self as isize } else { 0 };
@@ -76,7 +76,7 @@ impl<T, D: Dim, F: Uniform> SpanIndex<T, D, F> for usize {
         &mut *span.as_mut_ptr().offset(offset)
     }
 
-    fn index(self, span: &SpanArray<T, D, F>) -> &T {
+    fn index(self, span: &SpanArray<T, D, L>) -> &T {
         if self >= span.len() {
             panic_bounds_check(self, span.len())
         }
@@ -84,7 +84,7 @@ impl<T, D: Dim, F: Uniform> SpanIndex<T, D, F> for usize {
         unsafe { self.get_unchecked(span) }
     }
 
-    fn index_mut(self, span: &mut SpanArray<T, D, F>) -> &mut T {
+    fn index_mut(self, span: &mut SpanArray<T, D, L>) -> &mut T {
         if self >= span.len() {
             panic_bounds_check(self, span.len())
         }

@@ -5,13 +5,12 @@ use std::ptr::NonNull;
 
 use crate::array::{ViewArray, ViewArrayMut};
 use crate::dim::Dim;
-use crate::format::Format;
 use crate::layout::Layout;
 
 /// Array axis iterator.
-pub struct AxisIter<'a, T, D: Dim, F: Format> {
+pub struct AxisIter<'a, T, D: Dim, L: Layout> {
     ptr: NonNull<T>,
-    layout: Layout<D, F>,
+    mapping: L::Mapping<D>,
     index: usize,
     size: usize,
     stride: isize,
@@ -19,9 +18,9 @@ pub struct AxisIter<'a, T, D: Dim, F: Format> {
 }
 
 /// Mutable array axis iterator.
-pub struct AxisIterMut<'a, T, D: Dim, F: Format> {
+pub struct AxisIterMut<'a, T, D: Dim, L: Layout> {
     ptr: NonNull<T>,
-    layout: Layout<D, F>,
+    mapping: L::Mapping<D>,
     index: usize,
     size: usize,
     stride: isize,
@@ -48,16 +47,16 @@ pub struct FlatIterMut<'a, T> {
 
 macro_rules! impl_axis_iter {
     ($name:tt, $grid:tt, $raw_mut:tt) => {
-        impl<'a, T, D: Dim, F: Format> $name<'a, T, D, F> {
+        impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
             pub(crate) unsafe fn new_unchecked(
                 ptr: *$raw_mut T,
-                layout: Layout<D, F>,
+                mapping: L::Mapping<D>,
                 size: usize,
                 stride: isize,
             ) -> Self {
                 Self {
                     ptr: NonNull::new_unchecked(ptr as *mut T),
-                    layout,
+                    mapping,
                     index: 0,
                     size,
                     stride,
@@ -66,18 +65,19 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T: Debug, D: Dim, F: Format> Debug for $name<'a, T, D, F> {
+        impl<'a, T: Debug, D: Dim, L: Layout> Debug for $name<'a, T, D, L> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                struct Value<'b, 'c, U, E: Dim, G: Format>(&'b $name<'c, U, E, G>);
+                struct Value<'b, 'c, U, E: Dim, M: Layout>(&'b $name<'c, U, E, M>);
 
-                impl<'b, 'c, U: Debug, E: Dim, G: Format> Debug for Value<'b, 'c, U, E, G> {
+                impl<'b, 'c, U: Debug, E: Dim, M: Layout> Debug for Value<'b, 'c, U, E, M> {
                     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
                         let mut list = f.debug_list();
 
                         for i in self.0.index..self.0.size {
                             unsafe {
                                 let ptr = self.0.ptr.as_ptr().offset(self.0.stride * i as isize);
-                                let _ = list.entry(&ViewArray::new_unchecked(ptr, self.0.layout));
+                                let view = ViewArray::<U, E, M>::new_unchecked(ptr, self.0.mapping);
+                                let _ = list.entry(&view);
                             }
                         }
 
@@ -89,7 +89,7 @@ macro_rules! impl_axis_iter {
             }
         }
 
-        impl<'a, T, D: Dim, F: Format> DoubleEndedIterator for $name<'a, T, D, F> {
+        impl<'a, T, D: Dim, L: Layout> DoubleEndedIterator for $name<'a, T, D, L> {
             fn next_back(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
                     None
@@ -99,17 +99,17 @@ macro_rules! impl_axis_iter {
                     let count = self.stride * self.size as isize;
 
                     unsafe {
-                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.layout))
+                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping))
                     }
                 }
             }
         }
 
-        impl<'a, T, D: Dim, F: Format> ExactSizeIterator for $name<'a, T, D, F> {}
-        impl<'a, T, D: Dim, F: Format> FusedIterator for $name<'a, T, D, F> {}
+        impl<'a, T, D: Dim, L: Layout> ExactSizeIterator for $name<'a, T, D, L> {}
+        impl<'a, T, D: Dim, L: Layout> FusedIterator for $name<'a, T, D, L> {}
 
-        impl<'a, T, D: Dim, F: Format> Iterator for $name<'a, T, D, F> {
-            type Item = $grid<'a, T, D, F>;
+        impl<'a, T, D: Dim, L: Layout> Iterator for $name<'a, T, D, L> {
+            type Item = $grid<'a, T, D, L>;
 
             fn next(&mut self) -> Option<Self::Item> {
                 if self.index == self.size {
@@ -120,7 +120,7 @@ macro_rules! impl_axis_iter {
                     self.index += 1;
 
                     unsafe {
-                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.layout))
+                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping))
                     }
                 }
             }
@@ -137,11 +137,11 @@ macro_rules! impl_axis_iter {
 impl_axis_iter!(AxisIter, ViewArray, const);
 impl_axis_iter!(AxisIterMut, ViewArrayMut, mut);
 
-impl<'a, T, D: Dim, F: Format> Clone for AxisIter<'a, T, D, F> {
+impl<'a, T, D: Dim, L: Layout> Clone for AxisIter<'a, T, D, L> {
     fn clone(&self) -> Self {
         Self {
             ptr: self.ptr,
-            layout: self.layout,
+            mapping: self.mapping,
             index: self.index,
             size: self.size,
             stride: self.stride,
@@ -150,11 +150,11 @@ impl<'a, T, D: Dim, F: Format> Clone for AxisIter<'a, T, D, F> {
     }
 }
 
-unsafe impl<'a, T: Sync, D: Dim, F: Format> Send for AxisIter<'a, T, D, F> {}
-unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for AxisIter<'a, T, D, F> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for AxisIter<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for AxisIter<'a, T, D, L> {}
 
-unsafe impl<'a, T: Send, D: Dim, F: Format> Send for AxisIterMut<'a, T, D, F> {}
-unsafe impl<'a, T: Sync, D: Dim, F: Format> Sync for AxisIterMut<'a, T, D, F> {}
+unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for AxisIterMut<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for AxisIterMut<'a, T, D, L> {}
 
 macro_rules! impl_flat_iter {
     ($name:tt, $raw_mut:tt, {$($mut:tt)?}) => {
