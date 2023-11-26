@@ -2,10 +2,10 @@ use std::fmt::{Debug, Formatter, Result};
 
 use crate::array::SpanArray;
 use crate::dim::{Const, Dim};
-use crate::iter::sources::{FlatIter, FlatIterMut};
+use crate::iter::{FlatIter, FlatIterMut};
 use crate::layout::{Dense, Flat, General, Layout, Strided};
 
-/// Array layout mapping, including shape and strides.
+/// Array layout mapping trait, including shape and strides.
 pub trait Mapping: Copy + Debug + Default {
     /// Array dimension type.
     type Dim: Dim;
@@ -35,8 +35,15 @@ pub trait Mapping: Copy + Debug + Default {
         self.shape()[..].iter().product()
     }
 
+    /// Returns the array rank, i.e. the number of dimensions.
+    fn rank(self) -> usize {
+        Self::Dim::RANK
+    }
+
     /// Returns the number of elements in the specified dimension.
+    ///
     /// # Panics
+    ///
     /// Panics if the dimension is out of bounds.
     fn size(self, dim: usize) -> usize {
         assert!(dim < Self::Dim::RANK, "invalid dimension");
@@ -45,7 +52,9 @@ pub trait Mapping: Copy + Debug + Default {
     }
 
     /// Returns the distance between elements in the specified dimension.
+    ///
     /// # Panics
+    ///
     /// Panics if the dimension is out of bounds.
     fn stride(self, dim: usize) -> isize {
         assert!(dim < Self::Dim::RANK, "invalid dimension");
@@ -632,11 +641,4 @@ impl<D: Dim> Mapping for StridedMapping<D> {
     fn resize_dim(self, dim: usize, new_size: usize) -> Self {
         Self::new(D::resize_dim(self.shape, dim, new_size), self.strides)
     }
-}
-
-#[cold]
-#[inline(never)]
-#[track_caller]
-pub fn panic_bounds_check(index: usize, len: usize) -> ! {
-    panic!("index out of bounds: the len is {len} but the index is {index}")
 }

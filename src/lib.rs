@@ -145,33 +145,26 @@
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
+#![warn(unreachable_pub)]
 #![warn(unused_results)]
 
-/// Module for array span and view indexing, and for array axis subarray types.
-pub mod index {
-    pub(crate) mod axis;
-    pub(crate) mod span;
-    pub(crate) mod view;
+/// Buffer module for array storage.
+pub mod buffer;
 
-    pub use axis::Axis;
-    pub use span::SpanIndex;
-    pub use view::{DimIndex, Params, ViewIndex};
-}
+/// Module for array span and view indexing, and for array axis subarray types.
+pub mod index;
 
 /// Module for array axis and flat array span iterators.
-pub mod iter {
-    pub(crate) mod sources;
+pub mod iter;
 
-    pub use sources::{AxisIter, AxisIterMut, FlatIter, FlatIterMut};
-}
+/// Array layout mapping module.
+pub mod mapping;
 
 mod array;
-mod buffer;
 mod dim;
 mod grid;
 mod layout;
 mod macros;
-mod mapping;
 mod ops;
 mod raw_span;
 mod span;
@@ -198,11 +191,8 @@ use alloc::Global;
 use array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 
 pub use array::Array;
-pub use buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
-pub use buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 pub use dim::{Const, Dim, Shape, Strides};
 pub use layout::{Dense, Flat, General, Layout, Strided, Uniform, UnitStrided};
-pub use mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 pub use ops::{fill, step, Fill, StepRange};
 
 /// Dense multidimensional array.

@@ -2,8 +2,9 @@
 use std::alloc::{Allocator, Global};
 use std::collections::TryReserveError;
 use std::iter::FromIterator;
-use std::mem;
+use std::mem::{self, MaybeUninit};
 use std::result::Result;
+use std::slice;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::{Allocator, Global};
@@ -35,7 +36,9 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Moves all elements from another array into the array along the outer dimension.
+    ///
     /// # Panics
+    ///
     /// Panics if the inner dimensions do not match.
     pub fn append(&mut self, other: &mut Self) {
         let new_shape = if self.is_empty() {
@@ -52,13 +55,12 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
             shape
         };
 
-        let mut src_guard = other.buffer.guard_mut();
-        let mut dst_guard = self.buffer.guard_mut();
+        unsafe {
+            self.buffer.with_mut_vec(|dst| other.buffer.with_mut_vec(|src| dst.append(src)));
 
-        dst_guard.append(&mut src_guard);
-
-        src_guard.set_mapping(DenseMapping::default());
-        dst_guard.set_mapping(DenseMapping::new(new_shape));
+            self.buffer.set_mapping(DenseMapping::new(new_shape));
+            other.buffer.set_mapping(DenseMapping::default());
+        }
     }
 
     /// Returns the number of elements the array can hold without reallocating.
@@ -67,15 +69,19 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Clears the array, removing all values.
+    ///
+    /// Note that this method has no effect on the allocated capacity of the array.
     pub fn clear(&mut self) {
-        let mut guard = self.buffer.guard_mut();
-
-        guard.clear();
-        guard.set_mapping(DenseMapping::default());
+        unsafe {
+            self.buffer.with_mut_vec(|vec| vec.clear());
+            self.buffer.set_mapping(DenseMapping::default());
+        }
     }
 
     /// Clones all elements in an array span and appends to the array along the outer dimension.
+    ///
     /// # Panics
+    ///
     /// Panics if the inner dimensions do not match.
     pub fn extend_from_span(&mut self, other: &SpanArray<T, D, impl Layout>)
     where
@@ -95,23 +101,23 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
             shape
         };
 
-        let mut guard = self.buffer.guard_mut();
-
-        guard.reserve(other.len());
-
         unsafe {
-            #[cfg(not(feature = "nightly"))]
-            extend_from_span::<_, _, A>(&mut guard, other);
-            #[cfg(feature = "nightly")]
-            extend_from_span(&mut guard, other);
-        }
+            self.buffer.with_mut_vec(|vec| {
+                vec.reserve(other.len());
 
-        guard.set_mapping(DenseMapping::new(new_shape));
+                #[cfg(not(feature = "nightly"))]
+                extend_from_span::<_, _, A>(vec, other);
+                #[cfg(feature = "nightly")]
+                extend_from_span(vec, other);
+            });
+
+            self.buffer.set_mapping(DenseMapping::new(new_shape));
+        }
     }
 
     /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn from_elem_in(shape: D::Shape, elem: &T, alloc: A) -> Self
+    pub fn from_elem_in(shape: D::Shape, elem: T, alloc: A) -> Self
     where
         T: Clone,
     {
@@ -141,7 +147,9 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Creates an array from raw components of another array with the specified allocator.
+    ///
     /// # Safety
+    ///
     /// The pointer must be a valid allocation given the shape, capacity and allocator.
     #[cfg(feature = "nightly")]
     pub unsafe fn from_raw_parts_in(
@@ -170,7 +178,9 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Converts an array with a single element into the contained value.
+    ///
     /// # Panics
+    ///
     /// Panics if the array length is not equal to one.
     pub fn into_scalar(self) -> T {
         assert!(self.len() == 1, "invalid length");
@@ -179,7 +189,9 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Converts the array into a reshaped array, which must have the same length.
+    ///
     /// # Panics
+    ///
     /// Panics if the array length is changed.
     pub fn into_shape<S: Shape>(self, shape: S) -> GridArray<T, S::Dim, A> {
         let (vec, mapping) = self.buffer.into_parts();
@@ -212,16 +224,20 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Reserves capacity for at least the additional number of elements in the array.
     pub fn reserve(&mut self, additional: usize) {
-        self.buffer.guard_mut().reserve(additional);
+        unsafe {
+            self.buffer.with_mut_vec(|vec| vec.reserve(additional));
+        }
     }
 
     /// Reserves the minimum capacity for the additional number of elements in the array.
     pub fn reserve_exact(&mut self, additional: usize) {
-        self.buffer.guard_mut().reserve_exact(additional);
+        unsafe {
+            self.buffer.with_mut_vec(|vec| vec.reserve_exact(additional));
+        }
     }
 
     /// Resizes the array to the new shape, creating new elements with the given value.
-    pub fn resize(&mut self, new_shape: D::Shape, value: &T)
+    pub fn resize(&mut self, new_shape: D::Shape, value: T)
     where
         T: Clone,
         A: Clone,
@@ -238,7 +254,9 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Forces the array shape to the new shape.
+    ///
     /// # Safety
+    ///
     /// All elements within the array length must be initialized.
     pub unsafe fn set_shape(&mut self, new_shape: D::Shape) {
         self.buffer.set_mapping(DenseMapping::new(new_shape));
@@ -246,37 +264,57 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Shrinks the capacity of the array with a lower bound.
     pub fn shrink_to(&mut self, min_capacity: usize) {
-        self.buffer.guard_mut().shrink_to(min_capacity);
+        unsafe {
+            self.buffer.with_mut_vec(|vec| vec.shrink_to(min_capacity));
+        }
     }
 
     /// Shrinks the capacity of the array as much as possible.
     pub fn shrink_to_fit(&mut self) {
-        self.buffer.guard_mut().shrink_to_fit();
+        unsafe {
+            self.buffer.with_mut_vec(|vec| vec.shrink_to_fit());
+        }
+    }
+
+    /// Returns the remaining spare capacity of the array as a slice of `MaybeUninit<T>`.
+    ///
+    /// The returned slice can be used to fill the array with data, before marking
+    /// the data as initialized using the `set_shape` method.
+    pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
+        let ptr = self.as_mut_ptr();
+        let len = self.capacity() - self.len();
+
+        unsafe { slice::from_raw_parts_mut(ptr.add(self.len()) as *mut MaybeUninit<T>, len) }
     }
 
     /// Shortens the array along the outer dimension, keeping the first `size` elements.
     pub fn truncate(&mut self, size: usize) {
         if size < self.size(D::RANK - 1) {
             let new_mapping = self.mapping().resize_dim(D::RANK - 1, size);
-            let mut guard = self.buffer.guard_mut();
 
-            guard.set_mapping(new_mapping);
-            guard.truncate(new_mapping.len());
+            unsafe {
+                self.buffer.with_mut_vec(|vec| vec.truncate(new_mapping.len()));
+                self.buffer.set_mapping(new_mapping);
+            }
         }
     }
 
     /// Tries to reserve capacity for at least the additional number of elements in the array.
+    ///
     /// # Errors
+    ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        self.buffer.guard_mut().try_reserve(additional)
+        unsafe { self.buffer.with_mut_vec(|vec| vec.try_reserve(additional)) }
     }
 
     /// Tries to reserve the minimum capacity for the additional number of elements in the array.
+    ///
     /// # Errors
+    ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        self.buffer.guard_mut().try_reserve_exact(additional)
+        unsafe { self.buffer.with_mut_vec(|vec| vec.try_reserve_exact(additional)) }
     }
 
     /// Creates a new, empty array with the specified capacity and allocator.
@@ -286,8 +324,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<D>) -> Self {
-        debug_assert!(vec.len() == mapping.len(), "length mismatch");
-
         Self { buffer: GridBuffer::from_parts(vec, mapping) }
     }
 }
@@ -295,7 +331,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 #[cfg(not(feature = "nightly"))]
 impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
-    pub fn from_elem(shape: D::Shape, elem: &T) -> Self
+    pub fn from_elem(shape: D::Shape, elem: T) -> Self
     where
         T: Clone,
     {
@@ -324,7 +360,9 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates an array from raw components of another array.
+    ///
     /// # Safety
+    ///
     /// The pointer must be a valid allocation given the shape and capacity.
     pub unsafe fn from_raw_parts(ptr: *mut T, shape: D::Shape, capacity: usize) -> Self {
         let mapping = DenseMapping::new(shape);
@@ -355,7 +393,7 @@ impl<T, D: Dim> GridArray<T, D> {
 #[cfg(feature = "nightly")]
 impl<T, D: Dim> GridArray<T, D> {
     /// Creates an array from the given element.
-    pub fn from_elem(shape: D::Shape, elem: &T) -> Self
+    pub fn from_elem(shape: D::Shape, elem: T) -> Self
     where
         T: Clone,
     {
@@ -368,7 +406,9 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates an array from raw components of another array.
+    ///
     /// # Safety
+    ///
     /// The pointer must be a valid allocation given the shape and capacity.
     pub unsafe fn from_raw_parts(ptr: *mut T, shape: D::Shape, capacity: usize) -> Self {
         Self::from_raw_parts_in(ptr, shape, capacity, Global)
@@ -398,21 +438,22 @@ impl<T, D: Dim> Default for GridArray<T, D> {
     }
 }
 
-impl<'a, T: 'a + Copy, A: 'a + Allocator> Extend<&'a T> for GridArray<T, Const<1>, A> {
+impl<'a, T: 'a + Copy, A: Allocator> Extend<&'a T> for GridArray<T, Const<1>, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
-        let mut guard = self.buffer.guard_mut();
-
-        guard.extend(iter);
-        guard.set_mapping(DenseMapping::new([guard.len()]));
+        self.extend(iter.into_iter().copied());
     }
 }
 
 impl<T, A: Allocator> Extend<T> for GridArray<T, Const<1>, A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        let mut guard = self.buffer.guard_mut();
+        unsafe {
+            let len = self.buffer.with_mut_vec(|vec| {
+                vec.extend(iter);
+                vec.len()
+            });
 
-        guard.extend(iter);
-        guard.set_mapping(DenseMapping::new([guard.len()]));
+            self.set_shape([len]);
+        }
     }
 }
 

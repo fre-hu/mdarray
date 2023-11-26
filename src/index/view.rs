@@ -6,8 +6,9 @@ use std::ops::{
 };
 
 use crate::dim::{Const, Dim};
+use crate::index::panic_bounds_check;
 use crate::layout::{Dense, Flat, Layout, Uniform};
-use crate::mapping::{panic_bounds_check, DenseMapping, Mapping};
+use crate::mapping::{DenseMapping, Mapping};
 use crate::ops::StepRange;
 
 /// Helper trait for array indexing, for a single index.
@@ -108,7 +109,7 @@ macro_rules! impl_dim_index {
                 stride: isize,
             ) -> (isize, ViewMapping<Self::Params<P, L>>) {
                 #[cfg(not(feature = "nightly"))]
-                let range = crate::dim::range(self, ..size);
+                let range = crate::index::range(self, ..size);
                 #[cfg(feature = "nightly")]
                 let range = slice::range(self, ..size);
                 let mapping = Mapping::add_dim(mapping, range.len(), stride);
@@ -142,11 +143,11 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
         stride: isize,
     ) -> (isize, ViewMapping<Self::Params<P, L>>) {
         #[cfg(not(feature = "nightly"))]
-        let range = crate::dim::range(self.range, ..size);
+        let range = crate::index::range(self.range, ..size);
         #[cfg(feature = "nightly")]
         let range = slice::range(self.range, ..size);
         #[cfg(not(feature = "nightly"))]
-        let len = div_ceil(range.len(), self.step.abs_diff(0));
+        let len = crate::index::div_ceil(range.len(), self.step.abs_diff(0));
         #[cfg(feature = "nightly")]
         let len = range.len().div_ceil(self.step.abs_diff(0));
         let mapping = Mapping::add_dim(mapping, len, stride * self.step);
@@ -234,11 +235,3 @@ impl_view_index!(3, 2, (0, 1), 2, (X, Y), Z, (X, Y, Z), L);
 impl_view_index!(4, 3, (0, 1, 2), 3, (X, Y, Z), W, (X, Y, Z, W), L);
 impl_view_index!(5, 4, (0, 1, 2, 3), 4, (X, Y, Z, W), U, (X, Y, Z, W, U), L);
 impl_view_index!(6, 5, (0, 1, 2, 3, 4), 5, (X, Y, Z, W, U), V, (X, Y, Z, W, U, V), L);
-
-#[cfg(not(feature = "nightly"))]
-fn div_ceil(this: usize, rhs: usize) -> usize {
-    let d = this / rhs;
-    let r = this % rhs;
-
-    if r > 0 && rhs > 0 { d + 1 } else { d }
-}

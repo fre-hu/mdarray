@@ -2,7 +2,7 @@ use std::iter::FusedIterator;
 use std::slice::{Iter, IterMut};
 
 use crate::dim::Dim;
-use crate::iter::sources::{FlatIter, FlatIterMut};
+use crate::iter::{FlatIter, FlatIterMut};
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Array memory layout trait.

@@ -55,7 +55,7 @@ impl<T: Eq, B: Buffer<Item = T> + ?Sized> Eq for Array<B> where Self: PartialEq 
 
 impl<T: Ord, B: Buffer<Item = T, Dim = Const<1>> + ?Sized> Ord for Array<B> {
     fn cmp(&self, other: &Self) -> Ordering {
-        if B::Layout::IS_UNIFORM && B::Layout::IS_UNIT_STRIDED {
+        if B::Layout::IS_UNIT_STRIDED {
             self.as_span().remap().as_slice().cmp(other.as_span().remap().as_slice())
         } else {
             self.as_span().flatten().iter().cmp(other.as_span().flatten().iter())
@@ -63,13 +63,17 @@ impl<T: Ord, B: Buffer<Item = T, Dim = Const<1>> + ?Sized> Ord for Array<B> {
     }
 }
 
-impl<B: Buffer<Dim = Const<1>> + ?Sized, C: Buffer<Dim = Const<1>> + ?Sized> PartialOrd<Array<C>>
-    for Array<B>
+impl<T: PartialOrd, B, C> PartialOrd<Array<C>> for Array<B>
 where
-    B::Item: PartialOrd<C::Item>,
+    B: Buffer<Item = T, Dim = Const<1>> + ?Sized,
+    C: Buffer<Item = T, Dim = Const<1>> + ?Sized,
 {
     fn partial_cmp(&self, other: &Array<C>) -> Option<Ordering> {
-        self.as_span().flatten().iter().partial_cmp(other.as_span().flatten().iter())
+        if B::Layout::IS_UNIT_STRIDED {
+            self.as_span().remap().as_slice().partial_cmp(other.as_span().remap().as_slice())
+        } else {
+            self.as_span().flatten().iter().partial_cmp(other.as_span().flatten().iter())
+        }
     }
 }
 
@@ -79,18 +83,18 @@ where
     B::Item: PartialEq<C::Item>,
 {
     fn eq(&self, other: &Array<C>) -> bool {
-        if B::Layout::IS_UNIFORM && C::Layout::IS_UNIFORM {
-            if self.as_span().shape()[..] == other.as_span().shape()[..] {
+        if self.as_span().shape()[..] == other.as_span().shape()[..] {
+            if B::Layout::IS_UNIFORM && C::Layout::IS_UNIFORM {
                 if B::Layout::IS_UNIT_STRIDED && C::Layout::IS_UNIT_STRIDED {
                     self.as_span().remap().as_slice().eq(other.as_span().remap().as_slice())
                 } else {
                     self.as_span().flatten().iter().eq(other.as_span().flatten().iter())
                 }
             } else {
-                false
+                self.as_span().outer_iter().eq(other.as_span().outer_iter())
             }
         } else {
-            self.as_span().outer_iter().eq(other.as_span().outer_iter())
+            false
         }
     }
 }

@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 #[cfg(not(feature = "nightly"))]
 use std::marker::{PhantomData, PhantomPinned};
 use std::mem::{self, ManuallyDrop};
-use std::ops::{Deref, DerefMut};
 use std::{cmp, ptr};
 
 #[cfg(not(feature = "nightly"))]
@@ -88,16 +87,6 @@ pub struct ViewBufferMut<'a, T, D: Dim, L: Layout> {
     phantom: PhantomData<&'a mut T>,
 }
 
-pub struct VecGuard<'a, T, D: Dim, A: Allocator> {
-    vec: ManuallyDrop<vec_t!(T, A)>,
-    phantom: PhantomData<&'a GridBuffer<T, D, A>>,
-}
-
-pub struct VecGuardMut<'a, T, D: Dim, A: Allocator> {
-    vec: ManuallyDrop<vec_t!(T, A)>,
-    buffer: &'a mut GridBuffer<T, D, A>,
-}
-
 struct DropGuard<'a, T, A: Allocator> {
     ptr: *mut T,
     len: usize,
@@ -126,6 +115,8 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
     pub(crate) unsafe fn from_parts(vec: Vec<T>, mapping: DenseMapping<D>) -> Self {
         assert!(D::RANK > 0, "invalid rank");
 
+        debug_assert!(vec.len() == mapping.len(), "length mismatch");
+
         let mut vec = ManuallyDrop::new(vec);
 
         Self {
@@ -139,6 +130,8 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
     pub(crate) unsafe fn from_parts(vec: Vec<T, A>, mapping: DenseMapping<D>) -> Self {
         assert!(D::RANK > 0, "invalid rank");
 
+        debug_assert!(vec.len() == mapping.len(), "length mismatch");
+
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
 
         Self {
@@ -148,16 +141,8 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
         }
     }
 
-    pub(crate) fn guard(&self) -> VecGuard<T, D, A> {
-        VecGuard::new(self)
-    }
-
-    pub(crate) fn guard_mut(&mut self) -> VecGuardMut<T, D, A> {
-        VecGuardMut::new(self)
-    }
-
     pub(crate) fn into_parts(self) -> (vec_t!(T, A), DenseMapping<D>) {
-        let mut me = mem::ManuallyDrop::new(self);
+        let mut me = ManuallyDrop::new(self);
 
         #[cfg(not(feature = "nightly"))]
         let vec = unsafe {
@@ -181,38 +166,156 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
         A: Clone,
     {
         let new_len = D::checked_len(new_shape);
-
         let old_shape = self.span.mapping().shape();
-        let mut guard = self.guard_mut();
 
-        if new_len == 0 {
-            guard.clear();
-        } else if new_shape[..D::RANK - 1] == old_shape[..D::RANK - 1] {
-            guard.resize_with(new_len, f);
-        } else {
-            #[cfg(not(feature = "nightly"))]
-            let mut vec = Vec::with_capacity(new_len);
-            #[cfg(feature = "nightly")]
-            let mut vec = Vec::with_capacity_in(new_len, guard.allocator().clone());
+        unsafe {
+            self.with_mut_vec(|vec| {
+                if new_len == 0 {
+                    vec.clear();
+                } else if new_shape[..D::RANK - 1] == old_shape[..D::RANK - 1] {
+                    vec.resize_with(new_len, f);
+                } else {
+                    #[cfg(not(feature = "nightly"))]
+                    let mut new_vec = Vec::with_capacity(new_len);
+                    #[cfg(feature = "nightly")]
+                    let mut new_vec = Vec::with_capacity_in(new_len, vec.allocator().clone());
 
-            unsafe {
-                copy_dim::<T, D, A, D::Lower>(
-                    &mut DropGuard::new(&mut guard),
-                    &mut vec,
-                    old_shape,
-                    new_shape,
-                    &mut f,
-                );
-            }
+                    copy_dim::<T, D, A, D::Lower>(
+                        &mut DropGuard::new(vec),
+                        &mut new_vec,
+                        old_shape,
+                        new_shape,
+                        &mut f,
+                    );
 
-            *guard = vec;
+                    *vec = new_vec;
+                }
+            });
+
+            self.set_mapping(DenseMapping::new(new_shape));
         }
-
-        guard.set_mapping(DenseMapping::new(new_shape));
     }
 
     pub(crate) unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<D>) {
+        debug_assert!(new_mapping.len() <= self.capacity, "length exceeds capacity");
+
         self.span.set_mapping(new_mapping);
+    }
+
+    #[cfg(not(feature = "nightly"))]
+    pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T>) -> U>(&mut self, f: F) -> U {
+        struct DropGuard<'a, T, D: Dim, A: Allocator> {
+            buffer: &'a mut GridBuffer<T, D, A>,
+            vec: ManuallyDrop<Vec<T>>,
+        }
+
+        impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
+            fn drop(&mut self) {
+                unsafe {
+                    self.buffer.span.set_ptr(self.vec.as_mut_ptr());
+                    self.buffer.capacity = self.vec.capacity();
+
+                    let mapping = self.buffer.span.mapping();
+
+                    // Cleanup in case of length mismatch (e.g. due to allocation failure)
+                    if self.vec.len() != mapping.len() {
+                        if self.vec.len() > mapping.len() {
+                            ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
+                        } else {
+                            self.buffer.span.set_mapping(DenseMapping::default());
+                            ptr::drop_in_place(self.vec.as_mut_slice());
+                        }
+                    }
+                }
+            }
+        }
+
+        let vec =
+            Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.mapping().len(), self.capacity);
+
+        let mut guard = DropGuard { buffer: self, vec: ManuallyDrop::new(vec) };
+
+        let result = f(&mut guard.vec);
+
+        guard.buffer.span.set_ptr(guard.vec.as_mut_ptr());
+        guard.buffer.capacity = guard.vec.capacity();
+
+        mem::forget(guard);
+
+        result
+    }
+
+    #[cfg(feature = "nightly")]
+    pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T, A>) -> U>(&mut self, f: F) -> U {
+        struct DropGuard<'a, T, D: Dim, A: Allocator> {
+            buffer: &'a mut GridBuffer<T, D, A>,
+            vec: ManuallyDrop<Vec<T, A>>,
+        }
+
+        impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
+            fn drop(&mut self) {
+                unsafe {
+                    self.buffer.span.set_ptr(self.vec.as_mut_ptr());
+                    self.buffer.capacity = self.vec.capacity();
+                    self.buffer.alloc = ManuallyDrop::new(ptr::read(self.vec.allocator()));
+
+                    let mapping = self.buffer.span.mapping();
+
+                    // Cleanup in case of length mismatch (e.g. due to allocation failure)
+                    if self.vec.len() != mapping.len() {
+                        if self.vec.len() > mapping.len() {
+                            ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
+                        } else {
+                            self.buffer.span.set_mapping(DenseMapping::default());
+                            ptr::drop_in_place(self.vec.as_mut_slice());
+                        }
+                    }
+                }
+            }
+        }
+
+        let vec = unsafe {
+            Vec::from_raw_parts_in(
+                self.span.as_mut_ptr(),
+                self.span.mapping().len(),
+                self.capacity,
+                ptr::read(&*self.alloc),
+            )
+        };
+
+        let mut guard = DropGuard { buffer: self, vec: ManuallyDrop::new(vec) };
+
+        let result = f(&mut guard.vec);
+
+        guard.buffer.span.set_ptr(guard.vec.as_mut_ptr());
+        guard.buffer.capacity = guard.vec.capacity();
+        guard.buffer.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
+
+        mem::forget(guard);
+
+        result
+    }
+
+    pub(crate) fn with_vec<U, F: FnOnce(&vec_t!(T, A)) -> U>(&self, f: F) -> U {
+        #[cfg(not(feature = "nightly"))]
+        let vec = unsafe {
+            Vec::from_raw_parts(
+                self.span.as_ptr() as *mut T,
+                self.span.mapping().len(),
+                self.capacity,
+            )
+        };
+        #[cfg(feature = "nightly")]
+        let vec = unsafe {
+            Vec::from_raw_parts_in(
+                self.span.as_ptr() as *mut T,
+                self.span.mapping().len(),
+                self.capacity,
+                ptr::read(&*self.alloc),
+            )
+        };
+
+        f(&ManuallyDrop::new(vec))
     }
 }
 
@@ -234,25 +337,28 @@ impl<T, D: Dim, A: Allocator> BufferMut for GridBuffer<T, D, A> {
 
 impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for GridBuffer<T, D, A> {
     fn clone(&self) -> Self {
-        unsafe { Self::from_parts(self.guard().clone(), self.span.mapping()) }
+        unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.span.mapping()) }
     }
 
     fn clone_from(&mut self, source: &Self) {
-        let mut guard = self.guard_mut();
-
-        guard.clone_from(&source.guard());
-        guard.set_mapping(source.span.mapping());
+        unsafe {
+            self.with_mut_vec(|dst| source.with_vec(|src| dst.clone_from(src)));
+            self.set_mapping(source.span.mapping());
+        }
     }
 }
 
 impl<T, D: Dim, A: Allocator> Drop for GridBuffer<T, D, A> {
+    #[cfg(not(feature = "nightly"))]
     fn drop(&mut self) {
-        #[cfg(not(feature = "nightly"))]
-        let _ = unsafe {
+        _ = unsafe {
             Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.mapping().len(), self.capacity)
         };
-        #[cfg(feature = "nightly")]
-        let _ = unsafe {
+    }
+
+    #[cfg(feature = "nightly")]
+    fn drop(&mut self) {
+        _ = unsafe {
             Vec::from_raw_parts_in(
                 self.span.as_mut_ptr(),
                 self.span.mapping().len(),
@@ -339,124 +445,6 @@ unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for ViewBuffer<'a, T, D, L> {}
 unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for ViewBufferMut<'a, T, D, L> {}
 unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for ViewBufferMut<'a, T, D, L> {}
 
-impl<'a, T, D: Dim, A: Allocator> VecGuard<'a, T, D, A> {
-    pub fn new(buffer: &'a GridBuffer<T, D, A>) -> Self {
-        #[cfg(not(feature = "nightly"))]
-        let vec = unsafe {
-            Vec::from_raw_parts(
-                buffer.span.as_ptr() as *mut T,
-                buffer.span.mapping().len(),
-                buffer.capacity,
-            )
-        };
-        #[cfg(feature = "nightly")]
-        let vec = unsafe {
-            Vec::from_raw_parts_in(
-                buffer.span.as_ptr() as *mut T,
-                buffer.span.mapping().len(),
-                buffer.capacity,
-                ptr::read(&*buffer.alloc),
-            )
-        };
-
-        Self { vec: ManuallyDrop::new(vec), phantom: PhantomData }
-    }
-}
-
-impl<'a, T, D: Dim, A: Allocator> Deref for VecGuard<'a, T, D, A> {
-    type Target = vec_t!(T, A);
-
-    fn deref(&self) -> &vec_t!(T, A) {
-        &self.vec
-    }
-}
-
-impl<'a, T, D: Dim, A: Allocator> VecGuardMut<'a, T, D, A> {
-    pub fn new(buffer: &'a mut GridBuffer<T, D, A>) -> Self {
-        #[cfg(not(feature = "nightly"))]
-        let vec = unsafe {
-            Vec::from_raw_parts(
-                buffer.span.as_mut_ptr(),
-                buffer.span.mapping().len(),
-                buffer.capacity,
-            )
-        };
-        #[cfg(feature = "nightly")]
-        let vec = unsafe {
-            Vec::from_raw_parts_in(
-                buffer.span.as_mut_ptr(),
-                buffer.span.mapping().len(),
-                buffer.capacity,
-                ptr::read(&*buffer.alloc),
-            )
-        };
-
-        Self { vec: ManuallyDrop::new(vec), buffer }
-    }
-
-    pub fn set_mapping(&mut self, new_mapping: DenseMapping<D>) {
-        unsafe {
-            self.buffer.span.set_mapping(new_mapping);
-        }
-    }
-}
-
-impl<'a, T, D: Dim, A: Allocator> Deref for VecGuardMut<'a, T, D, A> {
-    type Target = vec_t!(T, A);
-
-    fn deref(&self) -> &vec_t!(T, A) {
-        &self.vec
-    }
-}
-
-impl<'a, T, D: Dim, A: Allocator> DerefMut for VecGuardMut<'a, T, D, A> {
-    fn deref_mut(&mut self) -> &mut vec_t!(T, A) {
-        &mut self.vec
-    }
-}
-
-impl<'a, T, D: Dim, A: Allocator> Drop for VecGuardMut<'a, T, D, A> {
-    fn drop(&mut self) {
-        #[cfg(not(feature = "nightly"))]
-        unsafe {
-            self.buffer.span.set_ptr(self.vec.as_mut_ptr());
-            self.buffer.capacity = self.vec.capacity();
-
-            let mapping = self.buffer.span.mapping();
-
-            // Cleanup in case of length mismatch (e.g. due to allocation failure)
-            if self.vec.len() != mapping.len() {
-                if self.vec.len() > mapping.len() {
-                    ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
-                } else {
-                    self.buffer.span.set_mapping(DenseMapping::default());
-                    ptr::drop_in_place(self.vec.as_mut_slice());
-                }
-            }
-        }
-        #[cfg(feature = "nightly")]
-        unsafe {
-            let (ptr, len, capacity, alloc) = ptr::read(&*self.vec).into_raw_parts_with_alloc();
-
-            self.buffer.span.set_ptr(ptr);
-            self.buffer.capacity = capacity;
-            self.buffer.alloc = ManuallyDrop::new(alloc);
-
-            let mapping = self.buffer.span.mapping();
-
-            // Cleanup in case of length mismatch (e.g. due to allocation failure)
-            if len != mapping.len() {
-                if len > mapping.len() {
-                    ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
-                } else {
-                    self.buffer.span.set_mapping(DenseMapping::default());
-                    ptr::drop_in_place(self.vec.as_mut_slice());
-                }
-            }
-        }
-    }
-}
-
 impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     fn new(vec: &'a mut vec_t!(T, A)) -> Self {
         let len = vec.len();
@@ -492,7 +480,11 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
 
     let min_size = cmp::min(old_size, new_size);
 
-    if I::RANK == 0 {
+    if I::RANK > 0 {
+        for _ in 0..min_size {
+            copy_dim::<T, D, A, I::Lower>(old_vec, new_vec, old_shape, new_shape, f);
+        }
+    } else {
         debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");
         debug_assert!(new_vec.len() + min_size <= new_vec.capacity(), "slice exceeds capacity");
 
@@ -502,10 +494,6 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
         old_vec.len -= min_size;
 
         new_vec.set_len(new_vec.len() + min_size);
-    } else {
-        for _ in 0..min_size {
-            copy_dim::<T, D, A, I::Lower>(old_vec, new_vec, old_shape, new_shape, f);
-        }
     }
 
     if old_size > min_size {
@@ -520,9 +508,11 @@ unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
         ptr::drop_in_place(slice);
     }
 
-    for _ in 0..(new_size - min_size) * new_stride {
-        debug_assert!(new_vec.len() < new_vec.capacity(), "index exceeds capacity");
+    let additional = (new_size - min_size) * new_stride;
 
+    debug_assert!(new_vec.len() + additional <= new_vec.capacity(), "slice exceeds capacity");
+
+    for _ in 0..additional {
         new_vec.as_mut_ptr().add(new_vec.len()).write(f());
         new_vec.set_len(new_vec.len() + 1);
     }

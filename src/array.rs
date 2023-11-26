@@ -11,7 +11,7 @@ use crate::alloc::Global;
 use crate::buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
 use crate::buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 use crate::dim::Dim;
-use crate::index::span::SpanIndex;
+use crate::index::SpanIndex;
 use crate::layout::{Dense, Layout, Uniform};
 
 /// Multidimensional array type with static rank.
@@ -20,10 +20,10 @@ pub struct Array<B: ?Sized> {
     pub(crate) buffer: B,
 }
 
-pub type GridArray<T, D, A = Global> = Array<GridBuffer<T, D, A>>;
-pub type SpanArray<T, D, L> = Array<SpanBuffer<T, D, L>>;
-pub type ViewArray<'a, T, D, L> = Array<ViewBuffer<'a, T, D, L>>;
-pub type ViewArrayMut<'a, T, D, L> = Array<ViewBufferMut<'a, T, D, L>>;
+pub(crate) type GridArray<T, D, A = Global> = Array<GridBuffer<T, D, A>>;
+pub(crate) type SpanArray<T, D, L> = Array<SpanBuffer<T, D, L>>;
+pub(crate) type ViewArray<'a, T, D, L> = Array<ViewBuffer<'a, T, D, L>>;
+pub(crate) type ViewArrayMut<'a, T, D, L> = Array<ViewBufferMut<'a, T, D, L>>;
 
 impl<B: Buffer + ?Sized> Array<B> {
     /// Returns an array span of the entire array.
@@ -63,21 +63,9 @@ impl<B: Buffer + ?Sized> AsRef<SpanArray<B::Item, B::Dim, B::Layout>> for Array<
     }
 }
 
-impl<B: Buffer<Layout = Dense> + ?Sized> Borrow<[B::Item]> for Array<B> {
-    fn borrow(&self) -> &[B::Item] {
-        self.as_span().as_slice()
-    }
-}
-
 impl<B: SizedBuffer> Borrow<SpanArray<B::Item, B::Dim, B::Layout>> for Array<B> {
     fn borrow(&self) -> &SpanArray<B::Item, B::Dim, B::Layout> {
         self.as_span()
-    }
-}
-
-impl<B: BufferMut<Layout = Dense> + ?Sized> BorrowMut<[B::Item]> for Array<B> {
-    fn borrow_mut(&mut self) -> &mut [B::Item] {
-        self.as_mut_span().as_mut_slice()
     }
 }
 
@@ -106,12 +94,9 @@ impl<T: Debug, B: Buffer<Item = T> + ?Sized> Debug for Array<B> {
         } else {
             let mut list = f.debug_list();
 
+            // Empty arrays should give an empty list.
             if !self.as_span().is_empty() {
-                let _ = if B::Dim::RANK == 1 {
-                    list.entries(self.as_span().flatten().iter())
-                } else {
-                    list.entries(self.as_span().outer_iter())
-                };
+                _ = list.entries(self.as_span().outer_iter());
             }
 
             list.finish()
@@ -135,17 +120,14 @@ impl<B: SizedBufferMut> DerefMut for Array<B> {
 
 impl<T: Hash, B: Buffer<Item = T> + ?Sized> Hash for Array<B> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let is_empty = self.as_span().is_empty();
-        let shape = if is_empty { Default::default() } else { self.as_span().shape() };
-
         for i in 0..B::Dim::RANK {
             #[cfg(not(feature = "nightly"))]
-            state.write_usize(shape[i]);
+            state.write_usize(self.as_span().size(i));
             #[cfg(feature = "nightly")]
-            state.write_length_prefix(shape[i]);
+            state.write_length_prefix(self.as_span().size(i));
         }
 
-        if !is_empty {
+        if !self.as_span().is_empty() {
             hash(self.as_span(), state);
         }
     }

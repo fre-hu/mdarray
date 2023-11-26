@@ -128,34 +128,3 @@ macro_rules! impl_dim {
 }
 
 impl_dim!((0, 1, 2, 3, 4, 5, 6), (Dense, L::Uniform, L, L, L, L, L));
-
-#[cfg(not(feature = "nightly"))]
-pub fn range<R>(range: R, bounds: std::ops::RangeTo<usize>) -> std::ops::Range<usize>
-where
-    R: std::ops::RangeBounds<usize>,
-{
-    let len = bounds.end;
-
-    let start: std::ops::Bound<&usize> = range.start_bound();
-    let start = match start {
-        std::ops::Bound::Included(&start) => start,
-        std::ops::Bound::Excluded(start) => start
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("attempted to index slice from after maximum usize")),
-        std::ops::Bound::Unbounded => 0,
-    };
-
-    let end: std::ops::Bound<&usize> = range.end_bound();
-    let end = match end {
-        std::ops::Bound::Included(end) => end
-            .checked_add(1)
-            .unwrap_or_else(|| panic!("attempted to index slice up to maximum usize")),
-        std::ops::Bound::Excluded(&end) => end,
-        std::ops::Bound::Unbounded => len,
-    };
-
-    assert!(start <= end, "slice index starts at {start} but ends at {end}");
-    assert!(end <= len, "range end index {end} out of range for slice of length {len}");
-
-    std::ops::Range { start, end }
-}

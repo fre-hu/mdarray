@@ -77,7 +77,8 @@ macro_rules! impl_axis_iter {
                             unsafe {
                                 let ptr = self.0.ptr.as_ptr().offset(self.0.stride * i as isize);
                                 let view = ViewArray::<U, E, M>::new_unchecked(ptr, self.0.mapping);
-                                let _ = list.entry(&view);
+
+                                _ = list.entry(&view);
                             }
                         }
 
@@ -184,7 +185,8 @@ macro_rules! impl_flat_iter {
 
                         for i in self.0.index..self.0.size {
                             let count = self.0.stride * i as isize;
-                            let _ = list.entry(unsafe { &*self.0.ptr.as_ptr().offset(count) });
+
+                            _ = list.entry(unsafe { &*self.0.ptr.as_ptr().offset(count) });
                         }
 
                         list.finish()

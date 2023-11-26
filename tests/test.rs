@@ -1,11 +1,14 @@
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
+#![warn(unreachable_pub)]
+#![warn(unused_results)]
 
 #[cfg(feature = "nightly")]
-mod aligned_alloc;
+pub mod aligned_alloc;
 
 #[cfg(feature = "nightly")]
 use std::alloc::Global;
@@ -20,10 +23,9 @@ use serde_test::{assert_tokens, Token};
 
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
-use mdarray::{
-    fill, grid, step, view, Const, Dense, DenseMapping, Dim, Flat, FlatMapping, General,
-    GeneralMapping, Grid, Layout, Mapping, StepRange, Strided, StridedMapping, View, ViewMut,
-};
+use mdarray::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
+use mdarray::{fill, grid, step, view, Grid, StepRange, View, ViewMut};
+use mdarray::{Const, Dense, Dim, Flat, General, Layout, Strided};
 
 macro_rules! to_slice {
     ($span:expr) => {
@@ -228,8 +230,8 @@ fn test_base() {
     #[cfg(feature = "nightly")]
     let mut b = Grid::with_capacity_in(60, a.allocator().clone());
 
-    a.resize([3, 4, 5], &0);
-    b.resize([5, 4, 3], &0);
+    a.resize([3, 4, 5], 0);
+    b.resize([5, 4, 3], 0);
 
     assert_eq!(a.len(), 60);
     assert_eq!(a.shape(), [3, 4, 5]);
@@ -268,7 +270,7 @@ fn test_base() {
     assert_eq!(a.view((1, 2..3, 3..)), View::from(&[[1123], [1124]]));
     assert_eq!(b.view((3.., 2..3, 1)), ViewMut::from(&mut [[1123, 1124]]));
 
-    assert_eq!(Grid::<usize, 3>::from_elem([3, 4, 5], &1).as_slice(), [1; 60]);
+    assert_eq!(Grid::<usize, 3>::from_elem([3, 4, 5], 1).as_slice(), [1; 60]);
 
     assert_eq!(a, Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
     assert_eq!(b, Grid::<usize, 3>::from_fn([5, 4, 3], |i| 1000 + 100 * i[2] + 10 * i[1] + i[0]));
@@ -298,7 +300,7 @@ fn test_base() {
         s.set_shape([3, 4, 5]);
     }
 
-    a.resize([4, 4, 4], &9999);
+    a.resize([4, 4, 4], 9999);
     b.resize_with([4, 4, 4], || 9999);
 
     assert_eq!(a.flatten().iter().sum::<usize>(), 213576);
@@ -352,13 +354,14 @@ fn test_base() {
     t.reserve_exact(60);
 
     assert!(s.capacity() >= 120 && t.capacity() >= 120);
+    assert!(s.spare_capacity_mut().len() == s.capacity() - s.len());
 
     s.shrink_to(60);
     t.shrink_to_fit();
 
     assert!(s.capacity() < 120 && t.capacity() < 120);
 
-    t.try_reserve(usize::MAX).unwrap_err();
+    _ = t.try_reserve(usize::MAX).unwrap_err();
     t.try_reserve_exact(60).unwrap();
 
     s.append(&mut t.clone());
@@ -456,12 +459,12 @@ fn test_macros() {
     assert_eq!(view![[[[[1, 2, 3], [4, 5, 6]]]]], View::from(&[[[[[1, 2, 3], [4, 5, 6]]]]]));
     assert_eq!(view![[[[[[1, 2, 3], [4, 5, 6]]]]]], View::from(&[[[[[[1, 2, 3], [4, 5, 6]]]]]]));
 
-    assert_eq!(grid![0; 1], Grid::from_elem([1], &0));
-    assert_eq!(grid![[0; 1]; 2], Grid::from_elem([1, 2], &0));
-    assert_eq!(grid![[[0; 1]; 2]; 3], Grid::from_elem([1, 2, 3], &0));
-    assert_eq!(grid![[[[0; 1]; 2]; 3]; 4], Grid::from_elem([1, 2, 3, 4], &0));
-    assert_eq!(grid![[[[[0; 1]; 2]; 3]; 4]; 5], Grid::from_elem([1, 2, 3, 4, 5], &0));
-    assert_eq!(grid![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], Grid::from_elem([1, 2, 3, 4, 5, 6], &0));
+    assert_eq!(grid![0; 1], Grid::from_elem([1], 0));
+    assert_eq!(grid![[0; 1]; 2], Grid::from_elem([1, 2], 0));
+    assert_eq!(grid![[[0; 1]; 2]; 3], Grid::from_elem([1, 2, 3], 0));
+    assert_eq!(grid![[[[0; 1]; 2]; 3]; 4], Grid::from_elem([1, 2, 3, 4], 0));
+    assert_eq!(grid![[[[[0; 1]; 2]; 3]; 4]; 5], Grid::from_elem([1, 2, 3, 4, 5], 0));
+    assert_eq!(grid![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], Grid::from_elem([1, 2, 3, 4, 5, 6], 0));
 
     assert_eq!(view![0; 1], View::from(&[0; 1]));
     assert_eq!(view![[0; 1]; 2], View::from(&[[0; 1]; 2]));

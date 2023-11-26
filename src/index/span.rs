@@ -4,8 +4,9 @@ use std::ops::{
 
 use crate::array::SpanArray;
 use crate::dim::{Dim, Shape};
+use crate::index::panic_bounds_check;
 use crate::layout::{Dense, Layout, Uniform};
-use crate::mapping::{panic_bounds_check, Mapping};
+use crate::mapping::Mapping;
 
 /// Array span index trait, for an element or a subslice.
 pub trait SpanIndex<T, D: Dim, L: Layout> {

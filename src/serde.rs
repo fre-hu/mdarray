@@ -1,7 +1,7 @@
 use std::fmt::{self, Formatter};
 use std::marker::PhantomData;
 
-use serde::de::{Error, SeqAccess, Unexpected, Visitor};
+use serde::de::{Error, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -45,22 +45,26 @@ where
             }
         } else if let Some(value) = seq.next_element::<GridArray<T, D::Lower>>()? {
             if value.is_empty() {
-                Err(A::Error::invalid_length(value.len(), &self))
+                Err(A::Error::custom("inner sequence must be non-empty"))
             } else {
                 let capacity = value.len() * seq.size_hint().unwrap_or(0);
-                let shape = value.shape();
+                let expected = value.shape();
 
                 let mut grid = GridArray::<T, D>::with_capacity(capacity);
                 let mut larger = D::Shape::default();
 
-                larger[..D::RANK - 1].copy_from_slice(&shape[..]);
+                larger[..D::RANK - 1].copy_from_slice(&expected[..]);
                 larger[D::RANK - 1] = 1;
 
                 grid.append(&mut value.into_shape(larger));
 
                 while let Some(value) = seq.next_element::<GridArray<T, D::Lower>>()? {
-                    if value.shape()[..] != shape[..] {
-                        return Err(A::Error::invalid_value(Unexpected::Seq, &self));
+                    let shape = value.shape();
+
+                    if shape[..] != expected[..] {
+                        let msg = format!("invalid shape {:?}, expected {:?}", shape, expected);
+
+                        return Err(A::Error::custom(msg));
                     }
 
                     grid.append(&mut value.into_shape(larger));
@@ -92,15 +96,10 @@ impl<T: Serialize, B: Buffer<Item = T> + ?Sized> Serialize for Array<B> {
 
             let mut seq = serializer.serialize_seq(Some(len))?;
 
+            // Empty arrays should give an empty sequence.
             if len > 0 {
-                if B::Dim::RANK == 1 {
-                    for x in self.as_span().flatten().iter() {
-                        seq.serialize_element(x)?;
-                    }
-                } else {
-                    for x in self.as_span().outer_iter() {
-                        seq.serialize_element(&x)?;
-                    }
+                for x in self.as_span().outer_iter() {
+                    seq.serialize_element(&x)?;
                 }
             }
 

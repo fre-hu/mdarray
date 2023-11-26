@@ -1,16 +1,17 @@
 use crate::array::{ViewArray, ViewArrayMut};
 use crate::buffer::{ViewBuffer, ViewBufferMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::index::axis::Axis;
-use crate::index::view::{Params, ViewIndex};
+use crate::index::{panic_bounds_check, Axis, Params, ViewIndex};
 use crate::layout::{Dense, Layout};
-use crate::mapping::{panic_bounds_check, DenseMapping, Mapping};
+use crate::mapping::{DenseMapping, Mapping};
 
 macro_rules! impl_view {
     ($name:tt, $buffer:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
         impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
             /// Converts the array view into a one-dimensional array view.
+            ///
             /// # Panics
+            ///
             /// Panics if the array layout is not uniformly strided.
             pub fn into_flattened(
                 $($mut)? self
@@ -21,7 +22,9 @@ macro_rules! impl_view {
             }
 
             /// Converts the array view into a remapped array view.
+            ///
             /// # Panics
+            ///
             /// Panics if the memory layout is not compatible with the new array layout.
             pub fn into_mapping<M: Layout>($($mut)? self) -> $name<'a, T, D, M> {
                 let mapping = M::Mapping::remap(self.mapping());
@@ -30,7 +33,9 @@ macro_rules! impl_view {
             }
 
             /// Converts the array view into a reshaped array view with similar layout.
+            ///
             /// # Panics
+            ///
             /// Panics if the array length is changed, or the memory layout is not compatible.
             pub fn into_shape<S: Shape>(
                 $($mut)? self,
@@ -42,7 +47,9 @@ macro_rules! impl_view {
             }
 
             /// Divides the array view into two at an index along the outer dimension.
+            ///
             /// # Panics
+            ///
             /// Panics if the split point is larger than the number of elements in that dimension.
             pub fn into_split_at(
                 self,
@@ -54,7 +61,9 @@ macro_rules! impl_view {
             }
 
             /// Divides the array view into two at an index along the specified dimension.
+            ///
             /// # Panics
+            ///
             /// Panics if the split point is larger than the number of elements in that dimension.
             pub fn into_split_axis_at<const DIM: usize>(
                 self,
@@ -70,7 +79,9 @@ macro_rules! impl_view {
             }
 
             /// Converts the array view into a new array view for the specified subarray.
+            ///
             /// # Panics
+            ///
             /// Panics if the subarray is out of bounds.
             pub fn into_view<P: Params, I: ViewIndex<D, L, Params = P>>(
                 $($mut)? self,
@@ -84,7 +95,9 @@ macro_rules! impl_view {
             }
 
             /// Creates an array view from a raw pointer and layout.
+            ///
             /// # Safety
+            ///
             /// The pointer must be non-null and a valid array view for the given layout.
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, mapping: L::Mapping<D>) -> Self {
                 Self { buffer: $buffer::new_unchecked(ptr, mapping) }
