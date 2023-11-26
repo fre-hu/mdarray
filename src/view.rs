@@ -1,9 +1,9 @@
 use crate::array::{ViewArray, ViewArrayMut};
 use crate::buffer::{ViewBuffer, ViewBufferMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::index::{panic_bounds_check, Axis, DimIndex, ViewIndex};
+use crate::index::{panic_bounds_check, Axis, DimIndex, Permutation, ViewIndex};
 use crate::layout::{Dense, Layout};
-use crate::mapping::{DenseMapping, Mapping};
+use crate::mapping::{DenseMapping, FlatMapping, Mapping, StridedMapping};
 
 macro_rules! impl_view {
     ($name:tt, $buffer:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
@@ -115,6 +115,59 @@ macro_rules! impl_view {
 
 impl_view!(ViewArray, ViewBuffer, as_ptr, const, {});
 impl_view!(ViewArrayMut, ViewBufferMut, as_mut_ptr, mut, {mut});
+
+macro_rules! impl_into_permuted {
+    ($n:tt, ($($xyz:tt),+)) => {
+        impl<'a, T, L: Layout> ViewArray<'a, T, Const<$n>, L> {
+            /// Converts the array view into a new array view with the dimensions permuted.
+            pub fn into_permuted<$(const $xyz: usize),+>(
+                self
+            ) -> ViewArray<'a, T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
+            where
+                ($(Const<$xyz>,)+): Permutation
+            {
+                let shape = [$(self.size($xyz)),+];
+                let strides = [$(self.stride($xyz)),+];
+
+                let mapping = if $n > 1 {
+                    Mapping::remap(StridedMapping::new(shape, strides))
+                } else {
+                    Mapping::remap(FlatMapping::new(shape, strides[0]))
+                };
+
+                unsafe { ViewArray::new_unchecked(self.as_ptr(), mapping) }
+            }
+        }
+
+        impl<'a, T, L: Layout> ViewArrayMut<'a, T, Const<$n>, L> {
+            /// Converts the array view into a new array view with the dimensions permuted.
+            pub fn into_permuted<$(const $xyz: usize),+>(
+                mut self
+            ) -> ViewArrayMut<'a, T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
+            where
+                ($(Const<$xyz>,)+): Permutation
+            {
+                let shape = [$(self.size($xyz)),+];
+                let strides = [$(self.stride($xyz)),+];
+
+                let mapping = if $n > 1 {
+                    Mapping::remap(StridedMapping::new(shape, strides))
+                } else {
+                    Mapping::remap(FlatMapping::new(shape, strides[0]))
+                };
+
+                unsafe { ViewArrayMut::new_unchecked(self.as_mut_ptr(), mapping) }
+            }
+        }
+    };
+}
+
+impl_into_permuted!(1, (X));
+impl_into_permuted!(2, (X, Y));
+impl_into_permuted!(3, (X, Y, Z));
+impl_into_permuted!(4, (X, Y, Z, W));
+impl_into_permuted!(5, (X, Y, Z, W, U));
+impl_into_permuted!(6, (X, Y, Z, W, U, V));
 
 macro_rules! impl_into_view {
     ($n:tt, ($($xyz:tt),+), ($($idx:tt),+)) => {

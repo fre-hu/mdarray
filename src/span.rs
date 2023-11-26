@@ -4,7 +4,7 @@ use std::slice;
 
 use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::index::{Axis, DimIndex, SpanIndex, ViewIndex};
+use crate::index::{Axis, DimIndex, Permutation, SpanIndex, ViewIndex};
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{Dense, Layout, Uniform};
 use crate::mapping::Mapping;
@@ -487,6 +487,39 @@ impl<T, D: Dim> SpanArray<T, D, Dense> {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 }
+
+macro_rules! impl_permute {
+    ($n:tt, ($($xyz:tt),+)) => {
+        impl<T, L: Layout> SpanArray<T, Const<$n>, L> {
+            /// Returns an array view with the dimensions permuted.
+            pub fn permute<$(const $xyz: usize),+>(
+                &self
+            ) -> ViewArray<T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
+            where
+                ($(Const<$xyz>,)+): Permutation
+            {
+                self.to_view().into_permuted()
+            }
+
+            /// Returns a mutable array view with the dimensions permuted.
+            pub fn permute_mut<$(const $xyz: usize),+>(
+                &mut self
+            ) -> ViewArrayMut<T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
+            where
+                ($(Const<$xyz>,)+): Permutation
+            {
+                self.to_view_mut().into_permuted()
+            }
+        }
+    };
+}
+
+impl_permute!(1, (X));
+impl_permute!(2, (X, Y));
+impl_permute!(3, (X, Y, Z));
+impl_permute!(4, (X, Y, Z, W));
+impl_permute!(5, (X, Y, Z, W, U));
+impl_permute!(6, (X, Y, Z, W, U, V));
 
 macro_rules! impl_view {
     ($n:tt, ($($xyz:tt),+), ($($idx:tt),+)) => {
