@@ -40,13 +40,21 @@ pub fn fill<T: Copy>(value: T) -> Fill<T> {
     Fill { value }
 }
 
-/// Returns a range with the given step size from a unit spaced range.
+/// Creates a range with the given step size from a unit spaced range.
 ///
-/// If the step size is negative, the result is the reverse of the corresponding range
-/// with step size as the absolute value of the given step size.
+/// If the step size is negative, the result is obtained by reversing the input range
+/// and stepping by the absolute value of the step size.
 ///
-/// For example, `step(0..10, 2)` gives the values `0, 2, 4, 6, 8` and `step(0..10, -2)`
-/// gives the values `8, 6, 4, 2, 0`.
+/// # Examples
+///
+/// ```
+/// use mdarray::{step, view, View};
+///
+/// let v = view![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+///
+/// assert_eq!(v.view(step(0..10, 2)).to_vec(), [0, 2, 4, 6, 8]);
+/// assert_eq!(v.view(step(0..10, -2)).to_vec(), [9, 7, 5, 3, 1]);
+/// ```
 pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }

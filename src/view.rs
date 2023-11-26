@@ -1,7 +1,7 @@
 use crate::array::{ViewArray, ViewArrayMut};
 use crate::buffer::{ViewBuffer, ViewBufferMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::index::{panic_bounds_check, Axis, Params, ViewIndex};
+use crate::index::{panic_bounds_check, Axis, DimIndex, ViewIndex};
 use crate::layout::{Dense, Layout};
 use crate::mapping::{DenseMapping, Mapping};
 
@@ -78,22 +78,6 @@ macro_rules! impl_view {
                 self.into_mapping().into_split_dim_at(DIM, mid)
             }
 
-            /// Converts the array view into a new array view for the specified subarray.
-            ///
-            /// # Panics
-            ///
-            /// Panics if the subarray is out of bounds.
-            pub fn into_view<P: Params, I: ViewIndex<D, L, Params = P>>(
-                $($mut)? self,
-                index: I
-            ) -> $name<'a, T, P::Dim, P::Layout>
-            {
-                let (offset, mapping) = I::view_index(index, self.mapping());
-                let count = if mapping.is_empty() { 0 } else { offset }; // Discard offset if empty.
-
-                unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
-            }
-
             /// Creates an array view from a raw pointer and layout.
             ///
             /// # Safety
@@ -131,6 +115,65 @@ macro_rules! impl_view {
 
 impl_view!(ViewArray, ViewBuffer, as_ptr, const, {});
 impl_view!(ViewArrayMut, ViewBufferMut, as_mut_ptr, mut, {mut});
+
+macro_rules! impl_into_view {
+    ($n:tt, ($($xyz:tt),+), ($($idx:tt),+)) => {
+        impl<'a, T, L: Layout> ViewArray<'a, T, Const<$n>, L> {
+            /// Converts the array view into a new array view for the specified subarray.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            pub fn into_view<$($xyz: DimIndex),+>(
+                self,
+                $($idx: $xyz),+
+            ) -> ViewArray<
+                'a,
+                T,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Layout,
+            > {
+                let (offset, mapping) = ($($idx,)+).view_index(self.mapping());
+
+                // If the view is empty, we must not offset the pointer.
+                let count = if mapping.is_empty() { 0 } else { offset };
+
+                unsafe { ViewArray::new_unchecked(self.as_ptr().offset(count), mapping) }
+            }
+        }
+
+        impl<'a, T, L: Layout> ViewArrayMut<'a, T, Const<$n>, L> {
+            /// Converts the array view into a new array view for the specified subarray.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            pub fn into_view<$($xyz: DimIndex),+>(
+                mut self,
+                $($idx: $xyz),+
+            ) -> ViewArrayMut<
+                'a,
+                T,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Layout,
+            > {
+                let (offset, mapping) = ($($idx,)+).view_index(self.mapping());
+
+                // If the view is empty, we must not offset the pointer.
+                let count = if mapping.is_empty() { 0 } else { offset };
+
+                unsafe { ViewArrayMut::new_unchecked(self.as_mut_ptr().offset(count), mapping) }
+            }
+        }
+    };
+}
+
+impl_into_view!(1, (X), (x));
+impl_into_view!(2, (X, Y), (x, y));
+impl_into_view!(3, (X, Y, Z), (x, y, z));
+impl_into_view!(4, (X, Y, Z, W), (x, y, z, w));
+impl_into_view!(5, (X, Y, Z, W, U), (x, y, z, w, u));
+impl_into_view!(6, (X, Y, Z, W, U, V), (x, y, z, w, u, v));
 
 impl<'a, T> From<&'a [T]> for ViewArray<'a, T, Const<1>, Dense> {
     fn from(slice: &'a [T]) -> Self {

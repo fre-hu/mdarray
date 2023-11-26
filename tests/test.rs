@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(associated_type_defaults))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
@@ -38,184 +39,96 @@ fn check_mapping<D: Dim, L: Layout, M: Mapping>(_: M) {
 }
 
 fn check_view<L: Layout>() {
-    let a = Grid::from([[[[0]]]]);
+    let a = Grid::<i32, 3>::from([[[0]]]);
     let a = a.remap::<L>();
 
-    // a.view((_, _, 0, 0))
+    // a.view(_, _, 0)
 
-    check_mapping::<Const<0>, Dense, _>(a.view((0, 0, 0, 0)).mapping());
-    check_mapping::<Const<1>, L::Uniform, _>(a.view((.., 0, 0, 0)).mapping());
-    check_mapping::<Const<1>, L::Uniform, _>(a.view((1.., 0, 0, 0)).mapping());
-    check_mapping::<Const<1>, Flat, _>(a.view((sr(), 0, 0, 0)).mapping());
+    check_mapping::<Const<0>, Dense, _>(a.view(0, 0, 0).mapping());
+    check_mapping::<Const<1>, L::Uniform, _>(a.view(.., 0, 0).mapping());
+    check_mapping::<Const<1>, L::Uniform, _>(a.view(1.., 0, 0).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(sr(), 0, 0).mapping());
 
-    check_mapping::<Const<1>, Flat, _>(a.view((0, .., 0, 0)).mapping());
-    check_mapping::<Const<2>, L, _>(a.view((.., .., 0, 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., .., 0, 0)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), .., 0, 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(0, .., 0).mapping());
+    check_mapping::<Const<2>, L, _>(a.view(.., .., 0).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., .., 0).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(sr(), .., 0).mapping());
 
-    check_mapping::<Const<1>, Flat, _>(a.view((0, 1.., 0, 0)).mapping());
-    check_mapping::<Const<2>, L, _>(a.view((.., 1.., 0, 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 1.., 0, 0)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 1.., 0, 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(0, 1.., 0).mapping());
+    check_mapping::<Const<2>, L, _>(a.view(.., 1.., 0).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 1.., 0).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 1.., 0).mapping());
 
-    check_mapping::<Const<1>, Flat, _>(a.view((0, sr(), 0, 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., sr(), 0, 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., sr(), 0, 0)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), sr(), 0, 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(0, sr(), 0).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., sr(), 0).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., sr(), 0).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(sr(), sr(), 0).mapping());
 
-    // a.view((_, _, .., 0))
+    // a.view(_, _, ..)
 
-    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, .., 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, .., 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, .., 0)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, .., 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(0, 0, ..).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., 0, ..).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 0, ..).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 0, ..).mapping());
 
-    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view((0, .., .., 0)).mapping());
-    check_mapping::<Const<3>, L, _>(a.view((.., .., .., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., .., 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., .., 0)).mapping());
+    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view(0, .., ..).mapping());
+    check_mapping::<Const<3>, L, _>(a.view(.., .., ..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., .., ..).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), .., ..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., .., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., .., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., .., 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., .., 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, 1.., ..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., 1.., ..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., 1.., ..).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), 1.., ..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), .., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), .., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), .., 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), .., 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, sr(), ..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., sr(), ..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., sr(), ..).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), sr(), ..).mapping());
 
-    // a.view((_, _, 1.., 0))
+    // a.view(_, _, 1..)
 
-    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, 1.., 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, 1.., 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, 1.., 0)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, 1.., 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(0, 0, 1..).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., 0, 1..).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 0, 1..).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 0, 1..).mapping());
 
-    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view((0, .., 1.., 0)).mapping());
-    check_mapping::<Const<3>, L, _>(a.view((.., .., 1.., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., 1.., 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., 1.., 0)).mapping());
+    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view(0, .., 1..).mapping());
+    check_mapping::<Const<3>, L, _>(a.view(.., .., 1..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., .., 1..).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), .., 1..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., 1.., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., 1.., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., 1.., 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., 1.., 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, 1.., 1..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., 1.., 1..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., 1.., 1..).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), 1.., 1..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), 1.., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), 1.., 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), 1.., 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), 1.., 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, sr(), 1..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., sr(), 1..).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., sr(), 1..).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), sr(), 1..).mapping());
 
-    // a.view((_, _, sr(), 0))
+    // a.view(_, _, sr())
 
-    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, sr(), 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, sr(), 0)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, sr(), 0)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, sr(), 0)).mapping());
+    check_mapping::<Const<1>, Flat, _>(a.view(0, 0, sr()).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., 0, sr()).mapping());
+    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 0, sr()).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 0, sr()).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, .., sr(), 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., .., sr(), 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., sr(), 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., sr(), 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, .., sr()).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., .., sr()).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., .., sr()).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), .., sr()).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., sr(), 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., sr(), 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., sr(), 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., sr(), 0)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, 1.., sr()).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., 1.., sr()).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., 1.., sr()).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), 1.., sr()).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), sr(), 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), sr(), 0)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), sr(), 0)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), sr(), 0)).mapping());
-
-    // a.view((_, _, 0, ..))
-
-    check_mapping::<Const<1>, Flat, _>(a.view((0, 0, 0, ..)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((.., 0, 0, ..)).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view((1.., 0, 0, ..)).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view((sr(), 0, 0, ..)).mapping());
-
-    check_mapping::<Const<2>, Strided, _>(a.view((0, .., 0, ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., .., 0, ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., .., 0, ..)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), .., 0, ..)).mapping());
-
-    check_mapping::<Const<2>, Strided, _>(a.view((0, 1.., 0, ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 1.., 0, ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 1.., 0, ..)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 1.., 0, ..)).mapping());
-
-    check_mapping::<Const<2>, Strided, _>(a.view((0, sr(), 0, ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., sr(), 0, ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., sr(), 0, ..)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), sr(), 0, ..)).mapping());
-
-    // a.view((_, _, .., ..))
-
-    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view((0, 0, .., ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 0, .., ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 0, .., ..)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 0, .., ..)).mapping());
-
-    check_mapping::<Const<3>, L::NonUnitStrided, _>(a.view((0, .., .., ..)).mapping());
-    check_mapping::<Const<4>, L, _>(a.view((.., .., .., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., .., .., ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), .., .., ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, 1.., .., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., 1.., .., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., 1.., .., ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), 1.., .., ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, sr(), .., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., sr(), .., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., sr(), .., ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), sr(), .., ..)).mapping());
-
-    // a.view((_, _, 1.., ..))
-
-    check_mapping::<Const<2>, Strided, _>(a.view((0, 0, 1.., ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 0, 1.., ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 0, 1.., ..)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 0, 1.., ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, .., 1.., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., .., 1.., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., .., 1.., ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), .., 1.., ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, 1.., 1.., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., 1.., 1.., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., 1.., 1.., ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), 1.., 1.., ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, sr(), 1.., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., sr(), 1.., ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., sr(), 1.., ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), sr(), 1.., ..)).mapping());
-
-    // a.view((_, _, sr(), ..))
-
-    check_mapping::<Const<2>, Strided, _>(a.view((0, 0, sr(), ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((.., 0, sr(), ..)).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view((1.., 0, sr(), ..)).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view((sr(), 0, sr(), ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, .., sr(), ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., .., sr(), ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., .., sr(), ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), .., sr(), ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, 1.., sr(), ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., 1.., sr(), ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., 1.., sr(), ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), 1.., sr(), ..)).mapping());
-
-    check_mapping::<Const<3>, Strided, _>(a.view((0, sr(), sr(), ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((.., sr(), sr(), ..)).mapping());
-    check_mapping::<Const<4>, L::NonUniform, _>(a.view((1.., sr(), sr(), ..)).mapping());
-    check_mapping::<Const<4>, Strided, _>(a.view((sr(), sr(), sr(), ..)).mapping());
+    check_mapping::<Const<2>, Strided, _>(a.view(0, sr(), sr()).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., sr(), sr()).mapping());
+    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., sr(), sr()).mapping());
+    check_mapping::<Const<3>, Strided, _>(a.view(sr(), sr(), sr()).mapping());
 }
 
 fn sr() -> StepRange<RangeFull, isize> {
@@ -224,16 +137,17 @@ fn sr() -> StepRange<RangeFull, isize> {
 
 #[test]
 fn test_base() {
-    let mut a = Grid::default();
+    let mut a = Grid::<usize, 3>::default();
     #[cfg(not(feature = "nightly"))]
-    let mut b = Grid::with_capacity(60);
+    let mut b = Grid::<usize, 3>::with_capacity(60);
     #[cfg(feature = "nightly")]
-    let mut b = Grid::with_capacity_in(60, a.allocator().clone());
+    let mut b = Grid::<usize, 3>::with_capacity_in(60, a.allocator().clone());
 
     a.resize([3, 4, 5], 0);
     b.resize([5, 4, 3], 0);
 
     assert_eq!(a.len(), 60);
+    assert_eq!(a.rank(), 3);
     assert_eq!(a.shape(), [3, 4, 5]);
     assert_eq!(a.size(1), 4);
     assert_eq!(a.stride(2), 12);
@@ -254,44 +168,44 @@ fn test_base() {
         *b.get_unchecked_mut([4, 3, 2]) = 1234;
     }
 
-    assert_eq!(to_slice!(a.view((.., 2, 3))), [1023, 1123, 1223]);
-    assert_eq!(to_slice!(a.view((1, 1.., 3))), [1113, 1123, 1133]);
-    assert_eq!(to_slice!(a.view((1, 2, 2..))), [1122, 1123, 1124]);
+    assert_eq!(to_slice!(a.view(.., 2, 3)), [1023, 1123, 1223]);
+    assert_eq!(to_slice!(a.view(1, 1.., 3)), [1113, 1123, 1133]);
+    assert_eq!(to_slice!(a.view(1, 2, 2..)), [1122, 1123, 1124]);
 
-    assert_eq!(to_slice!(a.view((1.., ..2, 4))), [1104, 1204, 1114, 1214]);
-    assert_eq!(to_slice!(b.view((4, ..2, 1..))), [1104, 1114, 1204, 1214]);
+    assert_eq!(to_slice!(a.view(1.., ..2, 4)), [1104, 1204, 1114, 1214]);
+    assert_eq!(to_slice!(b.view(4, ..2, 1..)), [1104, 1114, 1204, 1214]);
 
-    assert_eq!(format!("{:?}", a.view((2, 1..3, ..2))), "[[1210, 1220], [1211, 1221]]");
-    assert_eq!(format!("{:?}", b.view((..2, 1..3, 2))), "[[1210, 1211], [1220, 1221]]");
+    assert_eq!(format!("{:?}", a.view(2, 1..3, ..2)), "[[1210, 1220], [1211, 1221]]");
+    assert_eq!(format!("{:?}", b.view(..2, 1..3, 2)), "[[1210, 1211], [1220, 1221]]");
 
-    assert_eq!(a.view((2, 1, ..)), View::from([1210, 1211, 1212, 1213, 1214].as_slice()));
-    assert_eq!(b.view((2, 1, ..)), ViewMut::from([1012, 1112, 1212].as_mut_slice()));
+    assert_eq!(a.view(2, 1, ..), View::from([1210, 1211, 1212, 1213, 1214].as_slice()));
+    assert_eq!(b.view(2, 1, ..), ViewMut::from([1012, 1112, 1212].as_mut_slice()));
 
-    assert_eq!(a.view((1, 2..3, 3..)), View::from(&[[1123], [1124]]));
-    assert_eq!(b.view((3.., 2..3, 1)), ViewMut::from(&mut [[1123, 1124]]));
+    assert_eq!(a.view(1, 2..3, 3..), View::from(&[[1123], [1124]]));
+    assert_eq!(b.view(3.., 2..3, 1), ViewMut::from(&mut [[1123, 1124]]));
 
     assert_eq!(Grid::<usize, 3>::from_elem([3, 4, 5], 1).as_slice(), [1; 60]);
 
     assert_eq!(a, Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
     assert_eq!(b, Grid::<usize, 3>::from_fn([5, 4, 3], |i| 1000 + 100 * i[2] + 10 * i[1] + i[0]));
 
-    assert_eq!(a.view((2, .., ..)), a.axis_iter::<0>().skip(2).next().unwrap());
-    assert_eq!(b.grid((2, .., ..)), b.axis_iter_mut::<0>().skip(2).next().unwrap());
+    assert_eq!(a.view(2, .., ..), a.axis_iter::<0>().skip(2).next().unwrap());
+    assert_eq!(b.grid(2, .., ..), b.axis_iter_mut::<0>().skip(2).next().unwrap());
 
-    assert_eq!(b.view((.., 2, ..)), b.axis_iter::<1>().skip(2).next().unwrap());
-    assert_eq!(a.grid((.., 2, ..)), a.axis_iter_mut::<1>().skip(2).next().unwrap());
+    assert_eq!(b.view(.., 2, ..), b.axis_iter::<1>().skip(2).next().unwrap());
+    assert_eq!(a.grid(.., 2, ..), a.axis_iter_mut::<1>().skip(2).next().unwrap());
 
-    assert_eq!(a.view((.., .., 2)), a.axis_iter::<2>().skip(2).next().unwrap());
-    assert_eq!(b.grid((.., .., 2)), b.axis_iter_mut::<2>().skip(2).next().unwrap());
+    assert_eq!(a.view(.., .., 2), a.axis_iter::<2>().skip(2).next().unwrap());
+    assert_eq!(b.grid(.., .., 2), b.axis_iter_mut::<2>().skip(2).next().unwrap());
 
-    assert_eq!(b.view((2, .., ..)), b.inner_iter().skip(2).next().unwrap());
-    assert_eq!(a.grid((2, .., ..)), a.inner_iter_mut().skip(2).next().unwrap());
+    assert_eq!(b.view(2, .., ..), b.inner_iter().skip(2).next().unwrap());
+    assert_eq!(a.grid(2, .., ..), a.inner_iter_mut().skip(2).next().unwrap());
 
-    assert_eq!(a.view((.., .., 2)), a.outer_iter().skip(2).next().unwrap());
-    assert_eq!(b.grid((.., .., 2)), b.outer_iter_mut().skip(2).next().unwrap());
+    assert_eq!(a.view(.., .., 2), a.outer_iter().skip(2).next().unwrap());
+    assert_eq!(b.grid(.., .., 2), b.outer_iter_mut().skip(2).next().unwrap());
 
     assert_eq!(a.contains(&1111), true);
-    assert_eq!(a.view((1, 1.., 1..)).contains(&9999), false);
+    assert_eq!(a.view(1, 1.., 1..).contains(&9999), false);
 
     let mut r = a.clone().into_shape([5, 4, 3]);
     let mut s = b.clone();
@@ -306,32 +220,29 @@ fn test_base() {
     assert_eq!(a.flatten().iter().sum::<usize>(), 213576);
     assert_eq!(b.flatten().iter().sum::<usize>(), 213576);
 
-    assert_eq!(r.view((1.., 1.., 1..)).shape(), [4, 3, 2]);
-    assert_eq!(s.view((1.., 1.., 1..)).shape(), [2, 3, 4]);
+    assert_eq!(r.view(1.., 1.., 1..).shape(), [4, 3, 2]);
+    assert_eq!(s.view(1.., 1.., 1..).shape(), [2, 3, 4]);
 
-    assert_eq!(r.view((1.., 1.., 1..)).strides(), [1, 5, 20]);
-    assert_eq!(s.view((1.., 1.., 1..)).strides(), [1, 3, 12]);
+    assert_eq!(r.view(1.., 1.., 1..).strides(), [1, 5, 20]);
+    assert_eq!(s.view(1.., 1.., 1..).strides(), [1, 3, 12]);
 
-    assert_eq!(r.view((1.., 1.., 1..)).view((2, 1, 0))[[]], 1032);
-    assert_eq!(s.view((1.., 1.., 1..)).view((0, 1, 2))[[]], 1203);
+    assert_eq!(r.view(1.., 1.., 1..).view(2, 1, 0)[[]], 1032);
+    assert_eq!(s.view(1.., 1.., 1..).view(0, 1, 2)[[]], 1203);
 
     assert_eq!(Grid::from_iter(0..10).grid(step(.., 2))[..], [0, 2, 4, 6, 8]);
-    #[cfg(not(feature = "nightly"))]
-    assert_eq!(Grid::from_iter(0..10).grid(step(.., -2))[..], [8, 6, 4, 2, 0]);
-    #[cfg(feature = "nightly")]
-    assert_eq!(Grid::from_iter(0..10).grid_in(step(.., -2), Global)[..], [8, 6, 4, 2, 0]);
+    assert_eq!(Grid::from_iter(0..10).grid(step(.., -2))[..], [9, 7, 5, 3, 1]);
 
     assert!(Grid::from_iter(0..10).view(step(..0, isize::MAX)).is_empty());
     assert!(Grid::from_iter(0..10).view_mut(step(..0, isize::MIN)).is_empty());
 
     assert_eq!(Grid::from_iter(0..3).map(|x| 10 * x)[..], [0, 10, 20]);
 
-    assert_eq!(to_slice!(a.view((..2, ..2, ..)).split_at(1).0), [1000, 1100, 1010, 1110]);
-    assert_eq!(to_slice!(a.view((..2, .., ..2)).split_axis_at::<1>(3).1), [1030, 1130, 1031, 1131]);
+    assert_eq!(to_slice!(a.view(..2, ..2, ..).split_at(1).0), [1000, 1100, 1010, 1110]);
+    assert_eq!(to_slice!(a.view(..2, .., ..2).split_axis_at::<1>(3).1), [1030, 1130, 1031, 1131]);
 
     a.truncate(2);
 
-    assert_eq!(to_slice!(a.view((..2, ..2, ..))), [1000, 1100, 1010, 1110, 1001, 1101, 1011, 1111]);
+    assert_eq!(to_slice!(a.view(..2, ..2, ..)), [1000, 1100, 1010, 1110, 1001, 1101, 1011, 1111]);
 
     r.flatten_mut().iter_mut().for_each(|x| *x *= 2);
     s.as_mut_slice().iter_mut().for_each(|x| *x *= 2);
@@ -365,7 +276,7 @@ fn test_base() {
     t.try_reserve_exact(60).unwrap();
 
     s.append(&mut t.clone());
-    t.extend_from_span(&s.view((.., .., 5..)));
+    t.extend_from_span(&s.view(.., .., 5..));
 
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
@@ -408,11 +319,11 @@ fn test_iter() {
     assert_eq!(format!("{:?}", grid.outer_iter()), "AxisIter([[1, 2, 3], [4, 5, 6]])");
     assert_eq!(format!("{:?}", grid.inner_iter_mut()), "AxisIterMut([[1, 4], [2, 5], [3, 6]])");
 
-    assert_eq!(format!("{:?}", grid.view((.., 0)).iter()), "Iter([1, 2, 3])");
-    assert_eq!(format!("{:?}", grid.view_mut((.., 1)).iter_mut()), "IterMut([4, 5, 6])");
+    assert_eq!(format!("{:?}", grid.view(.., 0).iter()), "Iter([1, 2, 3])");
+    assert_eq!(format!("{:?}", grid.view_mut(.., 1).iter_mut()), "IterMut([4, 5, 6])");
 
-    assert_eq!(format!("{:?}", grid.view((1, ..)).iter()), "FlatIter([2, 5])");
-    assert_eq!(format!("{:?}", grid.view_mut((2, ..)).iter_mut()), "FlatIterMut([3, 6])");
+    assert_eq!(format!("{:?}", grid.view(1, ..).iter()), "FlatIter([2, 5])");
+    assert_eq!(format!("{:?}", grid.view_mut(2, ..).iter_mut()), "FlatIterMut([3, 6])");
 }
 
 #[test]
@@ -485,6 +396,7 @@ fn test_mapping() {
     assert_eq!(f.is_empty(), false);
     assert_eq!(g.is_uniformly_strided(), false);
     assert_eq!(s.len(), 6);
+    assert_eq!(d.rank(), 3);
 
     assert_eq!(d.shape(), [1, 2, 3]);
     assert_eq!(f.size(2), 3);
@@ -547,8 +459,8 @@ fn test_ops() {
     assert!(Grid::from([3]).as_span().cmp(Grid::from([2, 1]).as_span()) == Ordering::Greater);
 
     assert!(a == a && *a == a && a == *a && *a == *a);
-    assert!(b.view((1, ..)) <= b.view((1, ..)) && *b.view((1, ..)) > b.view((2, ..)));
-    assert!(b.view((2, ..)) < *b.view((1, ..)) && *b.view((2, ..)) >= *b.view((2, ..)));
+    assert!(b.view(1, ..) <= b.view(1, ..) && *b.view(1, ..) > b.view(2, ..));
+    assert!(b.view(2, ..) < *b.view(1, ..) && *b.view(2, ..) >= *b.view(2, ..));
 }
 
 #[cfg(feature = "serde")]

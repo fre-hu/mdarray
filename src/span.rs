@@ -4,7 +4,7 @@ use std::slice;
 
 use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::index::{Axis, Params, SpanIndex, ViewIndex};
+use crate::index::{Axis, DimIndex, SpanIndex, ViewIndex};
 use crate::iter::{AxisIter, AxisIterMut};
 use crate::layout::{Dense, Layout, Uniform};
 use crate::mapping::Mapping;
@@ -156,34 +156,6 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         index.get_unchecked_mut(self)
     }
 
-    /// Copies the specified subarray into a new array.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the subarray is out of bounds.
-    pub fn grid<P: Params, I>(&self, index: I) -> GridArray<T, P::Dim>
-    where
-        T: Clone,
-        I: ViewIndex<D, L, Params = P>,
-    {
-        self.view(index).to_grid()
-    }
-
-    /// Copies the specified subarray into a new array with the specified allocator.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the subarray is out of bounds.
-    #[cfg(feature = "nightly")]
-    pub fn grid_in<P: Params, I, A>(&self, index: I, alloc: A) -> GridArray<T, P::Dim, A>
-    where
-        T: Clone,
-        I: ViewIndex<D, L, Params = P>,
-        A: Allocator,
-    {
-        self.view(index).to_grid_in(alloc)
-    }
-
     /// Returns an iterator that gives array views over the inner dimension.
     ///
     /// Iterating over the inner dimension maintains the uniform stride property but not
@@ -315,6 +287,11 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
                 self.stride(D::RANK - 1),
             )
         }
+    }
+
+    /// Returns the array rank, i.e. the number of dimensions.
+    pub fn rank(&self) -> usize {
+        D::RANK
     }
 
     /// Returns a remapped array view of the array span.
@@ -497,30 +474,6 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     pub fn to_view_mut(&mut self) -> ViewArrayMut<T, D, L> {
         unsafe { ViewArrayMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
     }
-
-    /// Returns an array view for the specified subarray.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the subarray is out of bounds.
-    pub fn view<P: Params, I>(&self, index: I) -> ViewArray<T, P::Dim, P::Layout>
-    where
-        I: ViewIndex<D, L, Params = P>,
-    {
-        self.to_view().into_view(index)
-    }
-
-    /// Returns a mutable array view for the specified subarray.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the subarray is out of bounds.
-    pub fn view_mut<P: Params, I>(&mut self, index: I) -> ViewArrayMut<T, P::Dim, P::Layout>
-    where
-        I: ViewIndex<D, L, Params = P>,
-    {
-        self.to_view_mut().into_view(index)
-    }
 }
 
 impl<T, D: Dim> SpanArray<T, D, Dense> {
@@ -534,6 +487,67 @@ impl<T, D: Dim> SpanArray<T, D, Dense> {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 }
+
+macro_rules! impl_view {
+    ($n:tt, ($($xyz:tt),+), ($($idx:tt),+)) => {
+        #[allow(unused_parens)]
+        impl<T, L: Layout> SpanArray<T, Const<$n>, L> {
+            /// Copies the specified subarray into a new array.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            pub fn grid<$($xyz: DimIndex),+>(
+                &self,
+                $($idx: $xyz),+
+            ) -> GridArray<T, <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim>
+            where
+                T: Clone,
+            {
+                self.view($($idx),+).to_grid()
+            }
+
+            /// Returns an array view for the specified subarray.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            pub fn view<$($xyz: DimIndex),+>(
+                &self,
+                $($idx: $xyz),+
+            ) -> ViewArray<
+                T,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Layout,
+            > {
+                self.to_view().into_view($($idx),+)
+            }
+
+            /// Returns a mutable array view for the specified subarray.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            pub fn view_mut<$($xyz: DimIndex),+>(
+                &mut self,
+                $($idx: $xyz),+,
+            ) -> ViewArrayMut<
+                T,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim,
+                <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Layout,
+            > {
+                self.to_view_mut().into_view($($idx),+)
+            }
+        }
+    };
+}
+
+impl_view!(1, (X), (x));
+impl_view!(2, (X, Y), (x, y));
+impl_view!(3, (X, Y, Z), (x, y, z));
+impl_view!(4, (X, Y, Z, W), (x, y, z, w));
+impl_view!(5, (X, Y, Z, W, U), (x, y, z, w, u));
+impl_view!(6, (X, Y, Z, W, U, V), (x, y, z, w, u, v));
 
 impl<T: Clone, D: Dim> ToOwned for SpanArray<T, D, Dense> {
     type Owned = GridArray<T, D>;

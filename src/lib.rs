@@ -48,14 +48,14 @@
 //! The layout is `Strided` if all dimensions can have arbitrary strides.
 //!
 //! The array elements are stored in column-major order, also known as Fortran
-//! order where the innermost dimension is the innermost one.
+//! order where the first dimension is the innermost one.
 //!
 //! The following type aliases are provided:
 //!
 //! - `Grid<T, const N: usize, A = Global>` for a dense array
 //! - `Span<T, const N: usize, F = Dense>` for an array span
 //! - `View<T, const N: usize, F = Dense>` for an array view
-//! - `View<T, const N: usize, F = Dense>` for a mutable array view
+//! - `ViewMut<T, const N: usize, F = Dense>` for a mutable array view
 //!
 //! Prefer using `Span` instead of array views for function parameters, since
 //! they can refer to either an owned array or an array view. Array views
@@ -67,12 +67,17 @@
 //! Scalar indexing is done using the normal square-bracket index operator and
 //! an array of `usize` per dimension as index.
 //!
-//! If the array layout supports linear indexing, a scalar `usize` can also
-//! be used as index. If the layout supports slice indexing, a range can be used
-//! as index to select a slice.
+//! If the array layout supports linear indexing (i.e. the layout is `Dense` or
+//! `Flat`), a scalar `usize` can also be used as index. If the layout is `Dense`,
+//! a range can be used to select a slice.
 //!
-//! An array view can be created with the `view` and `view_mut` methods and a
-//! tuple of indices per dimension as argument. Each index can be either a range
+//! If linear or slice indexing is possible but the array layout is not known,
+//! `remap`, `remap_mut` and `into_mapping` can be used to change layout.
+//! Alternatively, `flatten`, `flatten_mut` and `into_flattened` can be used
+//! to change to a one-dimensional array.
+//!
+//! An array view can be created with the `view` and `view_mut` methods, which
+//! take indices per dimension as arguments. Each index can be either a range
 //! or `usize`. The resulting array layout depends on both the layout inferred
 //! from the indices and the input layout.
 //!
@@ -140,6 +145,7 @@
 //! ```
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
+#![cfg_attr(feature = "nightly", feature(associated_type_defaults))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
