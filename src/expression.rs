@@ -158,18 +158,19 @@ impl<P: Producer> Expression<P> {
 }
 
 impl<T, P: Producer> Apply<T> for Expression<P> {
-    type Output = GridArray<T, P::Dim>;
-    type ZippedWith<I: IntoExpression> = GridArray<T, <P::Dim as Dim>::Max<I::Dim>>;
+    type Output<F: FnMut(Self::Item) -> T> = Expression<impl Producer<Item = T, Dim = P::Dim>>;
+    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> =
+        Expression<impl Producer<Item = T, Dim = <P::Dim as Dim>::Max<I::Dim>>>;
 
-    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output {
-        self.map(f).eval()
+    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
+        self.map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut(Self::Item, I::Item) -> T,
     {
-        self.zip(expr).map(|(x, y)| f(x, y)).eval()
+        self.zip(expr).map(move |(x, y)| f(x, y))
     }
 }
 

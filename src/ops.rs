@@ -96,11 +96,11 @@ where
 
 macro_rules! impl_binary_op {
     ($trt:tt, $fn:tt) => {
-        impl<T, B: Buffer + ?Sized, I: Apply<T>> $trt<I> for &Array<B>
+        impl<'a, T, B: Buffer + ?Sized, I: Apply<T>> $trt<I> for &'a Array<B>
         where
-            for<'a> &'a B::Item: $trt<I::Item, Output = T>,
+            for<'b> &'b B::Item: $trt<I::Item, Output = T>,
         {
-            type Output = I::ZippedWith<Self>;
+            type Output = I::ZippedWith<Self, impl FnMut(I::Item, &'a B::Item) -> T>;
 
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |x, y| y.$fn(x))
@@ -111,7 +111,7 @@ macro_rules! impl_binary_op {
         where
             P::Item: $trt<I::Item, Output = T>,
         {
-            type Output = I::ZippedWith<Self>;
+            type Output = I::ZippedWith<Self, impl FnMut(I::Item, P::Item) -> T>;
 
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |x, y| y.$fn(x))
@@ -133,7 +133,7 @@ macro_rules! impl_binary_op {
         where
             for<'b> &'b T: $trt<I::Item, Output = U>,
         {
-            type Output = I::ZippedWith<Self>;
+            type Output = I::ZippedWith<Self, impl FnMut(I::Item, &'a T) -> U>;
 
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |x, y| y.$fn(x))
@@ -183,7 +183,7 @@ macro_rules! impl_unary_op {
         where
             for<'a> &'a B::Item: $trt<Output = T>,
         {
-            type Output = GridArray<T, B::Dim>;
+            type Output = Expression<impl Producer<Item = T, Dim = B::Dim>>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
@@ -194,7 +194,7 @@ macro_rules! impl_unary_op {
         where
             P::Item: $trt<Output = T>,
         {
-            type Output = GridArray<T, P::Dim>;
+            type Output = Expression<impl Producer<Item = T, Dim = P::Dim>>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
@@ -216,7 +216,7 @@ macro_rules! impl_unary_op {
         where
             for<'b> &'b T: $trt<Output = U>,
         {
-            type Output = GridArray<U, D>;
+            type Output = Expression<impl Producer<Item = U, Dim = D>>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())

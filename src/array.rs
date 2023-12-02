@@ -11,7 +11,7 @@ use crate::alloc::Global;
 use crate::buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
 use crate::buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 use crate::dim::Dim;
-use crate::expr::{Expr, ExprMut};
+use crate::expr::{Expr, ExprMut, Producer};
 use crate::expression::Expression;
 use crate::index::SpanIndex;
 use crate::iter::Iter;
@@ -44,34 +44,36 @@ impl<B: BufferMut + ?Sized> Array<B> {
 }
 
 impl<'a, T, B: Buffer + ?Sized> Apply<T> for &'a Array<B> {
-    type Output = GridArray<T, B::Dim>;
-    type ZippedWith<I: IntoExpression> = GridArray<T, <B::Dim as Dim>::Max<I::Dim>>;
+    type Output<F: FnMut(Self::Item) -> T> = Expression<impl Producer<Item = T, Dim = Self::Dim>>;
+    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> =
+        Expression<impl Producer<Item = T, Dim = <B::Dim as Dim>::Max<I::Dim>>>;
 
-    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output {
-        self.as_span().expr().map(f).eval()
+    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
+        self.as_span().expr().map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut(Self::Item, I::Item) -> T,
     {
-        self.as_span().expr().zip(expr).map(|(x, y)| f(x, y)).eval()
+        self.as_span().expr().zip(expr).map(move |(x, y)| f(x, y))
     }
 }
 
 impl<'a, T, B: BufferMut + ?Sized> Apply<T> for &'a mut Array<B> {
-    type Output = GridArray<T, B::Dim>;
-    type ZippedWith<I: IntoExpression> = GridArray<T, <B::Dim as Dim>::Max<I::Dim>>;
+    type Output<F: FnMut(Self::Item) -> T> = Expression<impl Producer<Item = T, Dim = Self::Dim>>;
+    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> =
+        Expression<impl Producer<Item = T, Dim = <B::Dim as Dim>::Max<I::Dim>>>;
 
-    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output {
-        self.as_mut_span().expr_mut().map(f).eval()
+    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
+        self.as_mut_span().expr_mut().map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut(Self::Item, I::Item) -> T,
     {
-        self.as_mut_span().expr_mut().zip(expr).map(|(x, y)| f(x, y)).eval()
+        self.as_mut_span().expr_mut().zip(expr).map(move |(x, y)| f(x, y))
     }
 }
 

@@ -461,17 +461,14 @@ impl<T, D: Dim> GridArray<T, D> {
 }
 
 impl<T, D: Dim, A: Allocator> Apply<T> for GridArray<T, D, A> {
-    type Output = GridArray<T, D, A>;
-    type ZippedWith<I: IntoExpression> = GridArray<T, D, A>;
+    type Output<F: FnMut(T) -> T> = Self;
+    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> = Self;
 
-    fn apply<F: FnMut(T) -> T>(self, mut f: F) -> GridArray<T, D, A> {
+    fn apply<F: FnMut(T) -> T>(self, mut f: F) -> Self {
         self.zip_with(expr::fill(()), |x, ()| f(x))
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> GridArray<T, D, A>
-    where
-        F: FnMut(T, I::Item) -> T,
-    {
+    fn zip_with<I: IntoExpression, F: FnMut(T, I::Item) -> T>(self, expr: I, f: F) -> Self {
         self.zip_with(expr, f)
     }
 }

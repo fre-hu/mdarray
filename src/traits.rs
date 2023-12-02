@@ -2,19 +2,19 @@ use crate::dim::Dim;
 use crate::expr::Producer;
 use crate::expression::Expression;
 
-/// Trait for applying a closure and returning a new or an existing array.
+/// Trait for applying a closure and returning an existing array or an expression.
 pub trait Apply<T>: IntoExpression {
     /// The resulting type after applying a closure.
-    type Output: IntoExpression<Item = T, Dim = Self::Dim>;
+    type Output<F: FnMut(Self::Item) -> T>: IntoExpression<Item = T, Dim = Self::Dim>;
 
     /// The resulting type after zipping elements and applying a closure.
-    type ZippedWith<I: IntoExpression>: IntoExpression<Item = T>;
+    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T>: IntoExpression<Item = T>;
 
-    /// Returns a new or an existing array with the given closure applied to each element.
-    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output;
+    /// Returns the array or an expression with the given closure applied to each element.
+    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F>;
 
-    /// Returns a new or an existing array with the given closure applied to zipped element pairs.
-    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I>
+    /// Returns the array or an expression with the given closure applied to zipped element pairs.
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut(Self::Item, I::Item) -> T;
 }

@@ -4,6 +4,7 @@
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
+#![feature(impl_trait_in_assoc_type)]
 #![warn(missing_docs)]
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
@@ -324,8 +325,8 @@ fn test_expr() {
 
     assert_eq!(a.as_span().shape(), [3, 2]);
 
-    assert_eq!((&a + &view![1, 2, 3]).as_slice(), [2, 4, 6, 5, 7, 9]);
-    assert_eq!((&view![1, 2, 3] + &a).as_slice(), [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&a + &view![1, 2, 3]).eval().as_slice(), [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&view![1, 2, 3] + &a).eval().as_slice(), [2, 4, 6, 5, 7, 9]);
 
     assert_eq!(format!("{:?}", a.axis_expr::<0>()), "AxisExpr([[1, 4], [2, 5], [3, 6]])");
     assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut([[1, 2, 3], [4, 5, 6]])");
@@ -502,42 +503,42 @@ fn test_ops() {
 
     a -= expr::fill(1);
     a -= &b;
-    a -= b.as_span();
+    a -= b.to_view();
 
     *a.as_mut_span() -= expr::fill(1);
     *a.as_mut_span() -= &b;
-    *a.as_mut_span() -= b.as_span();
+    *a.as_mut_span() -= b.to_view();
 
     assert_eq!(a, Grid::from([[-37, -32, -27], [-22, -17, -12]]));
 
     a = a - expr::fill(1);
     a = a - &b;
-    a = a - b.as_span();
+    a = a - b.to_view();
 
     a = expr::fill(1) - a;
     a = &b - a;
-    a = b.as_span() - a;
+    a = b.to_view() - a;
 
     assert_eq!(a, Grid::from([[57, 50, 43], [36, 29, 22]]));
 
-    a = &a - &b;
-    a = &a - b.as_span();
-    a = a.as_span() - &b;
-    a = a.as_span() - b.as_span();
+    a = (&a - &b).eval();
+    a = (&a - b.to_view()).eval();
+    a = (a.to_view() - &b).eval();
+    a = (a.to_view() - b.to_view()).eval();
 
     assert_eq!(a, Grid::from([[21, 18, 15], [12, 9, 6]]));
 
-    a = &a - expr::fill(1);
-    a = a.as_span() - expr::fill(1);
+    a = (&a - expr::fill(1)).eval();
+    a = (a.to_view() - expr::fill(1)).eval();
 
-    a = expr::fill(1) - &a;
-    a = expr::fill(1) - a.as_span();
+    a = (expr::fill(1) - &a).eval();
+    a = (expr::fill(1) - a.to_view()).eval();
 
     assert_eq!(a, Grid::from([[19, 16, 13], [10, 7, 4]]));
 
     a = -a;
-    a = -&a;
-    a = -a.as_span();
+    a = (-&a).eval();
+    a = (-a.to_view()).eval();
 
     assert_eq!(a, Grid::from([[-19, -16, -13], [-10, -7, -4]]));
 
@@ -551,7 +552,7 @@ fn test_ops() {
     let c = expr::fill_with(|| 1usize) + expr::from_elem([2, 3], 4);
     let c = c + expr::from_fn([2, 3], |x| x[0] + x[1]);
 
-    assert_eq!(c, Grid::from([[5, 6], [6, 7], [7, 8]]));
+    assert_eq!(c.eval(), Grid::from([[5, 6], [6, 7], [7, 8]]));
 }
 
 #[cfg(feature = "serde")]

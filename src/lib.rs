@@ -118,10 +118,11 @@
 //! Arithmetic, logical, negation, comparison and compound assignment operators
 //! are supported for arrays and expressions.
 //!
-//! If at least one of the inputs is an array that is passed by value, the input
-//! buffer is reused for the result. Otherwise, if all input parameters are array
-//! references or expressions, a new array is created for the result. In the
-//! latter case, the result may have a different element type.
+//! If at least one of the inputs is an array that is passed by value, the
+//! operation is evaluated directly and the input array is reused for the result.
+//! Otherwise, if all input parameters are array references or expressions, an
+//! expression is returned. In the latter case, the result may have a different
+//! element type.
 //!
 //! For comparison operators, the parameters must always be arrays that are passed
 //! by reference. For compound assignment operators, the first parameter is always
@@ -130,9 +131,6 @@
 //! Scalar parameters must passed using the `fill` function that wraps a value in
 //! an `Expression<Fill<T>>` expression. If a type does not implement the `Copy`
 //! trait, the parameter must be passed by reference.
-//!
-//! Note that for complex calculations, it can be more efficient to use expressions
-//! and element-wise operations to reduce memory accesses and allocations.
 //!
 //! ## Example
 //!
@@ -170,6 +168,7 @@
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
+#![feature(impl_trait_in_assoc_type)]
 #![warn(missing_docs)]
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
