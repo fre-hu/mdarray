@@ -1,8 +1,6 @@
 use std::fmt::{Debug, Formatter, Result};
 
-use crate::array::SpanArray;
-use crate::dim::{Const, Dim};
-use crate::iter::{FlatIter, FlatIterMut};
+use crate::dim::Dim;
 use crate::layout::{Dense, Flat, General, Layout, Strided};
 
 /// Array layout mapping trait, including shape and strides.
@@ -68,12 +66,6 @@ pub trait Mapping: Copy + Debug + Default {
         M::Dim: Dim<Higher = Self::Dim>;
 
     #[doc(hidden)]
-    fn iter<T>(span: &SpanArray<T, Self::Dim, Self::Layout>) -> Iter<T, Self>;
-
-    #[doc(hidden)]
-    fn iter_mut<T>(span: &mut SpanArray<T, Self::Dim, Self::Layout>) -> IterMut<T, Self>;
-
-    #[doc(hidden)]
     fn remap<M: Mapping<Dim = Self::Dim>>(mapping: M) -> Self;
 
     #[doc(hidden)]
@@ -126,9 +118,6 @@ pub struct StridedMapping<D: Dim> {
     shape: D::Shape,
     strides: D::Strides,
 }
-
-type Iter<'a, T, M> = <<M as Mapping>::Layout as Layout>::Iter<'a, T>;
-type IterMut<'a, T, M> = <<M as Mapping>::Layout as Layout>::IterMut<'a, T>;
 
 impl<D: Dim> DenseMapping<D> {
     /// Creates a new, dense layout mapping with the specified shape.
@@ -193,14 +182,6 @@ impl<D: Dim> Mapping for DenseMapping<D> {
         assert!(stride == mapping.len() as isize, "invalid stride");
 
         Self::new(M::Dim::add_dim(mapping.shape(), size))
-    }
-
-    fn iter<T>(span: &SpanArray<T, D, Dense>) -> Iter<T, Self> {
-        span.as_slice().iter()
-    }
-
-    fn iter_mut<T>(span: &mut SpanArray<T, D, Dense>) -> IterMut<T, Self> {
-        span.as_mut_slice().iter_mut()
     }
 
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
@@ -307,18 +288,6 @@ impl<D: Dim> Mapping for FlatMapping<D> {
         assert!(stride == inner_stride * mapping.len() as isize, "invalid stride");
 
         Self::new(M::Dim::add_dim(mapping.shape(), size), inner_stride)
-    }
-
-    fn iter<T>(span: &SpanArray<T, D, Flat>) -> Iter<T, Self> {
-        let mapping = FlatMapping::<Const<1>>::reshape(span.mapping(), [span.len()]);
-
-        unsafe { FlatIter::new_unchecked(span.as_ptr(), mapping.size(0), mapping.stride(0)) }
-    }
-
-    fn iter_mut<T>(span: &mut SpanArray<T, D, Flat>) -> IterMut<T, Self> {
-        let mapping = FlatMapping::<Const<1>>::reshape(span.mapping(), [span.len()]);
-
-        unsafe { FlatIterMut::new_unchecked(span.as_mut_ptr(), mapping.size(0), mapping.stride(0)) }
     }
 
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
@@ -433,14 +402,6 @@ impl<D: Dim> Mapping for GeneralMapping<D> {
         Self::remap(StridedMapping::add_dim(mapping, size, stride))
     }
 
-    fn iter<T>(_: &SpanArray<T, D, General>) -> Iter<T, Self> {
-        panic!("invalid layout");
-    }
-
-    fn iter_mut<T>(_: &mut SpanArray<T, D, General>) -> IterMut<T, Self> {
-        panic!("invalid layout");
-    }
-
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
         assert!(D::RANK > 1, "invalid rank");
         assert!(mapping.stride(0) == 1, "inner stride not unitary");
@@ -551,14 +512,6 @@ impl<D: Dim> Mapping for StridedMapping<D> {
         strides[D::RANK - 1] = stride;
 
         Self::new(M::Dim::add_dim(mapping.shape(), size), strides)
-    }
-
-    fn iter<T>(_: &SpanArray<T, D, Strided>) -> Iter<T, Self> {
-        panic!("invalid layout");
-    }
-
-    fn iter_mut<T>(_: &mut SpanArray<T, D, Strided>) -> IterMut<T, Self> {
-        panic!("invalid layout");
     }
 
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {

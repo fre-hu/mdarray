@@ -1,24 +1,28 @@
-use crate::array::{ViewArray, ViewArrayMut};
+use std::slice;
+
+use crate::array::{GridArray, ViewArray, ViewArrayMut};
 use crate::buffer::{ViewBuffer, ViewBufferMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::index::{panic_bounds_check, Axis, DimIndex, Permutation, ViewIndex};
+use crate::expr::{Expr, ExprMut};
+use crate::expression::Expression;
+use crate::index::{self, Axis, DimIndex, Permutation, ViewIndex};
+use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
 use crate::mapping::{DenseMapping, FlatMapping, Mapping, StridedMapping};
+use crate::traits::{Apply, IntoExpression};
 
 macro_rules! impl_view {
-    ($name:tt, $buffer:tt, $as_ptr:tt, $raw_mut:tt, {$($mut:tt)?}) => {
+    ($name:tt, $buffer:tt, $as_ptr:tt, $from_raw_parts:tt, $raw_mut:tt, {$($mut:tt)?}) => {
         impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
             /// Converts the array view into a one-dimensional array view.
             ///
             /// # Panics
             ///
             /// Panics if the array layout is not uniformly strided.
-            pub fn into_flattened(
-                $($mut)? self
-            ) -> $name<'a, T, Const<1>, L::Uniform> {
-                let mapping = Mapping::reshape(self.mapping(), [self.len()]);
+            pub fn into_flattened(self) -> $name<'a, T, Const<1>, L::Uniform> {
+                let len = self.len();
 
-                unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
+                self.into_shape([len])
             }
 
             /// Converts the array view into a remapped array view.
@@ -46,15 +50,12 @@ macro_rules! impl_view {
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
 
-            /// Divides the array view into two at an index along the outer dimension.
+            /// Divides the array view into two at an index along the outermost dimension.
             ///
             /// # Panics
             ///
             /// Panics if the split point is larger than the number of elements in that dimension.
-            pub fn into_split_at(
-                self,
-                mid: usize,
-            ) -> ($name<'a, T, D, L>, $name<'a, T, D, L>) {
+            pub fn into_split_at(self, mid: usize) -> ($name<'a, T, D, L>, $name<'a, T, D, L>) {
                 assert!(D::RANK > 0, "invalid rank");
 
                 self.into_split_dim_at(D::RANK - 1, mid)
@@ -93,7 +94,7 @@ macro_rules! impl_view {
                 mid: usize
             ) -> ($name<'a, T, D, L>, $name<'a, T, D, L>) {
                 if mid > self.size(dim) {
-                    panic_bounds_check(mid, self.size(dim));
+                    index::panic_bounds_check(mid, self.size(dim));
                 }
 
                 let left_mapping = self.mapping().resize_dim(dim, mid);
@@ -110,11 +111,19 @@ macro_rules! impl_view {
                 }
             }
         }
+
+        impl<'a, T, D: Dim> $name<'a, T, D, Dense> {
+            /// Converts the array view into a slice of all elements, where the array view
+            /// must have dense layout.
+            pub fn into_slice($($mut)? self) -> &'a $($mut)? [T] {
+                unsafe { slice::$from_raw_parts(self.$as_ptr(), self.len()) }
+            }
+        }
     };
 }
 
-impl_view!(ViewArray, ViewBuffer, as_ptr, const, {});
-impl_view!(ViewArrayMut, ViewBufferMut, as_mut_ptr, mut, {mut});
+impl_view!(ViewArray, ViewBuffer, as_ptr, from_raw_parts, const, {});
+impl_view!(ViewArrayMut, ViewBufferMut, as_mut_ptr, from_raw_parts_mut, mut, {mut});
 
 macro_rules! impl_into_permuted {
     ($n:tt, ($($xyz:tt),+)) => {
@@ -228,6 +237,38 @@ impl_into_view!(4, (X, Y, Z, W), (x, y, z, w));
 impl_into_view!(5, (X, Y, Z, W, U), (x, y, z, w, u));
 impl_into_view!(6, (X, Y, Z, W, U, V), (x, y, z, w, u, v));
 
+impl<'a, T, U, D: Dim, L: Layout> Apply<U> for ViewArray<'a, T, D, L> {
+    type Output = GridArray<U, D>;
+    type ZippedWith<I: IntoExpression> = GridArray<U, D::Max<I::Dim>>;
+
+    fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output {
+        self.into_expr().map(f).eval()
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    where
+        F: FnMut(&'a T, I::Item) -> U,
+    {
+        self.into_expr().zip(expr).map(|(x, y)| f(x, y)).eval()
+    }
+}
+
+impl<'a, T, U, D: Dim, L: Layout> Apply<U> for ViewArrayMut<'a, T, D, L> {
+    type Output = GridArray<U, D>;
+    type ZippedWith<I: IntoExpression> = GridArray<U, D::Max<I::Dim>>;
+
+    fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output {
+        self.into_expr().map(f).eval()
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    where
+        F: FnMut(&'a mut T, I::Item) -> U,
+    {
+        self.into_expr().zip(expr).map(|(x, y)| f(x, y)).eval()
+    }
+}
+
 impl<'a, T> From<&'a [T]> for ViewArray<'a, T, Const<1>, Dense> {
     fn from(slice: &'a [T]) -> Self {
         unsafe { Self::new_unchecked(slice.as_ptr(), DenseMapping::new([slice.len()])) }
@@ -288,5 +329,43 @@ impl<'a, T> From<&'a T> for ViewArray<'a, T, Const<0>, Dense> {
 impl<'a, T> From<&'a mut T> for ViewArrayMut<'a, T, Const<0>, Dense> {
     fn from(value: &'a mut T) -> Self {
         unsafe { Self::new_unchecked(value, DenseMapping::default()) }
+    }
+}
+
+impl<'a, T, D: Dim, L: Layout> IntoExpression for ViewArray<'a, T, D, L> {
+    type Item = &'a T;
+    type Dim = D;
+    type Producer = Expr<'a, T, D, L>;
+
+    fn into_expr(self) -> Expression<Self::Producer> {
+        Expression::new(unsafe { Expr::new_unchecked(self.as_ptr(), self.mapping()) })
+    }
+}
+
+impl<'a, T, D: Dim, L: Layout> IntoExpression for ViewArrayMut<'a, T, D, L> {
+    type Item = &'a mut T;
+    type Dim = D;
+    type Producer = ExprMut<'a, T, D, L>;
+
+    fn into_expr(mut self) -> Expression<Self::Producer> {
+        Expression::new(unsafe { ExprMut::new_unchecked(self.as_mut_ptr(), self.mapping()) })
+    }
+}
+
+impl<'a, T, D: 'a + Dim, L: Layout> IntoIterator for ViewArray<'a, T, D, L> {
+    type Item = &'a T;
+    type IntoIter = Iter<Expr<'a, T, D, L>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter::new(self.into_expr().into_producer())
+    }
+}
+
+impl<'a, T, D: 'a + Dim, L: Layout> IntoIterator for ViewArrayMut<'a, T, D, L> {
+    type Item = &'a mut T;
+    type IntoIter = Iter<ExprMut<'a, T, D, L>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Iter::new(self.into_expr().into_producer())
     }
 }

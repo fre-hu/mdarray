@@ -3,16 +3,19 @@ use std::alloc::{Allocator, Global};
 use std::collections::TryReserveError;
 use std::iter::FromIterator;
 use std::mem::{self, MaybeUninit};
+use std::ops::RangeBounds;
 use std::result::Result;
-use std::slice;
+use std::{ptr, slice};
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::{Allocator, Global};
-use crate::array::{GridArray, SpanArray};
+use crate::alloc::Allocator;
+use crate::array::GridArray;
 use crate::buffer::GridBuffer;
 use crate::dim::{Const, Dim, Shape};
-use crate::layout::Layout;
+use crate::expr::{self, Drain, IntoExpr};
+use crate::expression::Expression;
 use crate::mapping::{DenseMapping, Mapping};
+use crate::traits::{Apply, IntoCloned, IntoExpression};
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -35,32 +38,13 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         self.buffer.allocator()
     }
 
-    /// Moves all elements from another array into the array along the outer dimension.
+    /// Moves all elements from another array into the array along the outermost dimension.
     ///
     /// # Panics
     ///
     /// Panics if the inner dimensions do not match.
     pub fn append(&mut self, other: &mut Self) {
-        let new_shape = if self.is_empty() {
-            other.shape()
-        } else {
-            let mut shape = self.shape();
-
-            assert!(
-                other.shape()[..D::RANK - 1] == shape[..D::RANK - 1],
-                "inner dimensions mismatch"
-            );
-
-            shape[D::RANK - 1] += other.size(D::RANK - 1);
-            shape
-        };
-
-        unsafe {
-            self.buffer.with_mut_vec(|dst| other.buffer.with_mut_vec(|src| dst.append(src)));
-
-            self.buffer.set_mapping(DenseMapping::new(new_shape));
-            other.buffer.set_mapping(DenseMapping::default());
-        }
+        self.expand(other.drain(..));
     }
 
     /// Returns the number of elements the array can hold without reallocating.
@@ -78,40 +62,56 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         }
     }
 
-    /// Clones all elements in an array span and appends to the array along the outer dimension.
+    /// Removes the specified range from the array along the outermost dimension,
+    /// and returns the removed range as an expression.
+    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Expression<Drain<T, D, A>> {
+        #[cfg(not(feature = "nightly"))]
+        let range = crate::index::range(range, ..self.size(D::RANK - 1));
+        #[cfg(feature = "nightly")]
+        let range = slice::range(range, ..self.size(D::RANK - 1));
+
+        Expression::new(Drain::new(self, range.start, range.end))
+    }
+
+    /// Appends an expression to the array along the outermost dimension with broadcasting,
+    /// cloning elements if needed.
+    ///
+    /// If the rank of the expression equals one less than the rank of the array,
+    /// the expression is assumed to have outermost dimension of size 1.
     ///
     /// # Panics
     ///
-    /// Panics if the inner dimensions do not match.
-    pub fn extend_from_span(&mut self, other: &SpanArray<T, D, impl Layout>)
+    /// Panics if the inner dimensions do not match, or if the rank of the expression
+    /// is not valid.
+    pub fn expand<I: IntoExpression>(&mut self, expr: I)
     where
-        T: Clone,
+        I::Item: IntoCloned<T>,
     {
-        let new_shape = if self.is_empty() {
-            other.shape()
-        } else {
+        assert!(I::Dim::RANK == D::RANK - 1 || I::Dim::RANK == D::RANK, "invalid rank");
+
+        let expr = expr.into_expr();
+        let len = expr.len();
+
+        if len > 0 {
+            let inner_shape = &expr.shape()[..D::RANK - 1];
             let mut shape = self.shape();
 
-            assert!(
-                other.shape()[..D::RANK - 1] == shape[..D::RANK - 1],
-                "inner dimensions mismatch"
-            );
+            if self.is_empty() {
+                shape[..D::RANK - 1].copy_from_slice(inner_shape);
+            } else {
+                assert!(inner_shape == &shape[..D::RANK - 1], "inner dimensions mismatch");
+            };
 
-            shape[D::RANK - 1] += other.size(D::RANK - 1);
-            shape
-        };
+            shape[D::RANK - 1] += if I::Dim::RANK < D::RANK { 1 } else { expr.size(D::RANK - 1) };
 
-        unsafe {
-            self.buffer.with_mut_vec(|vec| {
-                vec.reserve(other.len());
+            unsafe {
+                self.buffer.with_mut_vec(|vec| {
+                    vec.reserve(len);
+                    expr.clone_into_vec(vec);
+                });
 
-                #[cfg(not(feature = "nightly"))]
-                extend_from_span::<_, _, A>(vec, other);
-                #[cfg(feature = "nightly")]
-                extend_from_span(vec, other);
-            });
-
-            self.buffer.set_mapping(DenseMapping::new(new_shape));
+                self.set_shape(shape);
+            }
         }
     }
 
@@ -121,29 +121,26 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     where
         T: Clone,
     {
-        let len = D::checked_len(shape);
-        let mut vec = Vec::<T, A>::with_capacity_in(len, alloc);
+        expr::from_elem(shape, elem).eval_in(alloc)
+    }
 
-        unsafe {
-            for i in 0..len {
-                vec.as_mut_ptr().add(i).write(elem.clone());
-                vec.set_len(i + 1);
-            }
+    /// Creates an array from the given expression with the specified allocator.
+    #[cfg(feature = "nightly")]
+    pub fn from_expr_in<I: IntoExpression<Item = T, Dim = D>>(expr: I, alloc: A) -> Self {
+        let expr = expr.into_expr();
+        let shape = expr.shape();
 
-            Self::from_parts(vec, DenseMapping::new(shape))
-        }
+        let mut vec = Vec::with_capacity_in(expr.len(), alloc);
+
+        expr.clone_into_vec(&mut vec);
+
+        unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     /// Creates an array with the results from the given function with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn from_fn_in(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T, alloc: A) -> Self {
-        let mut vec = Vec::with_capacity_in(D::checked_len(shape), alloc);
-
-        unsafe {
-            from_fn::<T, D, A, D::Lower>(&mut vec, shape, D::Shape::default(), &mut f);
-
-            Self::from_parts(vec, DenseMapping::new(shape))
-        }
+    pub fn from_fn_in<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F, alloc: A) -> Self {
+        expr::from_fn(shape, f).eval_in(alloc)
     }
 
     /// Creates an array from raw components of another array with the specified allocator.
@@ -206,16 +203,6 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         vec
     }
 
-    /// Returns the array with the given closure applied to each element.
-    pub fn map(mut self, mut f: impl FnMut(T) -> T) -> Self
-    where
-        T: Default,
-    {
-        map(&mut self, &mut f);
-
-        self
-    }
-
     /// Creates a new, empty array with the specified allocator.
     #[cfg(feature = "nightly")]
     pub fn new_in(alloc: A) -> Self {
@@ -246,7 +233,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Resizes the array to the new shape, creating new elements from the given closure.
-    pub fn resize_with(&mut self, new_shape: D::Shape, f: impl FnMut() -> T)
+    pub fn resize_with<F: FnMut() -> T>(&mut self, new_shape: D::Shape, f: F)
     where
         A: Clone,
     {
@@ -287,7 +274,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         unsafe { slice::from_raw_parts_mut(ptr.add(self.len()) as *mut MaybeUninit<T>, len) }
     }
 
-    /// Shortens the array along the outer dimension, keeping the first `size` elements.
+    /// Shortens the array along the outermost dimension, keeping the first `size` elements.
     pub fn truncate(&mut self, size: usize) {
         if size < self.size(D::RANK - 1) {
             let new_mapping = self.mapping().resize_dim(D::RANK - 1, size);
@@ -326,6 +313,46 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<D>) -> Self {
         Self { buffer: GridBuffer::from_parts(vec, mapping) }
     }
+
+    pub(crate) fn zip_with<I: IntoExpression, F>(mut self, expr: I, mut f: F) -> Self
+    where
+        F: FnMut(T, I::Item) -> T,
+    {
+        struct DropGuard<'a, T, D: Dim, A: Allocator> {
+            grid: &'a mut GridArray<T, D, A>,
+            index: usize,
+        }
+
+        impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
+            fn drop(&mut self) {
+                let ptr = self.grid.as_mut_ptr();
+                let tail = self.grid.len() - self.index;
+
+                // Drop all elements except the current one, which is read but not written back.
+                unsafe {
+                    self.grid.buffer.set_mapping(DenseMapping::default());
+
+                    if self.index > 1 {
+                        ptr::drop_in_place(ptr::slice_from_raw_parts_mut(ptr, self.index - 1));
+                    }
+
+                    ptr::drop_in_place(ptr::slice_from_raw_parts_mut(ptr.add(self.index), tail));
+                }
+            }
+        }
+
+        let mut guard = DropGuard { grid: &mut self, index: 0 };
+        let expr = guard.grid.expr_mut().zip(expr);
+
+        expr.for_each(|(x, y)| unsafe {
+            guard.index += 1;
+            ptr::write(x, f(ptr::read(x), y));
+        });
+
+        mem::forget(guard);
+
+        self
+    }
 }
 
 #[cfg(not(feature = "nightly"))]
@@ -335,28 +362,24 @@ impl<T, D: Dim> GridArray<T, D> {
     where
         T: Clone,
     {
-        let len = D::checked_len(shape);
-        let mut vec = Vec::<T>::with_capacity(len);
+        expr::from_elem(shape, elem).eval()
+    }
 
-        unsafe {
-            for i in 0..len {
-                vec.as_mut_ptr().add(i).write(elem.clone());
-                vec.set_len(i + 1);
-            }
+    /// Creates an array from the given expression.
+    pub fn from_expr<I: IntoExpression<Item = T, Dim = D>>(expr: I) -> Self {
+        let expr = expr.into_expr();
+        let shape = expr.shape();
 
-            Self::from_parts(vec, DenseMapping::new(shape))
-        }
+        let mut vec = Vec::with_capacity(expr.len());
+
+        expr.clone_into_vec(&mut vec);
+
+        unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     /// Creates an array with the results from the given function.
-    pub fn from_fn(shape: D::Shape, mut f: impl FnMut(D::Shape) -> T) -> Self {
-        let mut vec = Vec::with_capacity(D::checked_len(shape));
-
-        unsafe {
-            from_fn::<T, D, Global, D::Lower>(&mut vec, shape, D::Shape::default(), &mut f);
-
-            Self::from_parts(vec, DenseMapping::new(shape))
-        }
+    pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F) -> Self {
+        expr::from_fn(shape, f).eval()
     }
 
     /// Creates an array from raw components of another array.
@@ -400,8 +423,13 @@ impl<T, D: Dim> GridArray<T, D> {
         Self::from_elem_in(shape, elem, Global)
     }
 
+    /// Creates an array from the given expression.
+    pub fn from_expr<I: IntoExpression<Item = T, Dim = D>>(expr: I) -> Self {
+        Self::from_expr_in(expr, Global)
+    }
+
     /// Creates an array with the results from the given function.
-    pub fn from_fn(shape: D::Shape, f: impl FnMut(D::Shape) -> T) -> Self {
+    pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F) -> Self {
         Self::from_fn_in(shape, f, Global)
     }
 
@@ -429,6 +457,22 @@ impl<T, D: Dim> GridArray<T, D> {
     /// Creates a new, empty array with the specified capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_in(capacity, Global)
+    }
+}
+
+impl<T, D: Dim, A: Allocator> Apply<T> for GridArray<T, D, A> {
+    type Output = GridArray<T, D, A>;
+    type ZippedWith<I: IntoExpression> = GridArray<T, D, A>;
+
+    fn apply<F: FnMut(T) -> T>(self, mut f: F) -> GridArray<T, D, A> {
+        self.zip_with(expr::fill(()), |x, ()| f(x))
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> GridArray<T, D, A>
+    where
+        F: FnMut(T, I::Item) -> T,
+    {
+        self.zip_with(expr, f)
     }
 }
 
@@ -527,64 +571,21 @@ impl<T> FromIterator<T> for GridArray<T, Const<1>> {
     }
 }
 
+impl<T, D: Dim, A: Allocator> IntoExpression for GridArray<T, D, A> {
+    type Item = T;
+    type Dim = D;
+    type Producer = IntoExpr<T, D, A>;
+
+    fn into_expr(self) -> Expression<Self::Producer> {
+        Expression::new(IntoExpr::new(self))
+    }
+}
+
 impl<T, D: Dim, A: Allocator> IntoIterator for GridArray<T, D, A> {
     type Item = T;
     type IntoIter = <vec_t!(T, A) as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.into_vec().into_iter()
-    }
-}
-
-unsafe fn extend_from_span<T: Clone, L: Layout, A: Allocator>(
-    vec: &mut vec_t!(T, A),
-    other: &SpanArray<T, impl Dim, L>,
-) {
-    if L::IS_UNIFORM {
-        for x in other.flatten().iter() {
-            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
-
-            vec.as_mut_ptr().add(vec.len()).write(x.clone());
-            vec.set_len(vec.len() + 1);
-        }
-    } else {
-        for x in other.outer_iter() {
-            #[cfg(not(feature = "nightly"))]
-            extend_from_span::<_, _, A>(vec, &x);
-            #[cfg(feature = "nightly")]
-            extend_from_span(vec, &x);
-        }
-    }
-}
-
-unsafe fn from_fn<T, D: Dim, A: Allocator, I: Dim>(
-    vec: &mut vec_t!(T, A),
-    shape: D::Shape,
-    mut index: D::Shape,
-    f: &mut impl FnMut(D::Shape) -> T,
-) {
-    for i in 0..shape[I::RANK] {
-        index[I::RANK] = i;
-
-        if I::RANK == 0 {
-            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
-
-            vec.as_mut_ptr().add(vec.len()).write(f(index));
-            vec.set_len(vec.len() + 1);
-        } else {
-            from_fn::<T, D, A, I::Lower>(vec, shape, index, f);
-        }
-    }
-}
-
-fn map<T: Default, L: Layout>(this: &mut SpanArray<T, impl Dim, L>, f: &mut impl FnMut(T) -> T) {
-    if L::IS_UNIFORM {
-        for x in this.flatten_mut().iter_mut() {
-            *x = f(mem::take(x));
-        }
-    } else {
-        for mut x in this.outer_iter_mut() {
-            map(&mut x, f);
-        }
     }
 }

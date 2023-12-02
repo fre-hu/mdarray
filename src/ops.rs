@@ -1,7 +1,6 @@
 #[cfg(feature = "nightly")]
 use std::alloc::Allocator;
 use std::cmp::Ordering;
-use std::mem;
 
 use std::ops::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign,
@@ -10,18 +9,13 @@ use std::ops::{
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::array::{Array, GridArray, SpanArray};
+use crate::array::{Array, GridArray, ViewArray};
 use crate::buffer::{Buffer, BufferMut};
 use crate::dim::{Const, Dim};
+use crate::expr::Producer;
+use crate::expression::Expression;
 use crate::layout::Layout;
-use crate::mapping::DenseMapping;
-
-/// Fill value to be used as scalar operand for array operators.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Fill<T: Copy> {
-    /// Fill value.
-    pub value: T,
-}
+use crate::traits::{Apply, IntoExpression};
 
 /// Range constructed from a unit spaced range with the given step size.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -31,13 +25,6 @@ pub struct StepRange<R, S> {
 
     /// Step size.
     pub step: S,
-}
-
-/// Returns a fill value to be used as scalar operand for array operators.
-///
-/// If the type does not implement the `Copy` trait, a reference must be passed as input.
-pub fn fill<T: Copy>(value: T) -> Fill<T> {
-    Fill { value }
 }
 
 /// Creates a range with the given step size from a unit spaced range.
@@ -66,7 +53,7 @@ impl<T: Ord, B: Buffer<Item = T, Dim = Const<1>> + ?Sized> Ord for Array<B> {
         if B::Layout::IS_UNIT_STRIDED {
             self.as_span().remap().as_slice().cmp(other.as_span().remap().as_slice())
         } else {
-            self.as_span().flatten().iter().cmp(other.as_span().flatten().iter())
+            self.as_span().iter().cmp(other)
         }
     }
 }
@@ -80,7 +67,7 @@ where
         if B::Layout::IS_UNIT_STRIDED {
             self.as_span().remap().as_slice().partial_cmp(other.as_span().remap().as_slice())
         } else {
-            self.as_span().flatten().iter().partial_cmp(other.as_span().flatten().iter())
+            self.as_span().iter().partial_cmp(other)
         }
     }
 }
@@ -96,10 +83,10 @@ where
                 if B::Layout::IS_UNIT_STRIDED && C::Layout::IS_UNIT_STRIDED {
                     self.as_span().remap().as_slice().eq(other.as_span().remap().as_slice())
                 } else {
-                    self.as_span().flatten().iter().eq(other.as_span().flatten().iter())
+                    self.as_span().iter().eq(other)
                 }
             } else {
-                self.as_span().outer_iter().eq(other.as_span().outer_iter())
+                self.as_span().outer_expr().into_iter().eq(other.as_span().outer_expr())
             }
         } else {
             false
@@ -109,109 +96,47 @@ where
 
 macro_rules! impl_binary_op {
     ($trt:tt, $fn:tt) => {
-        impl<T, D: Dim, B: Buffer<Dim = D> + ?Sized, C: Buffer<Dim = D> + ?Sized> $trt<&Array<C>>
-            for &Array<B>
+        impl<T, B: Buffer + ?Sized, I: Apply<T>> $trt<I> for &Array<B>
         where
-            for<'a, 'b> &'a B::Item: $trt<&'b C::Item, Output = T>,
+            for<'a> &'a B::Item: $trt<I::Item, Output = T>,
         {
-            type Output = GridArray<T, D>;
+            type Output = I::ZippedWith<Self>;
 
-            fn $fn(self, rhs: &Array<C>) -> Self::Output {
-                let mut vec = Vec::with_capacity(self.as_span().len());
-
-                unsafe {
-                    from_binary_op(&mut vec, self.as_span(), rhs.as_span(), &|x, y| x.$fn(y));
-
-                    GridArray::from_parts(vec, DenseMapping::new(self.as_span().shape()))
-                }
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |x, y| y.$fn(x))
             }
         }
 
-        impl<T: Copy, U, B: Buffer + ?Sized> $trt<Fill<T>> for &Array<B>
+        impl<T, P: Producer, I: Apply<T>> $trt<I> for Expression<P>
         where
-            for<'a> &'a B::Item: $trt<T, Output = U>,
+            P::Item: $trt<I::Item, Output = T>,
         {
-            type Output = GridArray<U, B::Dim>;
+            type Output = I::ZippedWith<Self>;
 
-            fn $fn(self, rhs: Fill<T>) -> Self::Output {
-                let mut vec = Vec::with_capacity(self.as_span().len());
-
-                unsafe {
-                    from_unary_op(&mut vec, self.as_span(), &|x| x.$fn(rhs.value));
-
-                    GridArray::from_parts(vec, DenseMapping::new(self.as_span().shape()))
-                }
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |x, y| y.$fn(x))
             }
         }
 
-        impl<T: Default, D: Dim, B: Buffer<Dim = D> + ?Sized, A: Allocator> $trt<GridArray<T, D, A>>
-            for &Array<B>
+        impl<T, D: Dim, I: IntoExpression, A: Allocator> $trt<I> for GridArray<T, D, A>
         where
-            for<'a> &'a B::Item: $trt<T, Output = T>,
-        {
-            type Output = GridArray<T, D, A>;
-
-            fn $fn(self, mut rhs: GridArray<T, D, A>) -> Self::Output {
-                map_binary_op(&mut rhs, self.as_span(), &|(x, y)| *x = y.$fn(mem::take(x)));
-
-                rhs
-            }
-        }
-
-        impl<T: Copy, U, B: Buffer + ?Sized> $trt<&Array<B>> for Fill<T>
-        where
-            for<'a> T: $trt<&'a B::Item, Output = U>,
-        {
-            type Output = GridArray<U, B::Dim>;
-
-            fn $fn(self, rhs: &Array<B>) -> Self::Output {
-                let mut vec = Vec::with_capacity(rhs.as_span().len());
-
-                unsafe {
-                    from_unary_op(&mut vec, rhs.as_span(), &|x| self.value.$fn(x));
-
-                    GridArray::from_parts(vec, DenseMapping::new(rhs.as_span().shape()))
-                }
-            }
-        }
-
-        impl<T: Copy, U: Default, D: Dim, A: Allocator> $trt<GridArray<U, D, A>> for Fill<T>
-        where
-            T: $trt<U, Output = U>,
-        {
-            type Output = GridArray<U, D, A>;
-
-            fn $fn(self, mut rhs: GridArray<U, D, A>) -> Self::Output {
-                map_unary_op(&mut rhs, &|x| *x = self.value.$fn(mem::take(x)));
-
-                rhs
-            }
-        }
-
-        impl<T: Default, D: Dim, B: Buffer<Dim = D> + ?Sized, A: Allocator> $trt<&Array<B>>
-            for GridArray<T, D, A>
-        where
-            for<'a> T: $trt<&'a B::Item, Output = T>,
+            T: $trt<I::Item, Output = T>,
         {
             type Output = Self;
 
-            fn $fn(mut self, rhs: &Array<B>) -> Self {
-                map_binary_op(&mut self, rhs.as_span(), &|(x, y)| *x = mem::take(x).$fn(y));
-
-                self
+            fn $fn(self, rhs: I) -> Self {
+                self.zip_with(rhs, |x, y| x.$fn(y))
             }
         }
 
-        impl<T: Default, U: Copy, D: Dim, A: Allocator> $trt<Fill<U>> for GridArray<T, D, A>
+        impl<'a, T, U, D: Dim, I: Apply<U>, L: Layout> $trt<I> for ViewArray<'a, T, D, L>
         where
-            T: $trt<U, Output = T>,
+            for<'b> &'b T: $trt<I::Item, Output = U>,
         {
-            type Output = Self;
+            type Output = I::ZippedWith<Self>;
 
-            fn $fn(mut self, rhs: Fill<U>) -> Self {
-                map_unary_op(&mut self, &|x| *x = mem::take(x).$fn(rhs.value));
-
-                self
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |x, y| y.$fn(x))
             }
         }
     };
@@ -230,22 +155,12 @@ impl_binary_op!(Shr, shr);
 
 macro_rules! impl_op_assign {
     ($trt:tt, $fn:tt) => {
-        impl<D: Dim, B: BufferMut<Dim = D> + ?Sized, C: Buffer<Dim = D> + ?Sized> $trt<&Array<C>>
-            for Array<B>
+        impl<B: BufferMut + ?Sized, I: IntoExpression> $trt<I> for Array<B>
         where
-            for<'a> B::Item: $trt<&'a C::Item>,
+            B::Item: $trt<I::Item>,
         {
-            fn $fn(&mut self, rhs: &Array<C>) {
-                map_binary_op(self.as_mut_span(), rhs.as_span(), &|(x, y)| x.$fn(y));
-            }
-        }
-
-        impl<T: Copy, B: BufferMut + ?Sized> $trt<Fill<T>> for Array<B>
-        where
-            for<'a> B::Item: $trt<T>,
-        {
-            fn $fn(&mut self, rhs: Fill<T>) {
-                map_unary_op(self.as_mut_span(), &|x| x.$fn(rhs.value));
+            fn $fn(&mut self, rhs: I) {
+                self.as_mut_span().expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
             }
         }
     };
@@ -264,33 +179,47 @@ impl_op_assign!(ShrAssign, shr_assign);
 
 macro_rules! impl_unary_op {
     ($trt:tt, $fn:tt) => {
-        impl<B: Buffer + ?Sized> $trt for &Array<B>
+        impl<T, B: Buffer + ?Sized> $trt for &Array<B>
         where
-            for<'a> &'a B::Item: $trt<Output = B::Item>,
+            for<'a> &'a B::Item: $trt<Output = T>,
         {
-            type Output = GridArray<B::Item, B::Dim>;
+            type Output = GridArray<T, B::Dim>;
 
             fn $fn(self) -> Self::Output {
-                let mut vec = Vec::with_capacity(self.as_span().len());
-
-                unsafe {
-                    from_unary_op(&mut vec, self.as_span(), &|x| x.$fn());
-
-                    GridArray::from_parts(vec, DenseMapping::new(self.as_span().shape()))
-                }
+                self.apply(|x| x.$fn())
             }
         }
 
-        impl<T: Default, D: Dim, A: Allocator> $trt for GridArray<T, D, A>
+        impl<T, P: Producer> $trt for Expression<P>
+        where
+            P::Item: $trt<Output = T>,
+        {
+            type Output = GridArray<T, P::Dim>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<T, D: Dim, A: Allocator> $trt for GridArray<T, D, A>
         where
             T: $trt<Output = T>,
         {
             type Output = Self;
 
-            fn $fn(mut self) -> Self {
-                map_unary_op(&mut self, &|x| *x = mem::take(x).$fn());
+            fn $fn(self) -> Self {
+                self.apply(|x| x.$fn())
+            }
+        }
 
-                self
+        impl<'a, T, U, D: Dim, L: Layout> $trt for ViewArray<'a, T, D, L>
+        where
+            for<'b> &'b T: $trt<Output = U>,
+        {
+            type Output = GridArray<U, D>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
             }
         }
     };
@@ -298,74 +227,3 @@ macro_rules! impl_unary_op {
 
 impl_unary_op!(Neg, neg);
 impl_unary_op!(Not, not);
-
-unsafe fn from_binary_op<T, L: Layout, M: Layout, U, V, D: Dim>(
-    vec: &mut Vec<V>,
-    lhs: &SpanArray<T, D, L>,
-    rhs: &SpanArray<U, D, M>,
-    f: &impl Fn(&T, &U) -> V,
-) {
-    if L::IS_UNIFORM && M::IS_UNIFORM {
-        assert!(lhs.shape()[..] == rhs.shape()[..], "shape mismatch");
-
-        for (x, y) in lhs.flatten().iter().zip(rhs.flatten().iter()) {
-            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
-
-            vec.as_mut_ptr().add(vec.len()).write(f(x, y));
-            vec.set_len(vec.len() + 1);
-        }
-    } else {
-        assert!(lhs.size(D::RANK - 1) == rhs.size(D::RANK - 1), "shape mismatch");
-
-        for (x, y) in lhs.outer_iter().zip(rhs.outer_iter()) {
-            from_binary_op(vec, &x, &y, f);
-        }
-    }
-}
-
-unsafe fn from_unary_op<T, L: Layout, U>(
-    vec: &mut Vec<U>,
-    other: &SpanArray<T, impl Dim, L>,
-    f: &impl Fn(&T) -> U,
-) {
-    if L::IS_UNIFORM {
-        for x in other.flatten().iter() {
-            debug_assert!(vec.len() < vec.capacity(), "index exceeds capacity");
-
-            vec.as_mut_ptr().add(vec.len()).write(f(x));
-            vec.set_len(vec.len() + 1);
-        }
-    } else {
-        for x in other.outer_iter() {
-            from_unary_op(vec, &x, f);
-        }
-    }
-}
-
-fn map_binary_op<T, L: Layout, M: Layout, U, D: Dim>(
-    this: &mut SpanArray<T, D, L>,
-    other: &SpanArray<U, D, M>,
-    f: &impl Fn((&mut T, &U)),
-) {
-    if L::IS_UNIFORM && M::IS_UNIFORM {
-        assert!(this.shape()[..] == other.shape()[..], "shape mismatch");
-
-        this.flatten_mut().iter_mut().zip(other.flatten().iter()).for_each(f);
-    } else {
-        assert!(this.size(D::RANK - 1) == other.size(D::RANK - 1), "shape mismatch");
-
-        for (mut x, y) in this.outer_iter_mut().zip(other.outer_iter()) {
-            map_binary_op(&mut x, &y, f);
-        }
-    }
-}
-
-fn map_unary_op<T, L: Layout>(this: &mut SpanArray<T, impl Dim, L>, f: &impl Fn(&mut T)) {
-    if L::IS_UNIFORM {
-        this.flatten_mut().iter_mut().for_each(f);
-    } else {
-        for mut x in this.outer_iter_mut() {
-            map_unary_op(&mut x, f);
-        }
-    }
-}

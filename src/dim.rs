@@ -14,6 +14,9 @@ pub trait Dim {
     /// Next lower dimension.
     type Lower: Dim;
 
+    /// Maximum dimension.
+    type Max<D: Dim>: Dim;
+
     /// Corresponding layout based on the dimension.
     type Layout<L: Layout>: Layout;
 
@@ -101,12 +104,28 @@ pub trait Strides:
 /// Type-level constant.
 pub struct Const<const N: usize>;
 
+impl Dim for Const<0> {
+    type Higher = Const<1>;
+    type Lower = Self;
+
+    type Max<D: Dim> = D;
+
+    type Layout<L: Layout> = Dense;
+
+    type Shape = [usize; 0];
+    type Strides = [isize; 0];
+
+    const RANK: usize = 0;
+}
+
 macro_rules! impl_dim {
-    (($($n:tt),*), ($($layout:ty),*)) => {
+    (($($n:tt),*), ($($m:tt),*), ($($k:tt),*), ($($layout:ty),*)) => {
         $(
             impl Dim for Const<$n> {
-                type Higher = Const<{ $n + ($n < 6) as usize }>;
-                type Lower = Const<{ $n - ($n > 0) as usize }>;
+                type Higher = Const<$k>;
+                type Lower = Const<$m>;
+
+                type Max<D: Dim> = <<Const<$m> as Dim>::Max<D::Lower> as Dim>::Higher;
 
                 type Layout<L: Layout> = $layout;
 
@@ -115,7 +134,15 @@ macro_rules! impl_dim {
 
                 const RANK: usize = $n;
             }
+        )*
+    }
+}
 
+impl_dim!((1, 2, 3, 4, 5, 6), (0, 1, 2, 3, 4, 5), (2, 3, 4, 5, 6, 6), (L::Uniform, L, L, L, L, L));
+
+macro_rules! impl_shape_strides {
+    ($($n:tt),*) => {
+        $(
             impl Shape for [usize; $n] {
                 type Dim = Const<$n>;
             }
@@ -127,4 +154,4 @@ macro_rules! impl_dim {
     }
 }
 
-impl_dim!((0, 1, 2, 3, 4, 5, 6), (Dense, L::Uniform, L, L, L, L, L));
+impl_shape_strides!(0, 1, 2, 3, 4, 5, 6);

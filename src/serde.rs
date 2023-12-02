@@ -98,7 +98,7 @@ impl<T: Serialize, B: Buffer<Item = T> + ?Sized> Serialize for Array<B> {
 
             // Empty arrays should give an empty sequence.
             if len > 0 {
-                for x in self.as_span().outer_iter() {
+                for x in self.as_span().outer_expr() {
                     seq.serialize_element(&x)?;
                 }
             }

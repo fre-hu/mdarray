@@ -12,6 +12,7 @@ Here are the main features of mdarray:
 - Dense array type, where the rank and element order is known at compile time.
 - Subarrays (views) can be created with arbitrary shapes and strides.
 - Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
+- Generic expressions for multidimensional iteration.
 
 The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
 the proposed C++ mdarray and mdspan types, and multidimensional arrays in

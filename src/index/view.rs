@@ -6,7 +6,7 @@ use std::ops::{
 };
 
 use crate::dim::{Const, Dim};
-use crate::index::panic_bounds_check;
+use crate::index;
 use crate::layout::{Dense, Flat, Layout};
 use crate::mapping::{DenseMapping, Mapping};
 use crate::ops::StepRange;
@@ -69,23 +69,22 @@ impl DimIndex for usize {
     type Dim<D: Dim> = D;
     type Params<P: Params> = (P::Layout, P::Split, P::Split);
 
-    fn dim_index<
-        D: Dim,
-        L: Layout,
-        I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
-        O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
-    >(
+    fn dim_index<D: Dim, L: Layout, I, O>(
         self,
         index: I,
         mapping: L::Mapping<D>,
-    ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>) {
+    ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>)
+    where
+        I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
+        O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
+    {
         let (offset, inner) = index.view_index(Mapping::remove_dim(mapping, D::RANK - 1));
 
         let size = mapping.size(D::RANK - 1);
         let stride = mapping.stride(D::RANK - 1);
 
         if self >= size {
-            panic_bounds_check(self, size)
+            index::panic_bounds_check(self, size)
         }
 
         (offset + stride * self as isize, Mapping::remap(inner))

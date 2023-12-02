@@ -11,8 +11,12 @@ use crate::alloc::Global;
 use crate::buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
 use crate::buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 use crate::dim::Dim;
+use crate::expr::{Expr, ExprMut};
+use crate::expression::Expression;
 use crate::index::SpanIndex;
-use crate::layout::{Dense, Layout, Uniform};
+use crate::iter::Iter;
+use crate::layout::Dense;
+use crate::traits::{Apply, IntoExpression};
 
 /// Multidimensional array type with static rank.
 #[repr(transparent)]
@@ -36,6 +40,38 @@ impl<B: BufferMut + ?Sized> Array<B> {
     /// Returns a mutable array span of the entire array.
     pub fn as_mut_span(&mut self) -> &mut SpanArray<B::Item, B::Dim, B::Layout> {
         self.buffer.as_mut_span()
+    }
+}
+
+impl<'a, T, B: Buffer + ?Sized> Apply<T> for &'a Array<B> {
+    type Output = GridArray<T, B::Dim>;
+    type ZippedWith<I: IntoExpression> = GridArray<T, <B::Dim as Dim>::Max<I::Dim>>;
+
+    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output {
+        self.as_span().expr().map(f).eval()
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    where
+        F: FnMut(Self::Item, I::Item) -> T,
+    {
+        self.as_span().expr().zip(expr).map(|(x, y)| f(x, y)).eval()
+    }
+}
+
+impl<'a, T, B: BufferMut + ?Sized> Apply<T> for &'a mut Array<B> {
+    type Output = GridArray<T, B::Dim>;
+    type ZippedWith<I: IntoExpression> = GridArray<T, <B::Dim as Dim>::Max<I::Dim>>;
+
+    fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output {
+        self.as_mut_span().expr_mut().map(f).eval()
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I>
+    where
+        F: FnMut(Self::Item, I::Item) -> T,
+    {
+        self.as_mut_span().expr_mut().zip(expr).map(|(x, y)| f(x, y)).eval()
     }
 }
 
@@ -96,7 +132,7 @@ impl<T: Debug, B: Buffer<Item = T> + ?Sized> Debug for Array<B> {
 
             // Empty arrays should give an empty list.
             if !self.as_span().is_empty() {
-                _ = list.entries(self.as_span().outer_iter());
+                _ = list.entries(self.as_span().outer_expr());
             }
 
             list.finish()
@@ -127,9 +163,7 @@ impl<T: Hash, B: Buffer<Item = T> + ?Sized> Hash for Array<B> {
             state.write_length_prefix(self.as_span().size(i));
         }
 
-        if !self.as_span().is_empty() {
-            hash(self.as_span(), state);
-        }
+        self.as_span().expr().for_each(|x| x.hash(state));
     }
 }
 
@@ -147,32 +181,40 @@ impl<B: BufferMut + ?Sized, I: SpanIndex<B::Item, B::Dim, B::Layout>> IndexMut<I
     }
 }
 
-impl<'a, L: 'a + Uniform, B: Buffer<Layout = L> + ?Sized> IntoIterator for &'a Array<B> {
+impl<'a, B: Buffer + ?Sized> IntoExpression for &'a Array<B> {
     type Item = &'a B::Item;
-    type IntoIter = L::Iter<'a, B::Item>;
+    type Dim = B::Dim;
+    type Producer = Expr<'a, B::Item, B::Dim, B::Layout>;
+
+    fn into_expr(self) -> Expression<Self::Producer> {
+        self.as_span().expr()
+    }
+}
+
+impl<'a, B: BufferMut + ?Sized> IntoExpression for &'a mut Array<B> {
+    type Item = &'a mut B::Item;
+    type Dim = B::Dim;
+    type Producer = ExprMut<'a, B::Item, B::Dim, B::Layout>;
+
+    fn into_expr(self) -> Expression<Self::Producer> {
+        self.as_mut_span().expr_mut()
+    }
+}
+
+impl<'a, B: Buffer + ?Sized> IntoIterator for &'a Array<B> {
+    type Item = &'a B::Item;
+    type IntoIter = Iter<Expr<'a, B::Item, B::Dim, B::Layout>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.as_span().iter()
     }
 }
 
-impl<'a, L: 'a + Uniform, B: BufferMut<Layout = L> + ?Sized> IntoIterator for &'a mut Array<B> {
+impl<'a, B: BufferMut + ?Sized> IntoIterator for &'a mut Array<B> {
     type Item = &'a mut B::Item;
-    type IntoIter = L::IterMut<'a, B::Item>;
+    type IntoIter = Iter<ExprMut<'a, B::Item, B::Dim, B::Layout>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.as_mut_span().iter_mut()
-    }
-}
-
-fn hash<T: Hash, L: Layout>(this: &SpanArray<T, impl Dim, L>, state: &mut impl Hasher) {
-    if L::IS_UNIFORM {
-        for x in this.flatten().iter() {
-            x.hash(state);
-        }
-    } else {
-        for x in this.outer_iter() {
-            hash(&x, state);
-        }
     }
 }

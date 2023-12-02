@@ -1,14 +1,16 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
-use std::slice;
 
 use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 use crate::dim::{Const, Dim, Shape};
+use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut};
+use crate::expression::Expression;
 use crate::index::{Axis, DimIndex, Permutation, SpanIndex, ViewIndex};
-use crate::iter::{AxisIter, AxisIterMut};
-use crate::layout::{Dense, Layout, Uniform};
+use crate::iter::Iter;
+use crate::layout::{Dense, Layout};
 use crate::mapping::Mapping;
 use crate::raw_span::RawSpan;
+use crate::traits::{IntoCloned, IntoExpression};
 
 impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// Returns a mutable pointer to the array buffer.
@@ -29,74 +31,71 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         }
     }
 
-    /// Returns an iterator that gives array views over the specified dimension.
+    /// Assigns an expression to the array span with broadcasting, cloning elements if needed.
     ///
-    /// When iterating over the outer dimension, both the unit inner stride and the
+    /// # Panics
+    ///
+    /// Panics if the expression cannot be broadcast to the shape of the array span.
+    pub fn assign<I: IntoExpression<Item = impl IntoCloned<T>>>(&mut self, expr: I) {
+        self.expr_mut().zip(expr).for_each(|(x, y)| y.clone_to(x));
+    }
+
+    /// Returns an expression that gives array views iterating over the specified dimension.
+    ///
+    /// When iterating over the outermost dimension, both the unit inner stride and the
     /// uniform stride properties are maintained, and the resulting array views have
     /// the same layout.
     ///
-    /// When iterating over the inner dimension, the uniform stride property is
+    /// When iterating over the innermost dimension, the uniform stride property is
     /// maintained but not unit inner stride, and the resulting array views have
     /// flat or strided layout.
     ///
-    /// When iterating over the middle dimensions, the unit inner stride propery is
+    /// When iterating over the other dimensions, the unit inner stride propery is
     /// maintained but not uniform stride, and the resulting array views have general
     /// or strided layout.
-    pub fn axis_iter<const DIM: usize>(
+    pub fn axis_expr<const DIM: usize>(
         &self,
-    ) -> AxisIter<T, D::Lower, <Const<DIM> as Axis<D>>::Remove<L>>
+    ) -> Expression<AxisExpr<T, D, <Const<DIM> as Axis<D>>::Remove<L>>>
     where
         Const<DIM>: Axis<D>,
     {
         unsafe {
-            AxisIter::new_unchecked(
+            Expression::new(AxisExpr::new_unchecked(
                 self.as_ptr(),
                 Mapping::remove_dim(self.mapping(), DIM),
                 self.size(DIM),
                 self.stride(DIM),
-            )
+            ))
         }
     }
 
-    /// Returns a mutable iterator that gives array views over the specified dimension.
+    /// Returns a mutable expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the outer dimension, both the unit inner stride and the
+    /// When iterating over the outermost dimension, both the unit inner stride and the
     /// uniform stride properties are maintained, and the resulting array views have
     /// the same layout.
     ///
-    /// When iterating over the inner dimension, the uniform stride property is
+    /// When iterating over the innermost dimension, the uniform stride property is
     /// maintained but not unit inner stride, and the resulting array views have
     /// flat or strided layout.
     ///
-    /// When iterating over the middle dimensions, the unit inner stride propery is
+    /// When iterating over the other dimensions, the unit inner stride propery is
     /// maintained but not uniform stride, and the resulting array views have general
     /// or strided layout.
-    pub fn axis_iter_mut<const DIM: usize>(
+    pub fn axis_expr_mut<const DIM: usize>(
         &mut self,
-    ) -> AxisIterMut<T, D::Lower, <Const<DIM> as Axis<D>>::Remove<L>>
+    ) -> Expression<AxisExprMut<T, D, <Const<DIM> as Axis<D>>::Remove<L>>>
     where
         Const<DIM>: Axis<D>,
     {
         unsafe {
-            AxisIterMut::new_unchecked(
+            Expression::new(AxisExprMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::remove_dim(self.mapping(), DIM),
                 self.size(DIM),
                 self.stride(DIM),
-            )
+            ))
         }
-    }
-
-    /// Clones an array span into the array span.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the two spans have different shapes.
-    pub fn clone_from_span(&mut self, src: &SpanArray<T, D, impl Layout>)
-    where
-        T: Clone,
-    {
-        clone_from_span(self, src);
     }
 
     /// Returns `true` if the array span contains an element with the given value.
@@ -107,17 +106,27 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         contains(self, x)
     }
 
+    /// Returns an expression over the array span.
+    pub fn expr(&self) -> Expression<Expr<T, D, L>> {
+        self.to_view().into_expr()
+    }
+
+    /// Returns a mutable expression over the array span.
+    pub fn expr_mut(&mut self) -> Expression<ExprMut<T, D, L>> {
+        self.to_view_mut().into_expr()
+    }
+
     /// Fills the array span with elements by cloning `value`.
     pub fn fill(&mut self, value: T)
     where
         T: Clone,
     {
-        fill_with(self, &mut || value.clone());
+        self.expr_mut().for_each(|x| x.clone_from(&value));
     }
 
     /// Fills the array span with elements returned by calling a closure repeatedly.
-    pub fn fill_with(&mut self, mut f: impl FnMut() -> T) {
-        fill_with(self, &mut f);
+    pub fn fill_with<F: FnMut() -> T>(&mut self, mut f: F) {
+        self.expr_mut().for_each(|x| *x = f());
     }
 
     /// Returns a one-dimensional array view of the array span.
@@ -156,52 +165,6 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         index.get_unchecked_mut(self)
     }
 
-    /// Returns an iterator that gives array views over the inner dimension.
-    ///
-    /// Iterating over the inner dimension maintains the uniform stride property but not
-    /// unit inner stride, so that the resulting array views have flat or strided layout.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 1.
-    pub fn inner_iter(
-        &self,
-    ) -> AxisIter<T, D::Lower, <D::Lower as Dim>::Layout<L::NonUnitStrided>> {
-        assert!(D::RANK > 0, "invalid rank");
-
-        unsafe {
-            AxisIter::new_unchecked(
-                self.as_ptr(),
-                Mapping::remove_dim(self.mapping(), 0),
-                self.size(0),
-                self.stride(0),
-            )
-        }
-    }
-
-    /// Returns a mutable iterator that gives array views over the inner dimension.
-    ///
-    /// Iterating over the inner dimension maintains the uniform stride property but not
-    /// unit inner stride, so that the resulting array views have flat or strided layout.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 1.
-    pub fn inner_iter_mut(
-        &mut self,
-    ) -> AxisIterMut<T, D::Lower, <D::Lower as Dim>::Layout<L::NonUnitStrided>> {
-        assert!(D::RANK > 0, "invalid rank");
-
-        unsafe {
-            AxisIterMut::new_unchecked(
-                self.as_mut_ptr(),
-                Mapping::remove_dim(self.mapping(), 0),
-                self.size(0),
-                self.stride(0),
-            )
-        }
-    }
-
     /// Returns `true` if the array strides are consistent with contiguous memory layout.
     pub fn is_contiguous(&self) -> bool {
         self.mapping().is_contiguous()
@@ -217,20 +180,14 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         self.mapping().is_uniformly_strided()
     }
 
-    /// Returns an iterator over the array span, which must support linear indexing.
-    pub fn iter(&self) -> L::Iter<'_, T>
-    where
-        L: Uniform,
-    {
-        L::Mapping::iter(self)
+    /// Returns an iterator over the array span.
+    pub fn iter(&self) -> Iter<Expr<'_, T, D, L>> {
+        self.to_view().into_iter()
     }
 
-    /// Returns a mutable iterator over the array span, which must support linear indexing.
-    pub fn iter_mut(&mut self) -> L::IterMut<'_, T>
-    where
-        L: Uniform,
-    {
-        L::Mapping::iter_mut(self)
+    /// Returns a mutable iterator over the array span.
+    pub fn iter_mut(&mut self) -> Iter<ExprMut<'_, T, D, L>> {
+        self.to_view_mut().into_iter()
     }
 
     /// Returns the number of elements in the array.
@@ -247,45 +204,47 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         }
     }
 
-    /// Returns an iterator that gives array views over the outer dimension.
+    /// Returns an expression that gives array views iterating over the outermost dimension.
     ///
-    /// Iterating over the outer dimension maintains both the unit inner stride and the
+    /// Iterating over the outermost dimension maintains both the unit inner stride and the
     /// uniform stride properties, and the resulting array views have the same layout.
     ///
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_iter(&self) -> AxisIter<T, D::Lower, <D::Lower as Dim>::Layout<L>> {
+    pub fn outer_expr(&self) -> Expression<AxisExpr<T, D, <D::Lower as Dim>::Layout<L>>> {
         assert!(D::RANK > 0, "invalid rank");
 
         unsafe {
-            AxisIter::new_unchecked(
+            Expression::new(AxisExpr::new_unchecked(
                 self.as_ptr(),
                 Mapping::remove_dim(self.mapping(), D::RANK - 1),
                 self.size(D::RANK - 1),
                 self.stride(D::RANK - 1),
-            )
+            ))
         }
     }
 
-    /// Returns a mutable iterator that gives array views over the outer dimension.
+    /// Returns a mutable expression that gives array views iterating over the outermost dimension.
     ///
-    /// Iterating over the outer dimension maintains both the unit inner stride and the
+    /// Iterating over the outermost dimension maintains both the unit inner stride and the
     /// uniform stride properties, and the resulting array views have the same layout.
     ///
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_iter_mut(&mut self) -> AxisIterMut<T, D::Lower, <D::Lower as Dim>::Layout<L>> {
+    pub fn outer_expr_mut(
+        &mut self,
+    ) -> Expression<AxisExprMut<T, D, <D::Lower as Dim>::Layout<L>>> {
         assert!(D::RANK > 0, "invalid rank");
 
         unsafe {
-            AxisIterMut::new_unchecked(
+            Expression::new(AxisExprMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::remove_dim(self.mapping(), D::RANK - 1),
                 self.size(D::RANK - 1),
                 self.stride(D::RANK - 1),
-            )
+            ))
         }
     }
 
@@ -347,7 +306,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         self.mapping().size(dim)
     }
 
-    /// Divides an array span into two at an index along the outer dimension.
+    /// Divides an array span into two at an index along the outermost dimension.
     ///
     /// # Panics
     ///
@@ -356,7 +315,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         self.to_view().into_split_at(mid)
     }
 
-    /// Divides a mutable array span into two at an index along the outer dimension.
+    /// Divides a mutable array span into two at an index along the outermost dimension.
     ///
     /// # Panics
     ///
@@ -421,10 +380,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     where
         T: Clone,
     {
-        let mut grid = GridArray::new();
-
-        grid.extend_from_span(self);
-        grid
+        self.expr().cloned().eval()
     }
 
     /// Copies the array span into a new array.
@@ -442,10 +398,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     where
         T: Clone,
     {
-        let mut grid = GridArray::new_in(alloc);
-
-        grid.extend_from_span(self);
-        grid
+        self.expr().cloned().eval_in(alloc)
     }
 
     /// Copies the array span into a new vector.
@@ -477,14 +430,14 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
 }
 
 impl<T, D: Dim> SpanArray<T, D, Dense> {
-    /// Returns a mutable slice of all elements in the array.
+    /// Returns a mutable slice of all elements in the array, which must have dense layout.
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
+        self.to_view_mut().into_slice()
     }
 
-    /// Returns a slice of all elements in the array.
+    /// Returns a slice of all elements in the array, which must have dense layout.
     pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.as_ptr(), self.len()) }
+        self.to_view().into_slice()
     }
 }
 
@@ -600,49 +553,14 @@ impl<T: Clone, D: Dim> ToOwned for SpanArray<T, D, Dense> {
     }
 }
 
-fn clone_from_span<T: Clone, D: Dim, L: Layout, M: Layout>(
-    this: &mut SpanArray<T, D, L>,
-    src: &SpanArray<T, D, M>,
-) {
-    if L::IS_UNIFORM && M::IS_UNIFORM {
-        assert!(src.shape()[..] == this.shape()[..], "shape mismatch");
-
-        if L::IS_UNIT_STRIDED && M::IS_UNIT_STRIDED {
-            this.remap_mut().as_mut_slice().clone_from_slice(src.remap().as_slice());
-        } else {
-            for (x, y) in this.flatten_mut().iter_mut().zip(src.flatten().iter()) {
-                x.clone_from(y);
-            }
-        }
-    } else {
-        assert!(src.size(D::RANK - 1) == this.size(D::RANK - 1), "shape mismatch");
-
-        for (mut x, y) in this.outer_iter_mut().zip(src.outer_iter()) {
-            clone_from_span(&mut x, &y);
-        }
-    }
-}
-
 fn contains<T: PartialEq, D: Dim, L: Layout>(this: &SpanArray<T, D, L>, value: &T) -> bool {
     if L::IS_UNIFORM {
         if L::IS_UNIT_STRIDED {
             this.remap().as_slice().contains(value)
         } else {
-            this.as_span().flatten().iter().any(|x| x == value)
+            this.iter().any(|x| x == value)
         }
     } else {
-        this.outer_iter().any(|x| x.contains(value))
-    }
-}
-
-fn fill_with<T, L: Layout>(this: &mut SpanArray<T, impl Dim, L>, f: &mut impl FnMut() -> T) {
-    if L::IS_UNIFORM {
-        for x in this.flatten_mut().iter_mut() {
-            *x = f();
-        }
-    } else {
-        for mut x in this.outer_iter_mut() {
-            fill_with(&mut x, f);
-        }
+        this.outer_expr().into_iter().any(|x| x.contains(value))
     }
 }

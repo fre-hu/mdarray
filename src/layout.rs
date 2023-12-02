@@ -1,8 +1,4 @@
-use std::iter::FusedIterator;
-use std::slice::{Iter, IterMut};
-
 use crate::dim::Dim;
-use crate::iter::{FlatIter, FlatIterMut};
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
 
 /// Array memory layout trait.
@@ -22,20 +18,7 @@ pub trait Layout {
     /// Combined layout based on the dimension.
     type Layout<D: Dim, L: Layout>: Layout;
 
-    /// Array iterator type.
-    type Iter<'a, T: 'a>: Clone
-        + DoubleEndedIterator
-        + ExactSizeIterator
-        + FusedIterator
-        + Iterator<Item = &'a T>;
-
-    /// Mutable array iterator type.
-    type IterMut<'a, T: 'a>: DoubleEndedIterator
-        + ExactSizeIterator
-        + FusedIterator
-        + Iterator<Item = &'a mut T>;
-
-    /// Array layout mapping.
+    /// Array layout mapping type.
     type Mapping<D: Dim>: Mapping<Dim = D, Layout = Self>;
 
     /// True if the layout type has uniform stride.
@@ -70,10 +53,6 @@ impl Layout for Dense {
     type UnitStrided = Self;
 
     type Layout<D: Dim, L: Layout> = D::Layout<L>;
-
-    type Iter<'a, T: 'a> = Iter<'a, T>;
-    type IterMut<'a, T: 'a> = IterMut<'a, T>;
-
     type Mapping<D: Dim> = DenseMapping<D>;
 
     const IS_UNIFORM: bool = true;
@@ -87,10 +66,6 @@ impl Layout for Flat {
     type UnitStrided = Dense;
 
     type Layout<D: Dim, L: Layout> = D::Layout<L::NonUnitStrided>;
-
-    type Iter<'a, T: 'a> = FlatIter<'a, T>;
-    type IterMut<'a, T: 'a> = FlatIterMut<'a, T>;
-
     type Mapping<D: Dim> = FlatMapping<D>;
 
     const IS_UNIFORM: bool = true;
@@ -104,10 +79,6 @@ impl Layout for General {
     type UnitStrided = Self;
 
     type Layout<D: Dim, L: Layout> = D::Layout<L::NonUniform>;
-
-    type Iter<'a, T: 'a> = Iter<'a, T>;
-    type IterMut<'a, T: 'a> = IterMut<'a, T>;
-
     type Mapping<D: Dim> = GeneralMapping<D>;
 
     const IS_UNIFORM: bool = false;
@@ -121,10 +92,6 @@ impl Layout for Strided {
     type UnitStrided = General;
 
     type Layout<D: Dim, L: Layout> = D::Layout<Self>;
-
-    type Iter<'a, T: 'a> = FlatIter<'a, T>;
-    type IterMut<'a, T: 'a> = FlatIterMut<'a, T>;
-
     type Mapping<D: Dim> = StridedMapping<D>;
 
     const IS_UNIFORM: bool = false;

@@ -25,8 +25,8 @@ use serde_test::{assert_tokens, Token};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-use mdarray::{fill, grid, step, view, Grid, StepRange, View, ViewMut};
-use mdarray::{Const, Dense, Dim, Flat, General, Layout, Strided};
+use mdarray::{expr, grid, step, view, Apply, Grid, IntoExpression, StepRange, View, ViewMut};
+use mdarray::{Const, Dense, Dim, Flat, General, IntoCloned, Layout, Strided};
 
 macro_rules! to_slice {
     ($span:expr) => {
@@ -189,20 +189,17 @@ fn test_base() {
     assert_eq!(a, Grid::<usize, 3>::from_fn([3, 4, 5], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]));
     assert_eq!(b, Grid::<usize, 3>::from_fn([5, 4, 3], |i| 1000 + 100 * i[2] + 10 * i[1] + i[0]));
 
-    assert_eq!(a.view(2, .., ..), a.axis_iter::<0>().skip(2).next().unwrap());
-    assert_eq!(b.grid(2, .., ..), b.axis_iter_mut::<0>().skip(2).next().unwrap());
+    assert_eq!(a.view(2, .., ..), a.axis_expr::<0>().into_iter().skip(2).next().unwrap());
+    assert_eq!(b.grid(2, .., ..), b.axis_expr_mut::<0>().into_iter().skip(2).next().unwrap());
 
-    assert_eq!(b.view(.., 2, ..), b.axis_iter::<1>().skip(2).next().unwrap());
-    assert_eq!(a.grid(.., 2, ..), a.axis_iter_mut::<1>().skip(2).next().unwrap());
+    assert_eq!(b.view(.., 2, ..), b.axis_expr::<1>().into_iter().skip(2).next().unwrap());
+    assert_eq!(a.grid(.., 2, ..), a.axis_expr_mut::<1>().into_iter().skip(2).next().unwrap());
 
-    assert_eq!(a.view(.., .., 2), a.axis_iter::<2>().skip(2).next().unwrap());
-    assert_eq!(b.grid(.., .., 2), b.axis_iter_mut::<2>().skip(2).next().unwrap());
+    assert_eq!(a.view(.., .., 2), a.axis_expr::<2>().into_iter().skip(2).next().unwrap());
+    assert_eq!(b.grid(.., .., 2), b.axis_expr_mut::<2>().into_iter().skip(2).next().unwrap());
 
-    assert_eq!(b.view(2, .., ..), b.inner_iter().skip(2).next().unwrap());
-    assert_eq!(a.grid(2, .., ..), a.inner_iter_mut().skip(2).next().unwrap());
-
-    assert_eq!(a.view(.., .., 2), a.outer_iter().skip(2).next().unwrap());
-    assert_eq!(b.grid(.., .., 2), b.outer_iter_mut().skip(2).next().unwrap());
+    assert_eq!(a.view(.., .., 2), a.outer_expr().into_iter().skip(2).next().unwrap());
+    assert_eq!(b.grid(.., .., 2), b.outer_expr_mut().into_iter().skip(2).next().unwrap());
 
     assert_eq!(a.contains(&1111), true);
     assert_eq!(a.view(1, 1.., 1..).contains(&9999), false);
@@ -235,7 +232,8 @@ fn test_base() {
     assert!(Grid::from_iter(0..10).view(step(..0, isize::MAX)).is_empty());
     assert!(Grid::from_iter(0..10).view_mut(step(..0, isize::MIN)).is_empty());
 
-    assert_eq!(Grid::from_iter(0..3).map(|x| 10 * x)[..], [0, 10, 20]);
+    assert_eq!(Grid::from_iter(0..3).apply(|x| 10 * x)[..], [0, 10, 20]);
+    assert_eq!(Grid::from_iter(0..3).zip_with(view![3, 4, 5], |x, y| x + y)[..], [3, 5, 7]);
 
     assert_eq!(to_slice!(a.view(..2, ..2, ..).split_at(1).0), [1000, 1100, 1010, 1110]);
     assert_eq!(to_slice!(a.view(..2, .., ..2).split_axis_at::<1>(3).1), [1030, 1130, 1031, 1131]);
@@ -276,9 +274,15 @@ fn test_base() {
     t.try_reserve_exact(60).unwrap();
 
     s.append(&mut t.clone());
-    t.extend_from_span(&s.view(.., .., 5..));
+    t.expand(&s.view(.., .., 5..));
 
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
+
+    let mut d = Grid::<usize, 2>::from([[1, 2], [3, 4], [5, 6]]);
+    let e = Grid::from_expr(d.drain(1..2));
+
+    assert_eq!(d, View::from(&[[1, 2], [5, 6]]));
+    assert_eq!(e, View::from(&[[3, 4]]));
 
     assert_eq!(grid![123].into_scalar(), grid![[123]].into_scalar());
     assert_eq!(View::from(&456)[[]], ViewMut::from(&mut 456)[0]);
@@ -305,6 +309,66 @@ fn test_base() {
 }
 
 #[test]
+fn test_expr() {
+    let mut a = grid![[1, 2, 3], [4, 5, 6]];
+
+    assert_eq!(a.as_span().shape(), [3, 2]);
+
+    assert_eq!((&a + &view![1, 2, 3]).as_slice(), [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&view![1, 2, 3] + &a).as_slice(), [2, 4, 6, 5, 7, 9]);
+
+    assert_eq!(format!("{:?}", a.axis_expr::<0>()), "AxisExpr([[1, 4], [2, 5], [3, 6]])");
+    assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut([[1, 2, 3], [4, 5, 6]])");
+
+    assert_eq!(format!("{:?}", a.clone().drain(1..)), "Drain([[4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.clone().into_expr()), "IntoExpr([[1, 2, 3], [4, 5, 6]])");
+
+    assert_eq!(format!("{:?}", expr::fill(1)), "Fill(1)");
+    assert_eq!(format!("{:?}", expr::fill_with(|| 1)), "FillWith");
+    assert_eq!(format!("{:?}", expr::from_elem([1, 2], 3)), "FromElem([1, 2], 3)");
+    assert_eq!(format!("{:?}", expr::from_fn([1, 2], |i| i)), "FromFn([1, 2])");
+
+    let e1 = format!("{:?}", a.expr().cloned().map(|x| x + 3));
+    let e2 = format!("{:?}", a.view(.., ..1).expr().zip(&a.view(.., 1..)));
+    let e3 = format!("{:?}", a.view_mut(.., 1..).expr_mut().enumerate());
+
+    assert_eq!(e1, "Map(Cloned(Expr([[1, 2, 3], [4, 5, 6]])))");
+    assert_eq!(e2, "Zip(Expr([[1, 2, 3]]), Expr([[4, 5, 6]]))");
+    assert_eq!(e3, "Enumerate(ExprMut([[4, 5, 6]]))");
+
+    assert_eq!(format!("{:?}", a.view(.., 0).iter()), "Iter(Expr([1, 2, 3]))");
+    assert_eq!(format!("{:?}", a.view_mut(.., 1).iter_mut()), "Iter(ExprMut([4, 5, 6]))");
+
+    assert_eq!(format!("{:?}", a.view(1, ..).iter()), "Iter(Expr([2, 5]))");
+    assert_eq!(format!("{:?}", a.view_mut(2, ..).iter_mut()), "Iter(ExprMut([3, 6]))");
+
+    let b = a.expr().copied().map(|x| x + 3).eval();
+
+    assert_eq!(b, view![[4, 5, 6], [7, 8, 9]]);
+
+    let mut c = grid![[1, 2], [3, 4], [5, 6]];
+
+    c.expand(grid![[7, 8], [9, 10]].into_expr());
+    _ = view![11, 12].expr().cloned().eval_into(&mut c);
+
+    assert_eq!(c, view![[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]]);
+
+    c.assign(grid![[1; 2]; 6].into_expr());
+
+    assert_eq!(c, view![[1; 2]; 6]);
+
+    c.assign(&view![[2; 2]; 6]);
+
+    assert_eq!(c, view![[2; 2]; 6]);
+
+    let d = view![[(1, 5), (2, 6)], [(3, 5), (4, 6)]];
+    let e = [[([0, 0], 1), ([1, 0], 1)], [([0, 1], 1), ([1, 1], 1)], [([0, 2], 1), ([1, 2], 1)]];
+
+    assert_eq!(expr::zip(&view![[1, 2], [3, 4]], &view![5, 6]).map(|(x, y)| (*x, *y)).eval(), d);
+    assert_eq!(grid![[1; 2]; 3].into_expr().enumerate().eval(), Grid::from(e));
+}
+
+#[test]
 fn test_hash() {
     let mut s1 = DefaultHasher::new();
     let mut s2 = DefaultHasher::new();
@@ -324,20 +388,6 @@ fn test_index() {
     check_view::<General>();
     check_view::<Flat>();
     check_view::<Strided>();
-}
-
-#[test]
-fn test_iter() {
-    let mut grid = Grid::<i32, 2>::from([[1, 2, 3], [4, 5, 6]]);
-
-    assert_eq!(format!("{:?}", grid.outer_iter()), "AxisIter([[1, 2, 3], [4, 5, 6]])");
-    assert_eq!(format!("{:?}", grid.inner_iter_mut()), "AxisIterMut([[1, 4], [2, 5], [3, 6]])");
-
-    assert_eq!(format!("{:?}", grid.view(.., 0).iter()), "Iter([1, 2, 3])");
-    assert_eq!(format!("{:?}", grid.view_mut(.., 1).iter_mut()), "IterMut([4, 5, 6])");
-
-    assert_eq!(format!("{:?}", grid.view(1, ..).iter()), "FlatIter([2, 5])");
-    assert_eq!(format!("{:?}", grid.view_mut(2, ..).iter_mut()), "FlatIterMut([3, 6])");
 }
 
 #[test]
@@ -428,21 +478,21 @@ fn test_ops() {
     let mut a = Grid::<i32, 2>::from([[1, 2, 3], [4, 5, 6]]);
     let b = Grid::<i32, 2>::from([[9, 8, 7], [6, 5, 4]]);
 
-    a -= fill(1);
+    a -= expr::fill(1);
     a -= &b;
     a -= b.as_span();
 
-    *a.as_mut_span() -= fill(1);
+    *a.as_mut_span() -= expr::fill(1);
     *a.as_mut_span() -= &b;
     *a.as_mut_span() -= b.as_span();
 
     assert_eq!(a, Grid::from([[-37, -32, -27], [-22, -17, -12]]));
 
-    a = a - fill(1);
+    a = a - expr::fill(1);
     a = a - &b;
     a = a - b.as_span();
 
-    a = fill(1) - a;
+    a = expr::fill(1) - a;
     a = &b - a;
     a = b.as_span() - a;
 
@@ -455,11 +505,11 @@ fn test_ops() {
 
     assert_eq!(a, Grid::from([[21, 18, 15], [12, 9, 6]]));
 
-    a = &a - fill(1);
-    a = a.as_span() - fill(1);
+    a = &a - expr::fill(1);
+    a = a.as_span() - expr::fill(1);
 
-    a = fill(1) - &a;
-    a = fill(1) - a.as_span();
+    a = expr::fill(1) - &a;
+    a = expr::fill(1) - a.as_span();
 
     assert_eq!(a, Grid::from([[19, 16, 13], [10, 7, 4]]));
 
@@ -475,6 +525,11 @@ fn test_ops() {
     assert!(a == a && *a == a && a == *a && *a == *a);
     assert!(b.view(1, ..) <= b.view(1, ..) && *b.view(1, ..) > b.view(2, ..));
     assert!(b.view(2, ..) < *b.view(1, ..) && *b.view(2, ..) >= *b.view(2, ..));
+
+    let c = expr::fill_with(|| 1usize) + expr::from_elem([2, 3], 4);
+    let c = c + expr::from_fn([2, 3], |x| x[0] + x[1]);
+
+    assert_eq!(c, Grid::from([[5, 6], [6, 7], [7, 8]]));
 }
 
 #[cfg(feature = "serde")]
@@ -499,4 +554,25 @@ fn test_serde() {
             Token::SeqEnd,
         ],
     );
+}
+
+#[test]
+fn test_traits() {
+    let x = vec![1, 2, 3];
+    let ptr = x.as_ptr();
+
+    let y = x.into_cloned();
+    let z: Vec<usize> = (&y).into_cloned();
+
+    assert_eq!(ptr, y.as_ptr());
+    assert_ne!(ptr, z.as_ptr());
+
+    let mut u = vec![];
+    let mut v = vec![];
+
+    y.clone_to(&mut u);
+    (&u).clone_to(&mut v);
+
+    assert_eq!(ptr, u.as_ptr());
+    assert_ne!(ptr, v.as_ptr());
 }

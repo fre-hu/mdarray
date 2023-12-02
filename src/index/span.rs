@@ -4,7 +4,7 @@ use std::ops::{
 
 use crate::array::SpanArray;
 use crate::dim::{Dim, Shape};
-use crate::index::panic_bounds_check;
+use crate::index;
 use crate::layout::{Dense, Layout, Uniform};
 use crate::mapping::Mapping;
 
@@ -40,7 +40,7 @@ impl<T, S: Shape, D: Dim<Shape = S>, L: Layout> SpanIndex<T, D, L> for S {
     fn index(self, span: &SpanArray<T, D, L>) -> &T {
         for i in 0..D::RANK {
             if self[i] >= span.size(i) {
-                panic_bounds_check(self[i], span.size(i))
+                index::panic_bounds_check(self[i], span.size(i))
             }
         }
 
@@ -50,7 +50,7 @@ impl<T, S: Shape, D: Dim<Shape = S>, L: Layout> SpanIndex<T, D, L> for S {
     fn index_mut(self, span: &mut SpanArray<T, D, L>) -> &mut T {
         for i in 0..D::RANK {
             if self[i] >= span.size(i) {
-                panic_bounds_check(self[i], span.size(i))
+                index::panic_bounds_check(self[i], span.size(i))
             }
         }
 
@@ -79,7 +79,7 @@ impl<T, D: Dim, L: Uniform> SpanIndex<T, D, L> for usize {
 
     fn index(self, span: &SpanArray<T, D, L>) -> &T {
         if self >= span.len() {
-            panic_bounds_check(self, span.len())
+            index::panic_bounds_check(self, span.len())
         }
 
         unsafe { self.get_unchecked(span) }
@@ -87,7 +87,7 @@ impl<T, D: Dim, L: Uniform> SpanIndex<T, D, L> for usize {
 
     fn index_mut(self, span: &mut SpanArray<T, D, L>) -> &mut T {
         if self >= span.len() {
-            panic_bounds_check(self, span.len())
+            index::panic_bounds_check(self, span.len())
         }
 
         unsafe { self.get_unchecked_mut(span) }

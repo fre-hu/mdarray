@@ -1,260 +1,167 @@
 use std::fmt::{Debug, Formatter, Result};
 use std::iter::FusedIterator;
-use std::marker::PhantomData;
-use std::ptr::NonNull;
 
-use crate::array::{ViewArray, ViewArrayMut};
 use crate::dim::Dim;
-use crate::layout::Layout;
+use crate::expr::Producer;
 
-/// Array axis iterator.
-pub struct AxisIter<'a, T, D: Dim, L: Layout> {
-    ptr: NonNull<T>,
-    mapping: L::Mapping<D>,
-    index: usize,
-    size: usize,
-    stride: isize,
-    phantom: PhantomData<&'a T>,
+/// Multidimensional array iterator type.
+#[derive(Clone)]
+pub struct Iter<P: Producer> {
+    producer: P,
+    limit: <P::Dim as Dim>::Shape,
+    index: <P::Dim as Dim>::Shape,
+    done: bool,
 }
 
-/// Mutable array axis iterator.
-pub struct AxisIterMut<'a, T, D: Dim, L: Layout> {
-    ptr: NonNull<T>,
-    mapping: L::Mapping<D>,
-    index: usize,
-    size: usize,
-    stride: isize,
-    phantom: PhantomData<&'a mut T>,
-}
+impl<P: Producer> Iter<P> {
+    pub(crate) fn new(producer: P) -> Self {
+        let mut limit = <P::Dim as Dim>::Shape::default();
+        let mut index = <P::Dim as Dim>::Shape::default();
 
-/// Flat array span iterator.
-pub struct FlatIter<'a, T> {
-    ptr: NonNull<T>,
-    index: usize,
-    size: usize,
-    stride: isize,
-    phantom: PhantomData<&'a T>,
-}
+        let done = producer.shape()[..].iter().product::<usize>() == 0;
 
-/// Mutable flat array span iterator.
-pub struct FlatIterMut<'a, T> {
-    ptr: NonNull<T>,
-    index: usize,
-    size: usize,
-    stride: isize,
-    phantom: PhantomData<&'a mut T>,
-}
+        // Combine each dimension with its outer dimension if the split mask is not set.
+        if P::Dim::RANK > 0 {
+            let shape = producer.shape();
+            let mut accum = shape[P::Dim::RANK - 1];
 
-macro_rules! impl_axis_iter {
-    ($name:tt, $grid:tt, $raw_mut:tt) => {
-        impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
-            pub(crate) unsafe fn new_unchecked(
-                ptr: *$raw_mut T,
-                mapping: L::Mapping<D>,
-                size: usize,
-                stride: isize,
-            ) -> Self {
-                Self {
-                    ptr: NonNull::new_unchecked(ptr as *mut T),
-                    mapping,
-                    index: 0,
-                    size,
-                    stride,
-                    phantom: PhantomData,
+            for i in 1..P::Dim::RANK {
+                if (P::SPLIT_MASK >> (P::Dim::RANK - 1 - i)) & 1 > 0 {
+                    limit[P::Dim::RANK - i] = accum;
+                    accum = 1;
                 }
+
+                accum *= shape[P::Dim::RANK - 1 - i];
+            }
+
+            limit[0] = accum;
+
+            // Set innermost index to simplify checking in Iterator::next.
+            if done {
+                index[0] = accum;
             }
         }
 
-        impl<'a, T: Debug, D: Dim, L: Layout> Debug for $name<'a, T, D, L> {
-            fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                struct Value<'b, 'c, U, E: Dim, M: Layout>(&'b $name<'c, U, E, M>);
+        Self { producer, limit, index, done }
+    }
 
-                impl<'b, 'c, U: Debug, E: Dim, M: Layout> Debug for Value<'b, 'c, U, E, M> {
-                    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                        let mut list = f.debug_list();
+    unsafe fn step_outer(&mut self) -> bool {
+        for i in 1..P::Dim::RANK {
+            if (P::SPLIT_MASK >> (i - 1)) & 1 > 0 {
+                if self.index[i] + 1 < self.limit[i] {
+                    self.producer.step_dim(i);
+                    self.index[i] += 1;
 
-                        for i in self.0.index..self.0.size {
-                            unsafe {
-                                let ptr = self.0.ptr.as_ptr().offset(self.0.stride * i as isize);
-                                let view = ViewArray::<U, E, M>::new_unchecked(ptr, self.0.mapping);
-
-                                _ = list.entry(&view);
-                            }
-                        }
-
-                        list.finish()
-                    }
-                }
-
-                f.debug_tuple(stringify!($name)).field(&Value(self)).finish()
-            }
-        }
-
-        impl<'a, T, D: Dim, L: Layout> DoubleEndedIterator for $name<'a, T, D, L> {
-            fn next_back(&mut self) -> Option<Self::Item> {
-                if self.index == self.size {
-                    None
+                    return true;
                 } else {
-                    self.size -= 1;
-
-                    let count = self.stride * self.size as isize;
-
-                    unsafe {
-                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping))
-                    }
+                    self.producer.reset_dim(i, self.index[i]);
+                    self.index[i] = 0;
                 }
             }
         }
 
-        impl<'a, T, D: Dim, L: Layout> ExactSizeIterator for $name<'a, T, D, L> {}
-        impl<'a, T, D: Dim, L: Layout> FusedIterator for $name<'a, T, D, L> {}
-
-        impl<'a, T, D: Dim, L: Layout> Iterator for $name<'a, T, D, L> {
-            type Item = $grid<'a, T, D, L>;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                if self.index == self.size {
-                    None
-                } else {
-                    let count = self.stride * self.index as isize;
-
-                    self.index += 1;
-
-                    unsafe {
-                        Some($grid::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping))
-                    }
-                }
-            }
-
-            fn size_hint(&self) -> (usize, Option<usize>) {
-                let len = self.size - self.index;
-
-                (len, Some(len))
-            }
-       }
+        false
     }
 }
 
-impl_axis_iter!(AxisIter, ViewArray, const);
-impl_axis_iter!(AxisIterMut, ViewArrayMut, mut);
+impl<P: Producer + Debug> Debug for Iter<P> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        let is_empty = self.producer.shape()[..].iter().product::<usize>() == 0;
+        let is_default = self.index[..] == <P::Dim as Dim>::Shape::default()[..];
 
-impl<'a, T, D: Dim, L: Layout> Clone for AxisIter<'a, T, D, L> {
-    fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-            mapping: self.mapping,
-            index: self.index,
-            size: self.size,
-            stride: self.stride,
-            phantom: PhantomData,
-        }
+        assert!(is_empty || (is_default && !self.done), "iterator in use");
+
+        f.debug_tuple("Iter").field(&self.producer).finish()
     }
 }
 
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for AxisIter<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for AxisIter<'a, T, D, L> {}
+impl<P: Producer> ExactSizeIterator for Iter<P> {}
+impl<P: Producer> FusedIterator for Iter<P> {}
 
-unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for AxisIterMut<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for AxisIterMut<'a, T, D, L> {}
+impl<P: Producer> Iterator for Iter<P> {
+    type Item = P::Item;
 
-macro_rules! impl_flat_iter {
-    ($name:tt, $raw_mut:tt, {$($mut:tt)?}) => {
-        impl<'a, T> $name<'a, T> {
-            pub(crate) unsafe fn new_unchecked(
-                ptr: *$raw_mut T,
-                size: usize,
-                stride: isize,
-            ) -> Self {
-                Self {
-                    ptr: NonNull::new_unchecked(ptr as *mut T),
-                    index: 0,
-                    size,
-                    stride,
-                    phantom: PhantomData,
+    fn fold<T, F: FnMut(T, Self::Item) -> T>(mut self, init: T, mut f: F) -> T {
+        if !self.done {
+            if P::Dim::RANK > 0 {
+                unsafe { fold::<T, P, <P::Dim as Dim>::Lower>(&mut self, init, &mut f) }
+            } else {
+                f(init, unsafe { self.producer.get_unchecked(0) })
+            }
+        } else {
+            init
+        }
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if P::Dim::RANK > 0 {
+            if self.index[0] == self.limit[0] {
+                if self.done || unsafe { !self.step_outer() } {
+                    self.done = true;
+
+                    return None;
                 }
+
+                self.index[0] = 0;
+            }
+
+            self.index[0] += 1;
+
+            unsafe { Some(self.producer.get_unchecked(self.index[0] - 1)) }
+        } else if !self.done {
+            self.done = true;
+
+            unsafe { Some(self.producer.get_unchecked(0)) }
+        } else {
+            None
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let mut len = 1;
+
+        for i in 1..P::Dim::RANK {
+            if (P::SPLIT_MASK >> (P::Dim::RANK - 1 - i)) & 1 > 0 {
+                len = len * self.limit[P::Dim::RANK - i] - self.index[P::Dim::RANK - i];
             }
         }
 
-        impl<'a, T: Debug> Debug for $name<'a, T> {
-            fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                struct Value<'b, 'c, U>(&'b $name<'c, U>);
+        len = len * self.limit[0] - self.index[0];
 
-                impl<'b, 'c, U: Debug> Debug for Value<'b, 'c, U> {
-                    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                        let mut list = f.debug_list();
+        (len, Some(len))
+    }
+}
 
-                        for i in self.0.index..self.0.size {
-                            let count = self.0.stride * i as isize;
+unsafe fn fold<T, P: Producer, I: Dim>(
+    iter: &mut Iter<P>,
+    mut accum: T,
+    f: &mut impl FnMut(T, P::Item) -> T,
+) -> T {
+    if I::RANK > 0 {
+        if P::SPLIT_MASK & (1 << (I::RANK - 1)) > 0 {
+            loop {
+                accum = fold::<T, P, I::Lower>(iter, accum, f);
 
-                            _ = list.entry(unsafe { &*self.0.ptr.as_ptr().offset(count) });
-                        }
-
-                        list.finish()
-                    }
-                }
-
-                f.debug_tuple(stringify!($name)).field(&Value(self)).finish()
-            }
-        }
-
-        impl<'a, T> DoubleEndedIterator for $name<'a, T> {
-            fn next_back(&mut self) -> Option<Self::Item> {
-                if self.index == self.size {
-                    None
+                if iter.index[I::RANK] + 1 < iter.limit[I::RANK] {
+                    iter.producer.step_dim(I::RANK);
+                    iter.index[I::RANK] += 1;
                 } else {
-                    self.size -= 1;
-
-                    let count = self.stride * self.size as isize;
-
-                    unsafe { Some(&$($mut)? *self.ptr.as_ptr().offset(count)) }
-                }
-            }
-        }
-
-        impl<'a, T> ExactSizeIterator for $name<'a, T> {}
-        impl<'a, T> FusedIterator for $name<'a, T> {}
-
-        impl<'a, T> Iterator for $name<'a, T> {
-            type Item = &'a $($mut)? T;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                if self.index == self.size {
-                    None
-                } else {
-                    let count = self.stride * self.index as isize;
-
-                    self.index += 1;
-
-                    unsafe { Some(&$($mut)? *self.ptr.as_ptr().offset(count)) }
+                    break;
                 }
             }
 
-            fn size_hint(&self) -> (usize, Option<usize>) {
-                let len = self.size - self.index;
-
-                (len, Some(len))
-            }
-       }
-    }
-}
-
-impl_flat_iter!(FlatIter, const, {});
-impl_flat_iter!(FlatIterMut, mut, {mut});
-
-impl<'a, T> Clone for FlatIter<'a, T> {
-    fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-            index: self.index,
-            size: self.size,
-            stride: self.stride,
-            phantom: PhantomData,
+            iter.producer.reset_dim(I::RANK, iter.index[I::RANK]);
+            iter.index[I::RANK] = 0;
+        } else {
+            accum = fold::<T, P, I::Lower>(iter, accum, f);
         }
+    } else {
+        for i in iter.index[0]..iter.limit[0] {
+            accum = f(accum, iter.producer.get_unchecked(i));
+        }
+
+        iter.index[0] = 0;
     }
+
+    accum
 }
-
-unsafe impl<'a, T: Sync> Send for FlatIter<'a, T> {}
-unsafe impl<'a, T: Sync> Sync for FlatIter<'a, T> {}
-
-unsafe impl<'a, T: Send> Send for FlatIterMut<'a, T> {}
-unsafe impl<'a, T: Sync> Sync for FlatIterMut<'a, T> {}
