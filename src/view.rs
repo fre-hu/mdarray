@@ -7,7 +7,7 @@ use crate::expr::{Expr, ExprMut};
 use crate::expression::Expression;
 use crate::index::{self, Axis, DimIndex, Permutation, ViewIndex};
 use crate::iter::Iter;
-use crate::layout::{Dense, Layout};
+use crate::layout::{Dense, Flat, Layout};
 use crate::mapping::{DenseMapping, FlatMapping, Mapping, StridedMapping};
 use crate::traits::{Apply, IntoExpression};
 
@@ -109,6 +109,31 @@ macro_rules! impl_view {
 
                     (left, right)
                 }
+            }
+        }
+
+        impl<'a, T, L: Layout> $name<'a, T, Const<2>, L> {
+            /// Converts the array view into a new array view for the given diagonal,
+            /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the absolute index is larger than the number of columns or rows.
+            pub fn into_diag($($mut)? self, index: isize) -> $name<'a, T, Const<1>, Flat> {
+                let (offset, len) = if index >= 0 {
+                    assert!(index as usize <= self.size(1), "invalid diagonal");
+
+                    (index * self.stride(1), self.size(0).min(self.size(1) - (index as usize)))
+                } else {
+                    assert!(-index as usize <= self.size(0), "invalid diagonal");
+
+                    (-index * self.stride(0), self.size(1).min(self.size(0) - (-index as usize)))
+                };
+
+                let count = if len > 0 { offset } else { 0 }; // Offset pointer if non-empty.
+                let mapping = FlatMapping::new([len], self.stride(0) + self.stride(1));
+
+                unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
             }
         }
 

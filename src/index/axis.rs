@@ -1,8 +1,11 @@
 use crate::dim::{Const, Dim};
-use crate::layout::Layout;
+use crate::layout::{Dense, Flat, Layout};
 
 /// Array axis trait, for subarray types when iterating over or splitting along a dimension.
 pub trait Axis<D: Dim> {
+    /// Layout when removing the other dimensions.
+    type Keep<L: Layout>: Layout;
+
     /// Layout with the dimension removed.
     type Remove<L: Layout>: Layout;
 
@@ -11,19 +14,26 @@ pub trait Axis<D: Dim> {
 }
 
 macro_rules! impl_axis {
-    (($($n:tt),*), ($($k:tt),*), $remove:ty, $split:ty) => {
+    (($($n:tt),*), ($($k:tt),*), $keep:ty, $remove:ty, $split:ty) => {
         $(
             impl Axis<Const<$n>> for Const<$k> {
-                type Remove<L: Layout> = <Const<{ $n - 1 }> as Dim>::Layout<$remove>;
+                type Keep<L: Layout> = $keep;
+                type Remove<L: Layout> = $remove;
                 type Split<L: Layout> = $split;
             }
         )*
     }
 }
 
-impl_axis!((1, 2, 3, 4, 5, 6), (0, 1, 2, 3, 4, 5), L, L);
-impl_axis!((2, 3, 4, 5, 6), (0, 0, 0, 0, 0), L::NonUnitStrided, L::NonUniform);
-impl_axis!((3, 4, 5, 6), (1, 1, 1, 1), L::NonUniform, L::NonUniform);
-impl_axis!((4, 5, 6), (2, 2, 2), L::NonUniform, L::NonUniform);
-impl_axis!((5, 6), (3, 3), L::NonUniform, L::NonUniform);
-impl_axis!((6), (4), L::NonUniform, L::NonUniform);
+impl_axis!((1), (0), L, Dense, L);
+
+impl_axis!((2), (0), L::Uniform, Flat, L::NonUniform);
+impl_axis!((2), (1), Flat, L::Uniform, L);
+
+impl_axis!((3, 4, 5, 6), (0, 0, 0, 0), L::Uniform, L::NonUnitStrided, L::NonUniform);
+impl_axis!((3, 4, 5, 6), (2, 3, 4, 5), Flat, L, L);
+
+impl_axis!((3), (1), Flat, L::NonUniform, L::NonUniform);
+impl_axis!((4, 4), (1, 2), Flat, L::NonUniform, L::NonUniform);
+impl_axis!((5, 5, 5), (1, 2, 3), Flat, L::NonUniform, L::NonUniform);
+impl_axis!((6, 6, 6, 6), (1, 2, 3, 4), Flat, L::NonUniform, L::NonUniform);

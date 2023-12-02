@@ -6,7 +6,7 @@ mod sources;
 
 pub use adapters::{cloned, copied, enumerate, map, zip, Cloned, Copied, Enumerate, Map, Zip};
 pub use sources::{fill, fill_with, from_elem, from_fn, Fill, FillWith, FromElem, FromFn};
-pub use sources::{AxisExpr, AxisExprMut, Drain, Expr, ExprMut, IntoExpr};
+pub use sources::{AxisExpr, AxisExprMut, Drain, Expr, ExprMut, IntoExpr, Lanes, LanesMut};
 
 /// Expression producer trait.
 pub trait Producer {

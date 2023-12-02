@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter, Result};
 
-use crate::dim::Dim;
+use crate::dim::{Const, Dim};
 use crate::layout::{Dense, Flat, General, Layout, Strided};
 
 /// Array layout mapping trait, including shape and strides.
@@ -64,6 +64,11 @@ pub trait Mapping: Copy + Debug + Default {
     fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self
     where
         M::Dim: Dim<Higher = Self::Dim>;
+
+    #[doc(hidden)]
+    fn keep_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        Self: Mapping<Dim = Const<1>>;
 
     #[doc(hidden)]
     fn remap<M: Mapping<Dim = Self::Dim>>(mapping: M) -> Self;
@@ -184,6 +189,19 @@ impl<D: Dim> Mapping for DenseMapping<D> {
         Self::new(M::Dim::add_dim(mapping.shape(), size))
     }
 
+    fn keep_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        Self: Mapping<Dim = Const<1>>,
+    {
+        assert!(mapping.stride(dim) == 1, "invalid stride");
+
+        let mut shape = D::Shape::default();
+
+        shape[0] = mapping.size(dim);
+
+        Self::new(shape)
+    }
+
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
         assert!(mapping.is_contiguous(), "mapping not contiguous");
 
@@ -288,6 +306,17 @@ impl<D: Dim> Mapping for FlatMapping<D> {
         assert!(stride == inner_stride * mapping.len() as isize, "invalid stride");
 
         Self::new(M::Dim::add_dim(mapping.shape(), size), inner_stride)
+    }
+
+    fn keep_dim<M: Mapping>(mapping: M, dim: usize) -> Self
+    where
+        Self: Mapping<Dim = Const<1>>,
+    {
+        let mut shape = D::Shape::default();
+
+        shape[0] = mapping.size(dim);
+
+        Self::new(shape, mapping.stride(dim))
     }
 
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
@@ -402,6 +431,13 @@ impl<D: Dim> Mapping for GeneralMapping<D> {
         Self::remap(StridedMapping::add_dim(mapping, size, stride))
     }
 
+    fn keep_dim<M: Mapping>(_: M, _: usize) -> Self
+    where
+        Self: Mapping<Dim = Const<1>>,
+    {
+        panic!("invalid layout");
+    }
+
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {
         assert!(D::RANK > 1, "invalid rank");
         assert!(mapping.stride(0) == 1, "inner stride not unitary");
@@ -512,6 +548,13 @@ impl<D: Dim> Mapping for StridedMapping<D> {
         strides[D::RANK - 1] = stride;
 
         Self::new(M::Dim::add_dim(mapping.shape(), size), strides)
+    }
+
+    fn keep_dim<M: Mapping>(_: M, _: usize) -> Self
+    where
+        Self: Mapping<Dim = Const<1>>,
+    {
+        panic!("invalid layout");
     }
 
     fn remap<M: Mapping<Dim = D>>(mapping: M) -> Self {

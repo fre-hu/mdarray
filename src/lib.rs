@@ -82,6 +82,10 @@
 //! or `usize`. The resulting array layout depends on both the layout inferred
 //! from the indices and the input layout.
 //!
+//! For two-dimensional arrays, a view of one column or row can be created with
+//! the `col`, `col_mut`, `row` and `row_mut` methods, and a view of the diagonal
+//! with `diag` and `diag_mut`.
+//!
 //! ## Iteration
 //!
 //! An iterator can be created from an array with the `iter`, `iter_mut` and
@@ -105,6 +109,9 @@
 //! For multidimensional arrays, iteration over a single dimension can be done
 //! with `outer_expr`, `outer_expr_mut`, `axis_expr` and `axis_expr_mut`.
 //! The resulting expressions give array views of the remaining dimensions.
+//!
+//! It is also possible to iterate over all except one dimension with `cols`,
+//! `cols_mut`, `lanes`, `lanes_mut`, `rows` and `rows_mut`.
 //!
 //! ## Operators
 //!
@@ -138,8 +145,8 @@
 //! use mdarray::{grid, view, Grid, Span, View};
 //!
 //! fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
-//!     for (mut cj, bj) in c.outer_expr_mut().zip(b.outer_expr()) {
-//!         for (ak, bkj) in a.outer_expr().zip(bj) {
+//!     for (mut cj, bj) in c.cols_mut().zip(b.cols()) {
+//!         for (ak, bkj) in a.cols().zip(bj) {
 //!             for (cij, aik) in cj.expr_mut().zip(ak) {
 //!                 *cij = aik.mul_add(*bkj, *cij);
 //!             }

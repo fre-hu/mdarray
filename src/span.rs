@@ -3,14 +3,16 @@ use std::alloc::{Allocator, Global};
 
 use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut};
+use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut, Lanes, LanesMut};
 use crate::expression::Expression;
 use crate::index::{Axis, DimIndex, Permutation, SpanIndex, ViewIndex};
 use crate::iter::Iter;
-use crate::layout::{Dense, Layout};
+use crate::layout::{Dense, Flat, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_span::RawSpan;
 use crate::traits::{IntoCloned, IntoExpression};
+
+type ValidMapping<D, L> = <<D as Dim>::Layout<L> as Layout>::Mapping<D>;
 
 impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// Returns a mutable pointer to the array buffer.
@@ -94,6 +96,46 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
                 Mapping::remove_dim(self.mapping(), DIM),
                 self.size(DIM),
                 self.stride(DIM),
+            ))
+        }
+    }
+
+    /// Returns an expression that gives column views iterating over the other dimensions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 1.
+    pub fn cols(&self) -> Expression<Lanes<T, D, L::Uniform>> {
+        assert!(D::RANK > 0, "invalid rank");
+
+        let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 0);
+
+        unsafe {
+            Expression::new(Lanes::new_unchecked(
+                self.as_ptr(),
+                Mapping::keep_dim(self.mapping(), 0),
+                mapping.shape(),
+                mapping.strides(),
+            ))
+        }
+    }
+
+    /// Returns a mutable expression that gives column views iterating over the other dimensions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 1.
+    pub fn cols_mut(&mut self) -> Expression<LanesMut<T, D, L::Uniform>> {
+        assert!(D::RANK > 0, "invalid rank");
+
+        let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 0);
+
+        unsafe {
+            Expression::new(LanesMut::new_unchecked(
+                self.as_mut_ptr(),
+                Mapping::keep_dim(self.mapping(), 0),
+                mapping.shape(),
+                mapping.strides(),
             ))
         }
     }
@@ -188,6 +230,52 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// Returns a mutable iterator over the array span.
     pub fn iter_mut(&mut self) -> Iter<ExprMut<'_, T, D, L>> {
         self.to_view_mut().into_iter()
+    }
+
+    /// Returns an expression that gives array views over the specified dimension,
+    /// iterating over the other dimensions.
+    ///
+    /// If the innermost dimension is specified, the resulting array views have dense or
+    /// flat layout. For other dimensions, the resulting array views have flat layout.
+    pub fn lanes<const DIM: usize>(
+        &self,
+    ) -> Expression<Lanes<T, D, <Const<DIM> as Axis<D>>::Keep<L>>>
+    where
+        Const<DIM>: Axis<D>,
+    {
+        let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), DIM);
+
+        unsafe {
+            Expression::new(Lanes::new_unchecked(
+                self.as_ptr(),
+                Mapping::keep_dim(self.mapping(), DIM),
+                mapping.shape(),
+                mapping.strides(),
+            ))
+        }
+    }
+
+    /// Returns a mutable expression that gives array views over the specified dimension,
+    /// iterating over the other dimensions.
+    ///
+    /// If the innermost dimension is specified, the resulting array views have dense or
+    /// flat layout. For other dimensions, the resulting array views have flat layout.
+    pub fn lanes_mut<const DIM: usize>(
+        &mut self,
+    ) -> Expression<LanesMut<T, D, <Const<DIM> as Axis<D>>::Keep<L>>>
+    where
+        Const<DIM>: Axis<D>,
+    {
+        let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), DIM);
+
+        unsafe {
+            Expression::new(LanesMut::new_unchecked(
+                self.as_mut_ptr(),
+                Mapping::keep_dim(self.mapping(), DIM),
+                mapping.shape(),
+                mapping.strides(),
+            ))
+        }
     }
 
     /// Returns the number of elements in the array.
@@ -290,6 +378,46 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         shape: S,
     ) -> ViewArrayMut<T, S::Dim, <S::Dim as Dim>::Layout<L>> {
         self.to_view_mut().into_shape(shape)
+    }
+
+    /// Returns an expression that gives row views iterating over the other dimensions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 2.
+    pub fn rows(&self) -> Expression<Lanes<T, D, Flat>> {
+        assert!(D::RANK > 1, "invalid rank");
+
+        let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 1);
+
+        unsafe {
+            Expression::new(Lanes::new_unchecked(
+                self.as_ptr(),
+                Mapping::keep_dim(self.mapping(), 1),
+                mapping.shape(),
+                mapping.strides(),
+            ))
+        }
+    }
+
+    /// Returns a mutable expression that gives row views iterating over the other dimensions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 2.
+    pub fn rows_mut(&mut self) -> Expression<LanesMut<T, D, Flat>> {
+        assert!(D::RANK > 1, "invalid rank");
+
+        let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 1);
+
+        unsafe {
+            Expression::new(LanesMut::new_unchecked(
+                self.as_mut_ptr(),
+                Mapping::keep_dim(self.mapping(), 1),
+                mapping.shape(),
+                mapping.strides(),
+            ))
+        }
     }
 
     /// Returns the shape of the array.
@@ -438,6 +566,64 @@ impl<T, D: Dim> SpanArray<T, D, Dense> {
     /// Returns a slice of all elements in the array, which must have dense layout.
     pub fn as_slice(&self) -> &[T] {
         self.to_view().into_slice()
+    }
+}
+
+impl<T, L: Layout> SpanArray<T, Const<2>, L> {
+    /// Returns an array view for the specified column.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn col(&self, index: usize) -> ViewArray<T, Const<1>, L::Uniform> {
+        self.view(.., index)
+    }
+
+    /// Returns a mutable array view for the specified column.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn col_mut(&mut self, index: usize) -> ViewArrayMut<T, Const<1>, L::Uniform> {
+        self.view_mut(.., index)
+    }
+
+    /// Returns an array view for the given diagonal of the array span,
+    /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the absolute index is larger than the number of columns or rows.
+    pub fn diag(&self, index: isize) -> ViewArray<T, Const<1>, Flat> {
+        self.to_view().into_diag(index)
+    }
+
+    /// Returns a mutable array view for the given diagonal of the array span,
+    /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the absolute index is larger than the number of columns or rows.
+    pub fn diag_mut(&mut self, index: isize) -> ViewArrayMut<T, Const<1>, Flat> {
+        self.to_view_mut().into_diag(index)
+    }
+
+    /// Returns an array view for the specified row.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn row(&self, index: usize) -> ViewArray<T, Const<1>, Flat> {
+        self.view(index, ..).into_mapping()
+    }
+
+    /// Returns a mutable array view for the specified row.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn row_mut(&mut self, index: usize) -> ViewArrayMut<T, Const<1>, Flat> {
+        self.view_mut(index, ..).into_mapping()
     }
 }
 

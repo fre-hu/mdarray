@@ -204,6 +204,16 @@ fn test_base() {
     assert_eq!(a.contains(&1111), true);
     assert_eq!(a.view(1, 1.., 1..).contains(&9999), false);
 
+    assert_eq!(a.view(1.., 2.., 3).into_diag(0), view![1123, 1233]);
+    assert_eq!(a.view(2, 1.., ..).diag(0), view![1210, 1221, 1232]);
+    assert_eq!(a.view_mut(1, 2.., 3..).diag_mut(0), view![1123, 1134]);
+
+    assert_eq!(a.view(.., .., 1).col(2), view![1021, 1121, 1221]);
+    assert_eq!(a.view_mut(2, .., ..).col_mut(1), view![1201, 1211, 1221, 1231]);
+
+    assert_eq!(a.view(.., .., 1).row(2), view![1201, 1211, 1221, 1231]);
+    assert_eq!(a.view_mut(2, .., ..).row_mut(1), view![1210, 1211, 1212, 1213, 1214]);
+
     let mut r = a.clone().into_shape([5, 4, 3]);
     let mut s = b.clone();
 
@@ -320,6 +330,9 @@ fn test_expr() {
     assert_eq!(format!("{:?}", a.axis_expr::<0>()), "AxisExpr([[1, 4], [2, 5], [3, 6]])");
     assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut([[1, 2, 3], [4, 5, 6]])");
 
+    assert_eq!(format!("{:?}", a.cols()), "Lanes([[1, 2, 3], [4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.rows_mut()), "LanesMut([[1, 4], [2, 5], [3, 6]])");
+
     assert_eq!(format!("{:?}", a.clone().drain(1..)), "Drain([[4, 5, 6]])");
     assert_eq!(format!("{:?}", a.clone().into_expr()), "IntoExpr([[1, 2, 3], [4, 5, 6]])");
 
@@ -366,6 +379,15 @@ fn test_expr() {
 
     assert_eq!(expr::zip(&view![[1, 2], [3, 4]], &view![5, 6]).map(|(x, y)| (*x, *y)).eval(), d);
     assert_eq!(grid![[1; 2]; 3].into_expr().enumerate().eval(), Grid::from(e));
+
+    assert_eq!(a.cols().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
+    assert_eq!(a.cols_mut().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
+
+    assert_eq!(a.lanes::<0>().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
+    assert_eq!(a.lanes_mut::<1>().eval(), view![view![1, 4], view![2, 5], view![3, 6]]);
+
+    assert_eq!(a.rows().eval(), view![view![1, 4], view![2, 5], view![3, 6]]);
+    assert_eq!(a.rows_mut().eval(), view![view![1, 4], view![2, 5], view![3, 6]]);
 }
 
 #[test]

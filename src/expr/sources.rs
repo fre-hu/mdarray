@@ -41,6 +41,20 @@ pub struct Drain<'a, T, D: Dim, A: Allocator> {
     index: usize,
 }
 
+/// Expression that gives references to array elements.
+pub struct Expr<'a, T, D: Dim, L: Layout> {
+    ptr: NonNull<T>,
+    mapping: L::Mapping<D>,
+    phantom: PhantomData<&'a T>,
+}
+
+/// Expression that gives mutable references to array elements.
+pub struct ExprMut<'a, T, D: Dim, L: Layout> {
+    ptr: NonNull<T>,
+    mapping: L::Mapping<D>,
+    phantom: PhantomData<&'a mut T>,
+}
+
 /// Expression that repeats an element by cloning.
 #[derive(Clone)]
 pub struct Fill<T> {
@@ -74,17 +88,21 @@ pub struct IntoExpr<T, D: Dim, A: Allocator> {
     index: usize,
 }
 
-/// Expression that gives references to array elements.
-pub struct Expr<'a, T, D: Dim, L: Layout> {
+/// Array lanes expression.
+pub struct Lanes<'a, T, D: Dim, L: Layout> {
     ptr: NonNull<T>,
-    mapping: L::Mapping<D>,
+    mapping: L::Mapping<Const<1>>,
+    shape: <D::Lower as Dim>::Shape,
+    strides: <D::Lower as Dim>::Strides,
     phantom: PhantomData<&'a T>,
 }
 
-/// Expression that gives mutable references to array elements.
-pub struct ExprMut<'a, T, D: Dim, L: Layout> {
+/// Mutable array lanes expression.
+pub struct LanesMut<'a, T, D: Dim, L: Layout> {
     ptr: NonNull<T>,
-    mapping: L::Mapping<D>,
+    mapping: L::Mapping<Const<1>>,
+    shape: <D::Lower as Dim>::Shape,
+    strides: <D::Lower as Dim>::Strides,
     phantom: PhantomData<&'a mut T>,
 }
 
@@ -315,6 +333,72 @@ impl<'a, T, D: Dim, A: Allocator> Producer for Drain<'a, T, D, A> {
 unsafe impl<'a, T: Send, D: Dim, A: Allocator> Send for Drain<'a, T, D, A> {}
 unsafe impl<'a, T: Sync, D: Dim, A: Allocator> Sync for Drain<'a, T, D, A> {}
 
+macro_rules! impl_expr {
+    ($name:tt, $view:tt, $raw_mut:tt, {$($mut:tt)?}, $repeatable:tt) => {
+        impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
+            pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, mapping: L::Mapping<D>) -> Self {
+                Self { ptr: NonNull::new_unchecked(ptr as *mut T), mapping, phantom: PhantomData }
+            }
+        }
+
+        impl<'a, T: Debug, D: Dim, L: Layout> Debug for $name<'a, T, D, L> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+                let view = unsafe { // Assuming expression not in use.
+                    ViewArray::<T, D, L>::new_unchecked(self.ptr.as_ptr(), self.mapping)
+                };
+
+                f.debug_tuple(stringify!($name)).field(&view).finish()
+            }
+        }
+
+        impl<'a, T, D: Dim, L: Layout> Producer for $name<'a, T, D, L> {
+            type Item = &'a $($mut)? T;
+            type Dim = D;
+
+            const IS_REPEATABLE: bool = $repeatable;
+            const SPLIT_MASK: usize =
+                if L::IS_UNIFORM { (1 << D::RANK) >> 1 } else { (1 << D::RANK) - 1 };
+
+            unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
+                let count = if D::RANK > 0 { self.mapping.stride(0) * index as isize } else { 0 };
+
+                &$($mut)? *self.ptr.as_ptr().offset(count)
+            }
+
+            unsafe fn reset_dim(&mut self, dim: usize, count: usize) {
+                let count = -self.mapping.stride(dim) * count as isize;
+
+                self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
+            }
+
+            fn shape(&self) -> D::Shape {
+                self.mapping.shape()
+            }
+
+            unsafe fn step_dim(&mut self, dim: usize) {
+                let count = self.mapping.stride(dim);
+
+                self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
+            }
+        }
+    }
+}
+
+impl_expr!(Expr, ViewArray, const, {}, true);
+impl_expr!(ExprMut, ViewArrayMut, mut, {mut}, false);
+
+impl<'a, T, D: Dim, L: Layout> Clone for Expr<'a, T, D, L> {
+    fn clone(&self) -> Self {
+        Self { ptr: self.ptr, mapping: self.mapping, phantom: PhantomData }
+    }
+}
+
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for Expr<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for Expr<'a, T, D, L> {}
+
+unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for ExprMut<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for ExprMut<'a, T, D, L> {}
+
 impl<T> Fill<T> {
     pub(crate) fn new(value: T) -> Self {
         Self { value }
@@ -506,68 +590,96 @@ impl<T, D: Dim, A: Allocator> Producer for IntoExpr<T, D, A> {
 unsafe impl<T: Send, D: Dim, A: Allocator> Send for IntoExpr<T, D, A> {}
 unsafe impl<T: Sync, D: Dim, A: Allocator> Sync for IntoExpr<T, D, A> {}
 
-macro_rules! impl_view_expr {
-    ($name:tt, $view:tt, $raw_mut:tt, {$($mut:tt)?}, $repeatable:tt) => {
+macro_rules! impl_lanes {
+    ($name:tt, $view:tt, $raw_mut:tt, $repeatable:tt) => {
         impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
-            pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, mapping: L::Mapping<D>) -> Self {
-                Self { ptr: NonNull::new_unchecked(ptr as *mut T), mapping, phantom: PhantomData }
+            pub(crate) unsafe fn new_unchecked(
+                ptr: *$raw_mut T,
+                mapping: L::Mapping<Const<1>>,
+                shape: <D::Lower as Dim>::Shape,
+                strides: <D::Lower as Dim>::Strides,
+            ) -> Self {
+                Self {
+                    ptr: NonNull::new_unchecked(ptr as *mut T),
+                    mapping,
+                    shape,
+                    strides: if mapping.is_empty() { Default::default() } else { strides },
+                    phantom: PhantomData, }
             }
         }
 
         impl<'a, T: Debug, D: Dim, L: Layout> Debug for $name<'a, T, D, L> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+                let mut shape = D::Shape::default();
+                let mut strides = D::Strides::default();
+
+                shape[0] = self.mapping.size(0);
+                shape[1..].copy_from_slice(&self.shape[..]);
+
+                strides[0] = self.mapping.stride(0);
+                strides[1..].copy_from_slice(&self.strides[..]);
+
+                let mapping = if D::RANK > 1 {
+                    Mapping::remap(StridedMapping::new(shape, strides))
+                } else {
+                    Mapping::remap(FlatMapping::new(shape, strides[0]))
+                };
+
                 let view = unsafe { // Assuming expression not in use.
-                    ViewArray::<T, D, L>::new_unchecked(self.ptr.as_ptr(), self.mapping)
+                    ViewArray::<T, D, D::Layout<Strided>>::new_unchecked(self.ptr.as_ptr(), mapping)
                 };
 
                 f.debug_tuple(stringify!($name)).field(&view).finish()
             }
         }
 
-        impl<'a, T, D: Dim, L: Layout> Producer for $name<'a, T, D, L> {
-            type Item = &'a $($mut)? T;
-            type Dim = D;
+         impl<'a, T, D: Dim, L: Layout> Producer for $name<'a, T, D, L> {
+            type Item = $view<'a, T, Const<1>, L>;
+            type Dim = D::Lower;
 
             const IS_REPEATABLE: bool = $repeatable;
-            const SPLIT_MASK: usize =
-                if L::IS_UNIFORM { (1 << D::RANK) >> 1 } else { (1 << D::RANK) - 1 };
+            const SPLIT_MASK: usize = ((1 << D::RANK) - 1) >> 1;
 
-            unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
-                let count = if D::RANK > 0 { self.mapping.stride(0) * index as isize } else { 0 };
+            unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
+                let count = if D::RANK > 1 { self.strides[0] * index as isize } else { 0 };
 
-                &$($mut)? *self.ptr.as_ptr().offset(count)
+                $view::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping)
             }
 
             unsafe fn reset_dim(&mut self, dim: usize, count: usize) {
-                let count = -self.mapping.stride(dim) * count as isize;
+                let count = -self.strides[dim] * count as isize;
 
                 self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
             }
 
-            fn shape(&self) -> D::Shape {
-                self.mapping.shape()
+            fn shape(&self) -> <D::Lower as Dim>::Shape {
+                self.shape
             }
 
             unsafe fn step_dim(&mut self, dim: usize) {
-                let count = self.mapping.stride(dim);
-
-                self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
+                self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(self.strides[dim]));
             }
+        }
+    };
+}
+
+impl_lanes!(Lanes, ViewArray, const, true);
+impl_lanes!(LanesMut, ViewArrayMut, mut, false);
+
+impl<'a, T, D: Dim, L: Layout> Clone for Lanes<'a, T, D, L> {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            mapping: self.mapping,
+            shape: self.shape,
+            strides: self.strides,
+            phantom: PhantomData,
         }
     }
 }
 
-impl_view_expr!(Expr, ViewArray, const, {}, true);
-impl_view_expr!(ExprMut, ViewArrayMut, mut, {mut}, false);
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for Lanes<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for Lanes<'a, T, D, L> {}
 
-impl<'a, T, D: Dim, L: Layout> Clone for Expr<'a, T, D, L> {
-    fn clone(&self) -> Self {
-        Self { ptr: self.ptr, mapping: self.mapping, phantom: PhantomData }
-    }
-}
-
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for Expr<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for Expr<'a, T, D, L> {}
-
-unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for ExprMut<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for ExprMut<'a, T, D, L> {}
+unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for LanesMut<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for LanesMut<'a, T, D, L> {}
