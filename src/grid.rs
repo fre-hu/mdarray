@@ -1,10 +1,8 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
 use std::collections::TryReserveError;
-use std::iter::FromIterator;
 use std::mem::{self, MaybeUninit};
 use std::ops::RangeBounds;
-use std::result::Result;
 use std::{ptr, slice};
 
 #[cfg(not(feature = "nightly"))]
@@ -83,10 +81,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     ///
     /// Panics if the inner dimensions do not match, or if the rank of the expression
     /// is not valid.
-    pub fn expand<I: IntoExpression>(&mut self, expr: I)
-    where
-        I::Item: IntoCloned<T>,
-    {
+    pub fn expand<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
         assert!(I::Dim::RANK == D::RANK - 1 || I::Dim::RANK == D::RANK, "invalid rank");
 
         let expr = expr.into_expr();

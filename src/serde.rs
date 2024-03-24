@@ -86,7 +86,7 @@ impl<'a, T: Deserialize<'a>, D: Dim> Deserialize<'a> for GridArray<T, D> {
     }
 }
 
-impl<T: Serialize, B: Buffer<Item = T> + ?Sized> Serialize for Array<B> {
+impl<B: Buffer<Item: Serialize> + ?Sized> Serialize for Array<B> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if B::Dim::RANK == 0 {
             self[<B::Dim as Dim>::Shape::default()].serialize(serializer)

@@ -38,7 +38,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the expression cannot be broadcast to the shape of the array span.
-    pub fn assign<I: IntoExpression<Item = impl IntoCloned<T>>>(&mut self, expr: I) {
+    pub fn assign<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
         self.expr_mut().zip(expr).for_each(|(x, y)| y.clone_to(x));
     }
 

@@ -20,14 +20,14 @@ pub trait DimIndex {
     type Params<P: Params>: Params;
 
     #[doc(hidden)]
-    fn dim_index<D: Dim, L: Layout, I, O>(
+    fn dim_index<D: Dim, L: Layout, I, J>(
         self,
         index: I,
         mapping: L::Mapping<D>,
-    ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>)
+    ) -> (isize, <J::Layout as Layout>::Mapping<J::Dim>)
     where
         I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
-        O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>;
+        J: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>;
 }
 
 /// Helper trait for array indexing, for view parameters.
@@ -69,14 +69,14 @@ impl DimIndex for usize {
     type Dim<D: Dim> = D;
     type Params<P: Params> = (P::Layout, P::Split, P::Split);
 
-    fn dim_index<D: Dim, L: Layout, I, O>(
+    fn dim_index<D: Dim, L: Layout, I, J>(
         self,
         index: I,
         mapping: L::Mapping<D>,
-    ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>)
+    ) -> (isize, <J::Layout as Layout>::Mapping<J::Dim>)
     where
         I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
-        O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
+        J: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
     {
         let (offset, inner) = index.view_index(Mapping::remove_dim(mapping, D::RANK - 1));
 
@@ -95,14 +95,14 @@ impl DimIndex for RangeFull {
     type Dim<D: Dim> = D::Higher;
     type Params<P: Params> = (P::Parent, P::Parent, <P::Parent as Layout>::NonUniform);
 
-    fn dim_index<D: Dim, L: Layout, I, O>(
+    fn dim_index<D: Dim, L: Layout, I, J>(
         self,
         index: I,
         mapping: L::Mapping<D>,
-    ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>)
+    ) -> (isize, <J::Layout as Layout>::Mapping<J::Dim>)
     where
         I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
-        O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
+        J: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
     {
         let (offset, inner) = index.view_index(Mapping::remove_dim(mapping, D::RANK - 1));
 
@@ -120,14 +120,14 @@ macro_rules! impl_dim_index {
             type Params<P: Params> =
                 (P::Parent, <P::Parent as Layout>::NonUniform, <P::Parent as Layout>::NonUniform);
 
-            fn dim_index<D: Dim, L: Layout, I, O>(
+            fn dim_index<D: Dim, L: Layout, I, J>(
                 self,
                 index: I,
                 mapping: L::Mapping<D>,
-            ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>)
+            ) -> (isize, <J::Layout as Layout>::Mapping<J::Dim>)
             where
                 I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
-                O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
+                J: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
             {
                 let (offset, inner) = index.view_index(Mapping::remove_dim(mapping, D::RANK - 1));
 
@@ -158,14 +158,14 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
     type Params<P: Params> =
         (P::Split, <P::Split as Layout>::NonUniform, <P::Split as Layout>::NonUniform);
 
-    fn dim_index<D: Dim, L: Layout, I, O>(
+    fn dim_index<D: Dim, L: Layout, I, J>(
         self,
         index: I,
         mapping: L::Mapping<D>,
-    ) -> (isize, <O::Layout as Layout>::Mapping<O::Dim>)
+    ) -> (isize, <J::Layout as Layout>::Mapping<J::Dim>)
     where
         I: ViewIndex<D::Lower, <D::Lower as Dim>::Layout<L>>,
-        O: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
+        J: ViewIndex<D, L, Dim = Self::Dim<I::Dim>>,
     {
         let (offset, inner) = index.view_index(Mapping::remove_dim(mapping, D::RANK - 1));
 

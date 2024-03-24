@@ -46,9 +46,9 @@ pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }
 
-impl<T: Eq, B: Buffer<Item = T> + ?Sized> Eq for Array<B> where Self: PartialEq {}
+impl<B: Buffer<Item: Eq> + ?Sized> Eq for Array<B> where Self: PartialEq {}
 
-impl<T: Ord, B: Buffer<Item = T, Dim = Const<1>> + ?Sized> Ord for Array<B> {
+impl<B: Buffer<Item: Ord, Dim = Const<1>> + ?Sized> Ord for Array<B> {
     fn cmp(&self, other: &Self) -> Ordering {
         if B::Layout::IS_UNIT_STRIDED {
             self.as_span().remap().as_slice().cmp(other.as_span().remap().as_slice())

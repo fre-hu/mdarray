@@ -125,7 +125,7 @@ impl<B: SizedBuffer + Clone> Clone for Array<B> {
 
 impl<B: SizedBuffer + Copy> Copy for Array<B> {}
 
-impl<T: Debug, B: Buffer<Item = T> + ?Sized> Debug for Array<B> {
+impl<B: Buffer<Item: Debug> + ?Sized> Debug for Array<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if B::Dim::RANK == 0 {
             self.as_span()[<B::Dim as Dim>::Shape::default()].fmt(f)
@@ -156,7 +156,7 @@ impl<B: SizedBufferMut> DerefMut for Array<B> {
     }
 }
 
-impl<T: Hash, B: Buffer<Item = T> + ?Sized> Hash for Array<B> {
+impl<B: Buffer<Item: Hash> + ?Sized> Hash for Array<B> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for i in 0..B::Dim::RANK {
             #[cfg(not(feature = "nightly"))]
