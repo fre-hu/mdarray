@@ -16,7 +16,7 @@
 //!
 //! The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
 //! the proposed C++ mdarray and mdspan types, and multidimensional arrays in
-//! Julia and Matlab.
+//! Julia, Matlab and Python.
 //!
 //! ## Array types
 //!
@@ -26,7 +26,7 @@
 //! - `Array<GridBuffer>` is a dense array that owns the storage, similar to
 //!   the Rust `Vec` type.
 //! - `Array<ViewBuffer>` and `Array<ViewBufferMut>` are arrays that refer to a
-//!   parent array. They are used for example when creating a view of a larger
+//!   parent array. They are used for example when creating views of a larger
 //!   array without duplicating elements.
 //! - `Array<SpanBuffer>` is used as a generic array reference, similar to the
 //!   Rust `slice` type. It consists of a pointer to an internal structure that
@@ -48,15 +48,15 @@
 //! and the other dimensions must follow in order, allowing for linear indexing.
 //! The layout is `Strided` if all dimensions can have arbitrary strides.
 //!
-//! The array elements are stored in column-major order, also known as Fortran
-//! order where the first dimension is the innermost one.
+//! The array elements are stored in column-major or Fortran order, where the
+//! first dimension is the innermost one.
 //!
 //! The following type aliases are provided:
 //!
 //! - `Grid<T, const N: usize, A = Global>` for a dense array
-//! - `Span<T, const N: usize, F = Dense>` for an array span
-//! - `View<T, const N: usize, F = Dense>` for an array view
-//! - `ViewMut<T, const N: usize, F = Dense>` for a mutable array view
+//! - `Span<T, const N: usize, L = Dense>` for an array span
+//! - `View<T, const N: usize, L = Dense>` for an array view
+//! - `ViewMut<T, const N: usize, L = Dense>` for a mutable array view
 //!
 //! Prefer using `Span` instead of array views for function parameters, since
 //! they can refer to either an owned array or an array view. Array views
@@ -140,7 +140,7 @@
 //! is avoided, and the compiler is able to vectorize the inner loop.
 //!
 //! ```
-//! use mdarray::{grid, view, Grid, Span, View};
+//! use mdarray::{grid, view, Expression, Grid, Span, View};
 //!
 //! fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
 //!     for (mut cj, bj) in c.cols_mut().zip(b.cols()) {
@@ -230,10 +230,10 @@ pub use traits::{Apply, IntoCloned, IntoExpression};
 pub type Grid<T, const N: usize, A = Global> = GridArray<T, Const<N>, A>;
 
 /// Multidimensional array span.
-pub type Span<T, const N: usize, F = Dense> = SpanArray<T, Const<N>, F>;
+pub type Span<T, const N: usize, L = Dense> = SpanArray<T, Const<N>, L>;
 
 /// Multidimensional array view.
-pub type View<'a, T, const N: usize, F = Dense> = ViewArray<'a, T, Const<N>, F>;
+pub type View<'a, T, const N: usize, L = Dense> = ViewArray<'a, T, Const<N>, L>;
 
 /// Mutable multidimensional array view.
-pub type ViewMut<'a, T, const N: usize, F = Dense> = ViewArrayMut<'a, T, Const<N>, F>;
+pub type ViewMut<'a, T, const N: usize, L = Dense> = ViewArrayMut<'a, T, Const<N>, L>;

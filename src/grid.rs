@@ -62,13 +62,13 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Removes the specified range from the array along the outermost dimension,
     /// and returns the removed range as an expression.
-    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Expression<Drain<T, D, A>> {
+    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Drain<T, D, A> {
         #[cfg(not(feature = "nightly"))]
         let range = crate::index::range(range, ..self.size(D::RANK - 1));
         #[cfg(feature = "nightly")]
         let range = slice::range(range, ..self.size(D::RANK - 1));
 
-        Expression::new(Drain::new(self, range.start, range.end))
+        Drain::new(self, range.start, range.end)
     }
 
     /// Appends an expression to the array along the outermost dimension with broadcasting,
@@ -311,7 +311,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     pub(crate) fn zip_with<I: IntoExpression, F>(mut self, expr: I, mut f: F) -> Self
     where
-        F: FnMut(T, I::Item) -> T,
+        F: FnMut((T, I::Item)) -> T,
     {
         struct DropGuard<'a, T, D: Dim, A: Allocator> {
             grid: &'a mut GridArray<T, D, A>,
@@ -341,7 +341,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
         expr.for_each(|(x, y)| unsafe {
             guard.index += 1;
-            ptr::write(x, f(ptr::read(x), y));
+            ptr::write(x, f((ptr::read(x), y)));
         });
 
         mem::forget(guard);
@@ -457,13 +457,13 @@ impl<T, D: Dim> GridArray<T, D> {
 
 impl<T, D: Dim, A: Allocator> Apply<T> for GridArray<T, D, A> {
     type Output<F: FnMut(T) -> T> = Self;
-    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> = Self;
+    type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> = Self;
 
     fn apply<F: FnMut(T) -> T>(self, mut f: F) -> Self {
-        self.zip_with(expr::fill(()), |x, ()| f(x))
+        self.zip_with(expr::fill(()), |(x, ())| f(x))
     }
 
-    fn zip_with<I: IntoExpression, F: FnMut(T, I::Item) -> T>(self, expr: I, f: F) -> Self {
+    fn zip_with<I: IntoExpression, F: FnMut((T, I::Item)) -> T>(self, expr: I, f: F) -> Self {
         self.zip_with(expr, f)
     }
 }
@@ -564,12 +564,11 @@ impl<T> FromIterator<T> for GridArray<T, Const<1>> {
 }
 
 impl<T, D: Dim, A: Allocator> IntoExpression for GridArray<T, D, A> {
-    type Item = T;
     type Dim = D;
-    type Producer = IntoExpr<T, D, A>;
+    type IntoExpr = IntoExpr<T, D, A>;
 
-    fn into_expr(self) -> Expression<Self::Producer> {
-        Expression::new(IntoExpr::new(self))
+    fn into_expr(self) -> Self::IntoExpr {
+        IntoExpr::new(self)
     }
 }
 

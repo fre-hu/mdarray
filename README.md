@@ -16,7 +16,7 @@ Here are the main features of mdarray:
 
 The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
 the proposed C++ mdarray and mdspan types, and multidimensional arrays in
-Julia and Matlab.
+Julia, Matlab and Python.
 
 ## License
 

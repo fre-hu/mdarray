@@ -55,19 +55,17 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// When iterating over the other dimensions, the unit inner stride propery is
     /// maintained but not uniform stride, and the resulting array views have general
     /// or strided layout.
-    pub fn axis_expr<const DIM: usize>(
-        &self,
-    ) -> Expression<AxisExpr<T, D, <Const<DIM> as Axis<D>>::Remove<L>>>
+    pub fn axis_expr<const DIM: usize>(&self) -> AxisExpr<T, D, <Const<DIM> as Axis<D>>::Remove<L>>
     where
         Const<DIM>: Axis<D>,
     {
         unsafe {
-            Expression::new(AxisExpr::new_unchecked(
+            AxisExpr::new_unchecked(
                 self.as_ptr(),
                 Mapping::remove_dim(self.mapping(), DIM),
                 self.size(DIM),
                 self.stride(DIM),
-            ))
+            )
         }
     }
 
@@ -86,17 +84,17 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// or strided layout.
     pub fn axis_expr_mut<const DIM: usize>(
         &mut self,
-    ) -> Expression<AxisExprMut<T, D, <Const<DIM> as Axis<D>>::Remove<L>>>
+    ) -> AxisExprMut<T, D, <Const<DIM> as Axis<D>>::Remove<L>>
     where
         Const<DIM>: Axis<D>,
     {
         unsafe {
-            Expression::new(AxisExprMut::new_unchecked(
+            AxisExprMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::remove_dim(self.mapping(), DIM),
                 self.size(DIM),
                 self.stride(DIM),
-            ))
+            )
         }
     }
 
@@ -105,18 +103,18 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn cols(&self) -> Expression<Lanes<T, D, L::Uniform>> {
+    pub fn cols(&self) -> Lanes<T, D, L::Uniform> {
         assert!(D::RANK > 0, "invalid rank");
 
         let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 0);
 
         unsafe {
-            Expression::new(Lanes::new_unchecked(
+            Lanes::new_unchecked(
                 self.as_ptr(),
                 Mapping::keep_dim(self.mapping(), 0),
                 mapping.shape(),
                 mapping.strides(),
-            ))
+            )
         }
     }
 
@@ -125,18 +123,18 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn cols_mut(&mut self) -> Expression<LanesMut<T, D, L::Uniform>> {
+    pub fn cols_mut(&mut self) -> LanesMut<T, D, L::Uniform> {
         assert!(D::RANK > 0, "invalid rank");
 
         let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 0);
 
         unsafe {
-            Expression::new(LanesMut::new_unchecked(
+            LanesMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::keep_dim(self.mapping(), 0),
                 mapping.shape(),
                 mapping.strides(),
-            ))
+            )
         }
     }
 
@@ -149,12 +147,12 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     }
 
     /// Returns an expression over the array span.
-    pub fn expr(&self) -> Expression<Expr<T, D, L>> {
+    pub fn expr(&self) -> Expr<T, D, L> {
         self.to_view().into_expr()
     }
 
     /// Returns a mutable expression over the array span.
-    pub fn expr_mut(&mut self) -> Expression<ExprMut<T, D, L>> {
+    pub fn expr_mut(&mut self) -> ExprMut<T, D, L> {
         self.to_view_mut().into_expr()
     }
 
@@ -237,21 +235,19 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     ///
     /// If the innermost dimension is specified, the resulting array views have dense or
     /// flat layout. For other dimensions, the resulting array views have flat layout.
-    pub fn lanes<const DIM: usize>(
-        &self,
-    ) -> Expression<Lanes<T, D, <Const<DIM> as Axis<D>>::Keep<L>>>
+    pub fn lanes<const DIM: usize>(&self) -> Lanes<T, D, <Const<DIM> as Axis<D>>::Keep<L>>
     where
         Const<DIM>: Axis<D>,
     {
         let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), DIM);
 
         unsafe {
-            Expression::new(Lanes::new_unchecked(
+            Lanes::new_unchecked(
                 self.as_ptr(),
                 Mapping::keep_dim(self.mapping(), DIM),
                 mapping.shape(),
                 mapping.strides(),
-            ))
+            )
         }
     }
 
@@ -262,19 +258,19 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// flat layout. For other dimensions, the resulting array views have flat layout.
     pub fn lanes_mut<const DIM: usize>(
         &mut self,
-    ) -> Expression<LanesMut<T, D, <Const<DIM> as Axis<D>>::Keep<L>>>
+    ) -> LanesMut<T, D, <Const<DIM> as Axis<D>>::Keep<L>>
     where
         Const<DIM>: Axis<D>,
     {
         let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), DIM);
 
         unsafe {
-            Expression::new(LanesMut::new_unchecked(
+            LanesMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::keep_dim(self.mapping(), DIM),
                 mapping.shape(),
                 mapping.strides(),
-            ))
+            )
         }
     }
 
@@ -300,16 +296,16 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_expr(&self) -> Expression<AxisExpr<T, D, <D::Lower as Dim>::Layout<L>>> {
+    pub fn outer_expr(&self) -> AxisExpr<T, D, <D::Lower as Dim>::Layout<L>> {
         assert!(D::RANK > 0, "invalid rank");
 
         unsafe {
-            Expression::new(AxisExpr::new_unchecked(
+            AxisExpr::new_unchecked(
                 self.as_ptr(),
                 Mapping::remove_dim(self.mapping(), D::RANK - 1),
                 self.size(D::RANK - 1),
                 self.stride(D::RANK - 1),
-            ))
+            )
         }
     }
 
@@ -321,18 +317,16 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_expr_mut(
-        &mut self,
-    ) -> Expression<AxisExprMut<T, D, <D::Lower as Dim>::Layout<L>>> {
+    pub fn outer_expr_mut(&mut self) -> AxisExprMut<T, D, <D::Lower as Dim>::Layout<L>> {
         assert!(D::RANK > 0, "invalid rank");
 
         unsafe {
-            Expression::new(AxisExprMut::new_unchecked(
+            AxisExprMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::remove_dim(self.mapping(), D::RANK - 1),
                 self.size(D::RANK - 1),
                 self.stride(D::RANK - 1),
-            ))
+            )
         }
     }
 
@@ -385,18 +379,18 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 2.
-    pub fn rows(&self) -> Expression<Lanes<T, D, Flat>> {
+    pub fn rows(&self) -> Lanes<T, D, Flat> {
         assert!(D::RANK > 1, "invalid rank");
 
         let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 1);
 
         unsafe {
-            Expression::new(Lanes::new_unchecked(
+            Lanes::new_unchecked(
                 self.as_ptr(),
                 Mapping::keep_dim(self.mapping(), 1),
                 mapping.shape(),
                 mapping.strides(),
-            ))
+            )
         }
     }
 
@@ -405,18 +399,18 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 2.
-    pub fn rows_mut(&mut self) -> Expression<LanesMut<T, D, Flat>> {
+    pub fn rows_mut(&mut self) -> LanesMut<T, D, Flat> {
         assert!(D::RANK > 1, "invalid rank");
 
         let mapping = ValidMapping::<D::Lower, Strided>::remove_dim(self.mapping(), 1);
 
         unsafe {
-            Expression::new(LanesMut::new_unchecked(
+            LanesMut::new_unchecked(
                 self.as_mut_ptr(),
                 Mapping::keep_dim(self.mapping(), 1),
                 mapping.shape(),
                 mapping.strides(),
-            ))
+            )
         }
     }
 

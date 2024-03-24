@@ -2,36 +2,36 @@ use std::fmt::{Debug, Formatter, Result};
 use std::iter::FusedIterator;
 
 use crate::dim::Dim;
-use crate::expr::Producer;
+use crate::expression::Expression;
 
-/// Multidimensional array iterator type.
+/// Iterator type for array expressions.
 #[derive(Clone)]
-pub struct Iter<P: Producer> {
-    producer: P,
-    limit: <P::Dim as Dim>::Shape,
-    index: <P::Dim as Dim>::Shape,
+pub struct Iter<E: Expression> {
+    expr: E,
+    limit: <E::Dim as Dim>::Shape,
+    index: <E::Dim as Dim>::Shape,
     done: bool,
 }
 
-impl<P: Producer> Iter<P> {
-    pub(crate) fn new(producer: P) -> Self {
-        let mut limit = <P::Dim as Dim>::Shape::default();
-        let mut index = <P::Dim as Dim>::Shape::default();
+impl<E: Expression> Iter<E> {
+    pub(crate) fn new(expr: E) -> Self {
+        let mut limit = <E::Dim as Dim>::Shape::default();
+        let mut index = <E::Dim as Dim>::Shape::default();
 
-        let done = producer.shape()[..].iter().product::<usize>() == 0;
+        let done = expr.shape()[..].iter().product::<usize>() == 0;
 
         // Combine each dimension with its outer dimension if the split mask is not set.
-        if P::Dim::RANK > 0 {
-            let shape = producer.shape();
-            let mut accum = shape[P::Dim::RANK - 1];
+        if E::Dim::RANK > 0 {
+            let shape = expr.shape();
+            let mut accum = shape[E::Dim::RANK - 1];
 
-            for i in 1..P::Dim::RANK {
-                if (P::SPLIT_MASK >> (P::Dim::RANK - 1 - i)) & 1 > 0 {
-                    limit[P::Dim::RANK - i] = accum;
+            for i in 1..E::Dim::RANK {
+                if (E::SPLIT_MASK >> (E::Dim::RANK - 1 - i)) & 1 > 0 {
+                    limit[E::Dim::RANK - i] = accum;
                     accum = 1;
                 }
 
-                accum *= shape[P::Dim::RANK - 1 - i];
+                accum *= shape[E::Dim::RANK - 1 - i];
             }
 
             limit[0] = accum;
@@ -42,19 +42,19 @@ impl<P: Producer> Iter<P> {
             }
         }
 
-        Self { producer, limit, index, done }
+        Self { expr, limit, index, done }
     }
 
     unsafe fn step_outer(&mut self) -> bool {
-        for i in 1..P::Dim::RANK {
-            if (P::SPLIT_MASK >> (i - 1)) & 1 > 0 {
+        for i in 1..E::Dim::RANK {
+            if (E::SPLIT_MASK >> (i - 1)) & 1 > 0 {
                 if self.index[i] + 1 < self.limit[i] {
-                    self.producer.step_dim(i);
+                    self.expr.step_dim(i);
                     self.index[i] += 1;
 
                     return true;
                 } else {
-                    self.producer.reset_dim(i, self.index[i]);
+                    self.expr.reset_dim(i, self.index[i]);
                     self.index[i] = 0;
                 }
             }
@@ -64,29 +64,29 @@ impl<P: Producer> Iter<P> {
     }
 }
 
-impl<P: Producer + Debug> Debug for Iter<P> {
+impl<E: Expression + Debug> Debug for Iter<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let is_empty = self.producer.shape()[..].iter().product::<usize>() == 0;
-        let is_default = self.index[..] == <P::Dim as Dim>::Shape::default()[..];
+        let is_empty = self.expr.shape()[..].iter().product::<usize>() == 0;
+        let is_default = self.index[..] == <E::Dim as Dim>::Shape::default()[..];
 
         assert!(is_empty || (is_default && !self.done), "iterator in use");
 
-        f.debug_tuple("Iter").field(&self.producer).finish()
+        f.debug_tuple("Iter").field(&self.expr).finish()
     }
 }
 
-impl<P: Producer> ExactSizeIterator for Iter<P> {}
-impl<P: Producer> FusedIterator for Iter<P> {}
+impl<E: Expression> ExactSizeIterator for Iter<E> {}
+impl<E: Expression> FusedIterator for Iter<E> {}
 
-impl<P: Producer> Iterator for Iter<P> {
-    type Item = P::Item;
+impl<E: Expression> Iterator for Iter<E> {
+    type Item = E::Item;
 
     fn fold<T, F: FnMut(T, Self::Item) -> T>(mut self, init: T, mut f: F) -> T {
         if !self.done {
-            if P::Dim::RANK > 0 {
-                unsafe { fold::<T, P, <P::Dim as Dim>::Lower>(&mut self, init, &mut f) }
+            if E::Dim::RANK > 0 {
+                unsafe { fold::<T, E, <E::Dim as Dim>::Lower>(&mut self, init, &mut f) }
             } else {
-                f(init, unsafe { self.producer.get_unchecked(0) })
+                f(init, unsafe { self.expr.get_unchecked(0) })
             }
         } else {
             init
@@ -94,7 +94,7 @@ impl<P: Producer> Iterator for Iter<P> {
     }
 
     fn next(&mut self) -> Option<Self::Item> {
-        if P::Dim::RANK > 0 {
+        if E::Dim::RANK > 0 {
             if self.index[0] == self.limit[0] {
                 if self.done || unsafe { !self.step_outer() } {
                     self.done = true;
@@ -107,11 +107,11 @@ impl<P: Producer> Iterator for Iter<P> {
 
             self.index[0] += 1;
 
-            unsafe { Some(self.producer.get_unchecked(self.index[0] - 1)) }
+            unsafe { Some(self.expr.get_unchecked(self.index[0] - 1)) }
         } else if !self.done {
             self.done = true;
 
-            unsafe { Some(self.producer.get_unchecked(0)) }
+            unsafe { Some(self.expr.get_unchecked(0)) }
         } else {
             None
         }
@@ -120,9 +120,9 @@ impl<P: Producer> Iterator for Iter<P> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         let mut len = 1;
 
-        for i in 1..P::Dim::RANK {
-            if (P::SPLIT_MASK >> (P::Dim::RANK - 1 - i)) & 1 > 0 {
-                len = len * self.limit[P::Dim::RANK - i] - self.index[P::Dim::RANK - i];
+        for i in 1..E::Dim::RANK {
+            if (E::SPLIT_MASK >> (E::Dim::RANK - 1 - i)) & 1 > 0 {
+                len = len * self.limit[E::Dim::RANK - i] - self.index[E::Dim::RANK - i];
             }
         }
 
@@ -132,32 +132,32 @@ impl<P: Producer> Iterator for Iter<P> {
     }
 }
 
-unsafe fn fold<T, P: Producer, I: Dim>(
-    iter: &mut Iter<P>,
+unsafe fn fold<T, E: Expression, I: Dim>(
+    iter: &mut Iter<E>,
     mut accum: T,
-    f: &mut impl FnMut(T, P::Item) -> T,
+    f: &mut impl FnMut(T, E::Item) -> T,
 ) -> T {
     if I::RANK > 0 {
-        if P::SPLIT_MASK & (1 << (I::RANK - 1)) > 0 {
+        if E::SPLIT_MASK & (1 << (I::RANK - 1)) > 0 {
             loop {
-                accum = fold::<T, P, I::Lower>(iter, accum, f);
+                accum = fold::<T, E, I::Lower>(iter, accum, f);
 
                 if iter.index[I::RANK] + 1 < iter.limit[I::RANK] {
-                    iter.producer.step_dim(I::RANK);
+                    iter.expr.step_dim(I::RANK);
                     iter.index[I::RANK] += 1;
                 } else {
                     break;
                 }
             }
 
-            iter.producer.reset_dim(I::RANK, iter.index[I::RANK]);
+            iter.expr.reset_dim(I::RANK, iter.index[I::RANK]);
             iter.index[I::RANK] = 0;
         } else {
-            accum = fold::<T, P, I::Lower>(iter, accum, f);
+            accum = fold::<T, E, I::Lower>(iter, accum, f);
         }
     } else {
         for i in iter.index[0]..iter.limit[0] {
-            accum = f(accum, iter.producer.get_unchecked(i));
+            accum = f(accum, iter.expr.get_unchecked(i));
         }
 
         iter.index[0] = 0;

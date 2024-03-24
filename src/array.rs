@@ -11,14 +11,14 @@ use crate::alloc::Global;
 use crate::buffer::{Buffer, BufferMut, SizedBuffer, SizedBufferMut};
 use crate::buffer::{GridBuffer, SpanBuffer, ViewBuffer, ViewBufferMut};
 use crate::dim::Dim;
-use crate::expr::{Expr, ExprMut, Producer};
+use crate::expr::{Expr, ExprMut, Map, Zip};
 use crate::expression::Expression;
 use crate::index::SpanIndex;
 use crate::iter::Iter;
 use crate::layout::Dense;
 use crate::traits::{Apply, IntoExpression};
 
-/// Multidimensional array type with static rank.
+/// Generic multidimensional array with static rank.
 #[repr(transparent)]
 pub struct Array<B: ?Sized> {
     pub(crate) buffer: B,
@@ -44,36 +44,38 @@ impl<B: BufferMut + ?Sized> Array<B> {
 }
 
 impl<'a, T, B: Buffer + ?Sized> Apply<T> for &'a Array<B> {
-    type Output<F: FnMut(Self::Item) -> T> = Expression<impl Producer<Item = T, Dim = Self::Dim>>;
-    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> =
-        Expression<impl Producer<Item = T, Dim = <B::Dim as Dim>::Max<I::Dim>>>;
+    type Output<F: FnMut(Self::Item) -> T> = Map<Self::IntoExpr, F>;
+
+    type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
     fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
         self.as_span().expr().map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
-        F: FnMut(Self::Item, I::Item) -> T,
+        F: FnMut((Self::Item, I::Item)) -> T,
     {
-        self.as_span().expr().zip(expr).map(move |(x, y)| f(x, y))
+        self.as_span().expr().zip(expr).map(f)
     }
 }
 
 impl<'a, T, B: BufferMut + ?Sized> Apply<T> for &'a mut Array<B> {
-    type Output<F: FnMut(Self::Item) -> T> = Expression<impl Producer<Item = T, Dim = Self::Dim>>;
-    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> =
-        Expression<impl Producer<Item = T, Dim = <B::Dim as Dim>::Max<I::Dim>>>;
+    type Output<F: FnMut(Self::Item) -> T> = Map<Self::IntoExpr, F>;
+
+    type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
     fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
         self.as_mut_span().expr_mut().map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
-        F: FnMut(Self::Item, I::Item) -> T,
+        F: FnMut((Self::Item, I::Item)) -> T,
     {
-        self.as_mut_span().expr_mut().zip(expr).map(move |(x, y)| f(x, y))
+        self.as_mut_span().expr_mut().zip(expr).map(f)
     }
 }
 
@@ -184,21 +186,19 @@ impl<B: BufferMut + ?Sized, I: SpanIndex<B::Item, B::Dim, B::Layout>> IndexMut<I
 }
 
 impl<'a, B: Buffer + ?Sized> IntoExpression for &'a Array<B> {
-    type Item = &'a B::Item;
     type Dim = B::Dim;
-    type Producer = Expr<'a, B::Item, B::Dim, B::Layout>;
+    type IntoExpr = Expr<'a, B::Item, B::Dim, B::Layout>;
 
-    fn into_expr(self) -> Expression<Self::Producer> {
+    fn into_expr(self) -> Self::IntoExpr {
         self.as_span().expr()
     }
 }
 
 impl<'a, B: BufferMut + ?Sized> IntoExpression for &'a mut Array<B> {
-    type Item = &'a mut B::Item;
     type Dim = B::Dim;
-    type Producer = ExprMut<'a, B::Item, B::Dim, B::Layout>;
+    type IntoExpr = ExprMut<'a, B::Item, B::Dim, B::Layout>;
 
-    fn into_expr(self) -> Expression<Self::Producer> {
+    fn into_expr(self) -> Self::IntoExpr {
         self.as_mut_span().expr_mut()
     }
 }

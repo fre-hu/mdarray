@@ -26,8 +26,8 @@ use serde_test::{assert_tokens, Token};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-use mdarray::{expr, grid, step, view, Apply, Grid, IntoExpression, StepRange, View, ViewMut};
-use mdarray::{Const, Dense, Dim, Flat, General, IntoCloned, Layout, Strided};
+use mdarray::{expr, grid, step, view, Apply, Expression, Grid, IntoExpression, View, ViewMut};
+use mdarray::{Const, Dense, Dim, Flat, General, IntoCloned, Layout, StepRange, Strided};
 
 macro_rules! to_slice {
     ($span:expr) => {
@@ -244,7 +244,7 @@ fn test_base() {
     assert!(Grid::from_iter(0..10).view_mut(step(..0, isize::MIN)).is_empty());
 
     assert_eq!(Grid::from_iter(0..3).apply(|x| 10 * x)[..], [0, 10, 20]);
-    assert_eq!(Grid::from_iter(0..3).zip_with(view![3, 4, 5], |x, y| x + y)[..], [3, 5, 7]);
+    assert_eq!(Grid::from_iter(0..3).zip_with(view![3, 4, 5], |(x, y)| x + y)[..], [3, 5, 7]);
 
     assert_eq!(to_slice!(a.view(..2, ..2, ..).split_at(1).0), [1000, 1100, 1010, 1110]);
     assert_eq!(to_slice!(a.view(..2, .., ..2).split_axis_at::<1>(3).1), [1030, 1130, 1031, 1131]);
@@ -346,9 +346,9 @@ fn test_expr() {
     let e2 = format!("{:?}", a.view(.., ..1).expr().zip(&a.view(.., 1..)));
     let e3 = format!("{:?}", a.view_mut(.., 1..).expr_mut().enumerate());
 
-    assert_eq!(e1, "Map(Cloned(Expr([[1, 2, 3], [4, 5, 6]])))");
-    assert_eq!(e2, "Zip(Expr([[1, 2, 3]]), Expr([[4, 5, 6]]))");
-    assert_eq!(e3, "Enumerate(ExprMut([[4, 5, 6]]))");
+    assert_eq!(e1, "Map { expr: Cloned { expr: Expr([[1, 2, 3], [4, 5, 6]]) } }");
+    assert_eq!(e2, "Zip { a: Expr([[1, 2, 3]]), b: Expr([[4, 5, 6]]) }");
+    assert_eq!(e3, "Enumerate { expr: ExprMut([[4, 5, 6]]) }");
 
     assert_eq!(format!("{:?}", a.view(.., 0).iter()), "Iter(Expr([1, 2, 3]))");
     assert_eq!(format!("{:?}", a.view_mut(.., 1).iter_mut()), "Iter(ExprMut([4, 5, 6]))");

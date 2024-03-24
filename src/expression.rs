@@ -1,51 +1,66 @@
 #[cfg(feature = "nightly")]
 use std::alloc::Allocator;
-use std::fmt::{Debug, Formatter, Result};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
 use crate::array::GridArray;
 use crate::dim::Dim;
-use crate::expr::{Cloned, Copied, Enumerate, Map, Producer, Zip};
+use crate::expr::{Cloned, Copied, Enumerate, Map, Zip};
 use crate::iter::Iter;
 use crate::traits::{Apply, IntoCloned, IntoExpression};
 
-/// Expression type, for multidimensional iteration.
-#[derive(Clone)]
-pub struct Expression<P> {
-    producer: P,
-}
+/// Expression trait, for multidimensional iteration.
+pub trait Expression: IntoIterator {
+    /// Array dimension type.
+    type Dim: Dim;
 
-impl<P: Producer> Expression<P> {
+    #[doc(hidden)]
+    const IS_REPEATABLE: bool;
+
+    #[doc(hidden)]
+    const SPLIT_MASK: usize;
+
+    /// Returns the shape of the array.
+    fn shape(&self) -> <Self::Dim as Dim>::Shape;
+
     /// Creates an expression which clones all of its elements.
-    pub fn cloned<'a, T: 'a + Clone>(self) -> Expression<Cloned<P>>
+    fn cloned<'a, T: 'a + Clone>(self) -> Cloned<Self>
     where
-        P: Producer<Item = &'a T>,
+        Self: Expression<Item = &'a T> + Sized,
     {
-        Expression::new(Cloned::new(self.into_producer()))
+        Cloned::new(self)
     }
 
     /// Creates an expression which copies all of its elements.
-    pub fn copied<'a, T: 'a + Copy>(self) -> Expression<Copied<P>>
+    fn copied<'a, T: 'a + Copy>(self) -> Copied<Self>
     where
-        P: Producer<Item = &'a T>,
+        Self: Expression<Item = &'a T> + Sized,
     {
-        Expression::new(Copied::new(self.into_producer()))
+        Copied::new(self)
     }
 
     /// Creates an expression which gives tuples of the current index and the element.
-    pub fn enumerate(self) -> Expression<Enumerate<P, <P::Dim as Dim>::Shape>> {
-        Expression::new(Enumerate::new(self.into_producer()))
+    fn enumerate(self) -> Enumerate<Self, <Self::Dim as Dim>::Shape>
+    where
+        Self: Sized,
+    {
+        Enumerate::new(self)
     }
 
     /// Evaluates the expression into a new array.
-    pub fn eval(self) -> GridArray<P::Item, P::Dim> {
+    fn eval(self) -> GridArray<Self::Item, Self::Dim>
+    where
+        Self: Sized,
+    {
         GridArray::from_expr(self)
     }
 
     /// Evaluates the expression into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn eval_in<A: Allocator>(self, alloc: A) -> GridArray<P::Item, P::Dim, A> {
+    fn eval_in<A: Allocator>(self, alloc: A) -> GridArray<Self::Item, Self::Dim, A>
+    where
+        Self: Sized,
+    {
         GridArray::from_expr_in(self, alloc)
     }
 
@@ -59,47 +74,54 @@ impl<P: Producer> Expression<P> {
     ///
     /// Panics if the inner dimensions do not match, or if the rank of the expression
     /// is not valid.
-    pub fn eval_into<D: Dim, A: Allocator>(
+    fn eval_into<D: Dim, A: Allocator>(
         self,
-        grid: &mut GridArray<P::Item, D, A>,
-    ) -> &mut GridArray<P::Item, D, A> {
+        grid: &mut GridArray<Self::Item, D, A>,
+    ) -> &mut GridArray<Self::Item, D, A>
+    where
+        Self: Sized,
+    {
         grid.expand(self);
         grid
     }
 
     /// Folds all elements into an accumulator by applying an operation, and returns the result.
-    pub fn fold<T, F: FnMut(T, P::Item) -> T>(self, init: T, f: F) -> T {
-        Iter::new(self.into_producer()).fold(init, f)
+    fn fold<T, F: FnMut(T, Self::Item) -> T>(self, init: T, f: F) -> T
+    where
+        Self: Sized,
+    {
+        Iter::new(self).fold(init, f)
     }
 
     /// Calls a closure on each element of the expression.
-    pub fn for_each<F: FnMut(P::Item)>(self, mut f: F) {
+    fn for_each<F: FnMut(Self::Item)>(self, mut f: F)
+    where
+        Self: Sized,
+    {
         self.fold((), |(), x| f(x));
     }
 
     /// Returns `true` if the array contains no elements.
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the number of elements in the array.
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.shape()[..].iter().product()
     }
 
     /// Creates an expression that calls a closure on each element.
-    pub fn map<T, F: FnMut(P::Item) -> T>(self, f: F) -> Expression<Map<P, F>> {
-        Expression::new(Map::new(self.into_producer(), f))
+    fn map<T, F: FnMut(Self::Item) -> T>(self, f: F) -> Map<Self, F>
+    where
+        Self: Sized,
+    {
+        Map::new(self, f)
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
-    pub fn rank(&self) -> usize {
-        P::Dim::RANK
-    }
-
-    /// Returns the shape of the array.
-    pub fn shape(&self) -> <P::Dim as Dim>::Shape {
-        self.producer.shape()
+    fn rank(&self) -> usize {
+        Self::Dim::RANK
     }
 
     /// Returns the number of elements in the specified dimension.
@@ -107,8 +129,8 @@ impl<P: Producer> Expression<P> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn size(&self, dim: usize) -> usize {
-        assert!(dim < P::Dim::RANK, "invalid dimension");
+    fn size(&self, dim: usize) -> usize {
+        assert!(dim < Self::Dim::RANK, "invalid dimension");
 
         self.shape()[dim]
     }
@@ -118,14 +140,27 @@ impl<P: Producer> Expression<P> {
     /// # Panics
     ///
     /// Panics if the expressions cannot be broadcast to a common shape.
-    pub fn zip<I: IntoExpression>(self, other: I) -> Expression<Zip<P, I::Producer>> {
-        Expression::new(Zip::new(self.into_producer(), other.into_expr().into_producer()))
+    fn zip<I: IntoExpression>(self, other: I) -> Zip<Self, I::IntoExpr>
+    where
+        Self: Sized,
+    {
+        Zip::new(self, other.into_expr())
     }
 
+    #[doc(hidden)]
+    unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item;
+
+    #[doc(hidden)]
+    unsafe fn reset_dim(&mut self, dim: usize, count: usize);
+
+    #[doc(hidden)]
+    unsafe fn step_dim(&mut self, dim: usize);
+
     #[cfg(not(feature = "nightly"))]
-    pub(crate) fn clone_into_vec<T>(self, vec: &mut Vec<T>)
+    #[doc(hidden)]
+    fn clone_into_vec<T>(self, vec: &mut Vec<T>)
     where
-        P::Item: IntoCloned<T>,
+        Self: Expression<Item: IntoCloned<T>> + Sized,
     {
         assert!(self.len() <= vec.capacity() - vec.len(), "length exceeds capacity");
 
@@ -136,9 +171,10 @@ impl<P: Producer> Expression<P> {
     }
 
     #[cfg(feature = "nightly")]
-    pub(crate) fn clone_into_vec<T, A: Allocator>(self, vec: &mut Vec<T, A>)
+    #[doc(hidden)]
+    fn clone_into_vec<T, A: Allocator>(self, vec: &mut Vec<T, A>)
     where
-        P::Item: IntoCloned<T>,
+        Self: Expression<Item: IntoCloned<T>> + Sized,
     {
         assert!(self.len() <= vec.capacity() - vec.len(), "length exceeds capacity");
 
@@ -147,54 +183,32 @@ impl<P: Producer> Expression<P> {
             vec.set_len(vec.len() + 1);
         });
     }
-
-    pub(crate) fn into_producer(self) -> P {
-        self.producer
-    }
-
-    pub(crate) fn new(producer: P) -> Self {
-        Self { producer }
-    }
 }
 
-impl<T, P: Producer> Apply<T> for Expression<P> {
-    type Output<F: FnMut(Self::Item) -> T> = Expression<impl Producer<Item = T, Dim = P::Dim>>;
-    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> T> =
-        Expression<impl Producer<Item = T, Dim = <P::Dim as Dim>::Max<I::Dim>>>;
+impl<T, E: Expression> Apply<T> for E {
+    type Output<F: FnMut(Self::Item) -> T> =
+        Map<impl Expression<Item = Self::Item, Dim = E::Dim>, F>;
+
+    type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> =
+        Map<impl Expression<Item = (Self::Item, I::Item), Dim = <E::Dim as Dim>::Max<I::Dim>>, F>;
 
     fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
         self.map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
-        F: FnMut(Self::Item, I::Item) -> T,
+        F: FnMut((Self::Item, I::Item)) -> T,
     {
-        self.zip(expr).map(move |(x, y)| f(x, y))
+        self.zip(expr).map(f)
     }
 }
 
-impl<P: Producer + Debug> Debug for Expression<P> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        self.producer.fmt(f)
-    }
-}
-
-impl<P: Producer> IntoExpression for Expression<P> {
-    type Item = P::Item;
-    type Dim = P::Dim;
-    type Producer = P;
+impl<E: Expression> IntoExpression for E {
+    type Dim = E::Dim;
+    type IntoExpr = E;
 
     fn into_expr(self) -> Self {
         self
-    }
-}
-
-impl<P: Producer> IntoIterator for Expression<P> {
-    type Item = P::Item;
-    type IntoIter = Iter<P>;
-
-    fn into_iter(self) -> Iter<P> {
-        Iter::new(self.producer)
     }
 }

@@ -8,8 +8,8 @@ use std::ptr::{self, NonNull};
 use crate::alloc::Allocator;
 use crate::array::{GridArray, ViewArray, ViewArrayMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::expr::Producer;
 use crate::expression::Expression;
+use crate::iter::Iter;
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{FlatMapping, Mapping, StridedMapping};
 
@@ -111,7 +111,7 @@ pub struct LanesMut<'a, T, D: Dim, L: Layout> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{grid, view, Grid, View,expr};
+/// use mdarray::{expr, grid, view, Grid, View};
 ///
 /// let mut g = grid![0; 3];
 ///
@@ -119,8 +119,8 @@ pub struct LanesMut<'a, T, D: Dim, L: Layout> {
 ///
 /// assert_eq!(g, view![1; 3]);
 /// ```
-pub fn fill<T: Clone>(value: T) -> Expression<Fill<T>> {
-    Expression::new(Fill::new(value))
+pub fn fill<T: Clone>(value: T) -> Fill<T> {
+    Fill::new(value)
 }
 
 /// Creates an expression with elements returned by calling a closure repeatedly.
@@ -128,7 +128,7 @@ pub fn fill<T: Clone>(value: T) -> Expression<Fill<T>> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{grid, view, Grid, View,expr};
+/// use mdarray::{expr, grid, view, Grid, View};
 ///
 /// let mut g = grid![0; 3];
 ///
@@ -136,8 +136,8 @@ pub fn fill<T: Clone>(value: T) -> Expression<Fill<T>> {
 ///
 /// assert_eq!(g, view![1; 3]);
 /// ```
-pub fn fill_with<T, F: FnMut() -> T>(f: F) -> Expression<FillWith<F>> {
-    Expression::new(FillWith::new(f))
+pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
+    FillWith::new(f)
 }
 
 /// Creates an expression with the given shape and elements by cloning `value`.
@@ -145,12 +145,12 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> Expression<FillWith<F>> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{view, View,expr};
+/// use mdarray::{expr, view, Expression, View};
 ///
 /// assert_eq!(expr::from_elem([2, 3], 1).eval(), view![[1; 2]; 3]);
 /// ```
-pub fn from_elem<S: Shape, T: Clone>(shape: S, elem: T) -> Expression<FromElem<S, T>> {
-    Expression::new(FromElem::new(shape, elem))
+pub fn from_elem<S: Shape, T: Clone>(shape: S, elem: T) -> FromElem<S, T> {
+    FromElem::new(shape, elem)
 }
 
 /// Creates an expression with the given shape and elements from the given function.
@@ -158,12 +158,12 @@ pub fn from_elem<S: Shape, T: Clone>(shape: S, elem: T) -> Expression<FromElem<S
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, View};
+/// use mdarray::{expr, view, Expression, View};
 ///
 /// assert_eq!(expr::from_fn([2, 3], |[i, j]| 2 * j + i).eval(), view![[0, 1], [2, 3], [4, 5]]);
 /// ```
-pub fn from_fn<T, S: Shape, F: FnMut(S) -> T>(shape: S, f: F) -> Expression<FromFn<S, F>> {
-    Expression::new(FromFn::new(shape, f))
+pub fn from_fn<T, S: Shape, F: FnMut(S) -> T>(shape: S, f: F) -> FromFn<S, F> {
+    FromFn::new(shape, f)
 }
 
 macro_rules! impl_axis_expr {
@@ -210,12 +210,15 @@ macro_rules! impl_axis_expr {
             }
         }
 
-         impl<'a, T, D: Dim, L: Layout> Producer for $name<'a, T, D, L> {
-            type Item = $view<'a, T, D::Lower, L>;
+        impl<'a, T, D: Dim, L: Layout> Expression for $name<'a, T, D, L> {
             type Dim = Const<1>;
 
             const IS_REPEATABLE: bool = $repeatable;
             const SPLIT_MASK: usize = 1;
+
+            fn shape(&self) -> [usize; 1] {
+                [self.size]
+            }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
                 let count = self.stride * index as isize;
@@ -223,8 +226,16 @@ macro_rules! impl_axis_expr {
                 $view::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping)
             }
 
-            fn shape(&self) -> [usize; 1] {
-                [self.size]
+            unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+            unsafe fn step_dim(&mut self, _: usize) {}
+        }
+
+        impl<'a, T, D: Dim, L: Layout> IntoIterator for $name<'a, T, D, L> {
+            type Item = $view<'a, T, D::Lower, L>;
+            type IntoIter = Iter<Self>;
+
+            fn into_iter(self) -> Iter<Self> {
+                Iter::new(self)
             }
         }
     };
@@ -310,8 +321,7 @@ impl<'a, T, D: Dim, A: Allocator> Drop for Drain<'a, T, D, A> {
     }
 }
 
-impl<'a, T, D: Dim, A: Allocator> Producer for Drain<'a, T, D, A> {
-    type Item = T;
+impl<'a, T, D: Dim, A: Allocator> Expression for Drain<'a, T, D, A> {
     type Dim = D;
 
     const IS_REPEATABLE: bool = false;
@@ -327,6 +337,18 @@ impl<'a, T, D: Dim, A: Allocator> Producer for Drain<'a, T, D, A> {
         self.index += 1; // Keep track of that the element is moved out.
 
         self.grid.as_mut_ptr().add(self.index - 1).read()
+    }
+
+    unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+    unsafe fn step_dim(&mut self, _: usize) {}
+}
+
+impl<'a, T, D: Dim, A: Allocator> IntoIterator for Drain<'a, T, D, A> {
+    type Item = T;
+    type IntoIter = Iter<Self>;
+
+    fn into_iter(self) -> Iter<Self> {
+        Iter::new(self)
     }
 }
 
@@ -351,13 +373,16 @@ macro_rules! impl_expr {
             }
         }
 
-        impl<'a, T, D: Dim, L: Layout> Producer for $name<'a, T, D, L> {
-            type Item = &'a $($mut)? T;
+        impl<'a, T, D: Dim, L: Layout> Expression for $name<'a, T, D, L> {
             type Dim = D;
 
             const IS_REPEATABLE: bool = $repeatable;
             const SPLIT_MASK: usize =
                 if L::IS_UNIFORM { (1 << D::RANK) >> 1 } else { (1 << D::RANK) - 1 };
+
+            fn shape(&self) -> D::Shape {
+                self.mapping.shape()
+            }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
                 let count = if D::RANK > 0 { self.mapping.stride(0) * index as isize } else { 0 };
@@ -371,14 +396,19 @@ macro_rules! impl_expr {
                 self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
             }
 
-            fn shape(&self) -> D::Shape {
-                self.mapping.shape()
-            }
-
             unsafe fn step_dim(&mut self, dim: usize) {
                 let count = self.mapping.stride(dim);
 
                 self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
+            }
+        }
+
+        impl<'a, T, D: Dim, L: Layout> IntoIterator for $name<'a, T, D, L> {
+            type Item = &'a $($mut)? T;
+            type IntoIter = Iter<Self>;
+
+            fn into_iter(self) -> Iter<Self> {
+                Iter::new(self)
             }
         }
     }
@@ -411,19 +441,30 @@ impl<T: Debug> Debug for Fill<T> {
     }
 }
 
-impl<T: Clone> Producer for Fill<T> {
-    type Item = T;
+impl<T: Clone> Expression for Fill<T> {
     type Dim = Const<0>;
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = 0;
 
+    fn shape(&self) -> [usize; 0] {
+        []
+    }
+
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         self.value.clone()
     }
 
-    fn shape(&self) -> [usize; 0] {
-        []
+    unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+    unsafe fn step_dim(&mut self, _: usize) {}
+}
+
+impl<T: Clone> IntoIterator for Fill<T> {
+    type Item = T;
+    type IntoIter = Iter<Self>;
+
+    fn into_iter(self) -> Iter<Self> {
+        Iter::new(self)
     }
 }
 
@@ -439,19 +480,30 @@ impl<T: Debug, F: FnMut() -> T> Debug for FillWith<F> {
     }
 }
 
-impl<T, F: FnMut() -> T> Producer for FillWith<F> {
-    type Item = T;
+impl<T, F: FnMut() -> T> Expression for FillWith<F> {
     type Dim = Const<0>;
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = 0;
 
+    fn shape(&self) -> [usize; 0] {
+        []
+    }
+
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         (self.f)()
     }
 
-    fn shape(&self) -> [usize; 0] {
-        []
+    unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+    unsafe fn step_dim(&mut self, _: usize) {}
+}
+
+impl<T, F: FnMut() -> T> IntoIterator for FillWith<F> {
+    type Item = T;
+    type IntoIter = Iter<Self>;
+
+    fn into_iter(self) -> Iter<Self> {
+        Iter::new(self)
     }
 }
 
@@ -469,19 +521,30 @@ impl<S: Shape, T: Debug> Debug for FromElem<S, T> {
     }
 }
 
-impl<S: Shape, T: Clone> Producer for FromElem<S, T> {
-    type Item = T;
+impl<S: Shape, T: Clone> Expression for FromElem<S, T> {
     type Dim = S::Dim;
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = 0;
 
+    fn shape(&self) -> S {
+        self.shape
+    }
+
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         self.elem.clone()
     }
 
-    fn shape(&self) -> S {
-        self.shape
+    unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+    unsafe fn step_dim(&mut self, _: usize) {}
+}
+
+impl<S: Shape, T: Clone> IntoIterator for FromElem<S, T> {
+    type Item = T;
+    type IntoIter = Iter<Self>;
+
+    fn into_iter(self) -> Iter<Self> {
+        Iter::new(self)
     }
 }
 
@@ -499,12 +562,15 @@ impl<S: Shape, T: Debug, F: FnMut(S) -> T> Debug for FromFn<S, F> {
     }
 }
 
-impl<S: Shape, T, F: FnMut(S) -> T> Producer for FromFn<S, F> {
-    type Item = T;
+impl<S: Shape, T, F: FnMut(S) -> T> Expression for FromFn<S, F> {
     type Dim = S::Dim;
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = (1 << S::Dim::RANK) - 1;
+
+    fn shape(&self) -> S {
+        self.shape
+    }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
         if S::Dim::RANK > 0 {
@@ -518,12 +584,17 @@ impl<S: Shape, T, F: FnMut(S) -> T> Producer for FromFn<S, F> {
         self.index[dim] = 0;
     }
 
-    fn shape(&self) -> S {
-        self.shape
-    }
-
     unsafe fn step_dim(&mut self, dim: usize) {
         self.index[dim] += 1;
+    }
+}
+
+impl<S: Shape, T, F: FnMut(S) -> T> IntoIterator for FromFn<S, F> {
+    type Item = T;
+    type IntoIter = Iter<Self>;
+
+    fn into_iter(self) -> Iter<Self> {
+        Iter::new(self)
     }
 }
 
@@ -567,12 +638,15 @@ impl<T, D: Dim, A: Allocator> Drop for IntoExpr<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Producer for IntoExpr<T, D, A> {
-    type Item = T;
+impl<T, D: Dim, A: Allocator> Expression for IntoExpr<T, D, A> {
     type Dim = D;
 
     const IS_REPEATABLE: bool = false;
     const SPLIT_MASK: usize = (1 << D::RANK) >> 1;
+
+    fn shape(&self) -> D::Shape {
+        self.grid.shape()
+    }
 
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         debug_assert!(self.index < self.grid.len(), "index out of bounds");
@@ -582,8 +656,16 @@ impl<T, D: Dim, A: Allocator> Producer for IntoExpr<T, D, A> {
         self.grid.as_mut_ptr().add(self.index - 1).read()
     }
 
-    fn shape(&self) -> D::Shape {
-        self.grid.shape()
+    unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+    unsafe fn step_dim(&mut self, _: usize) {}
+}
+
+impl<T, D: Dim, A: Allocator> IntoIterator for IntoExpr<T, D, A> {
+    type Item = T;
+    type IntoIter = Iter<Self>;
+
+    fn into_iter(self) -> Iter<Self> {
+        Iter::new(self)
     }
 }
 
@@ -633,12 +715,15 @@ macro_rules! impl_lanes {
             }
         }
 
-         impl<'a, T, D: Dim, L: Layout> Producer for $name<'a, T, D, L> {
-            type Item = $view<'a, T, Const<1>, L>;
+         impl<'a, T, D: Dim, L: Layout> Expression for $name<'a, T, D, L> {
             type Dim = D::Lower;
 
             const IS_REPEATABLE: bool = $repeatable;
             const SPLIT_MASK: usize = ((1 << D::RANK) - 1) >> 1;
+
+            fn shape(&self) -> <D::Lower as Dim>::Shape {
+                self.shape
+            }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
                 let count = if D::RANK > 1 { self.strides[0] * index as isize } else { 0 };
@@ -652,12 +737,17 @@ macro_rules! impl_lanes {
                 self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
             }
 
-            fn shape(&self) -> <D::Lower as Dim>::Shape {
-                self.shape
-            }
-
             unsafe fn step_dim(&mut self, dim: usize) {
                 self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(self.strides[dim]));
+            }
+        }
+
+        impl<'a, T, D: Dim, L: Layout> IntoIterator for $name<'a, T, D, L> {
+            type Item = $view<'a, T, Const<1>, L>;
+            type IntoIter = Iter<Self>;
+
+            fn into_iter(self) -> Iter<Self> {
+                Iter::new(self)
             }
         }
     };

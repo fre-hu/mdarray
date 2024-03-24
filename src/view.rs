@@ -3,7 +3,7 @@ use std::slice;
 use crate::array::{ViewArray, ViewArrayMut};
 use crate::buffer::{ViewBuffer, ViewBufferMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::expr::{Expr, ExprMut, Producer};
+use crate::expr::{Expr, ExprMut, Map, Zip};
 use crate::expression::Expression;
 use crate::index::{self, Axis, DimIndex, Permutation, ViewIndex};
 use crate::iter::Iter;
@@ -262,37 +262,37 @@ impl_into_view!(4, (X, Y, Z, W), (x, y, z, w));
 impl_into_view!(5, (X, Y, Z, W, U), (x, y, z, w, u));
 impl_into_view!(6, (X, Y, Z, W, U, V), (x, y, z, w, u, v));
 
-impl<'a, T, U, D: Dim, L: Layout> Apply<U> for ViewArray<'a, T, D, L> {
-    type Output<F: FnMut(&'a T) -> U> = Expression<impl Producer<Item = U, Dim = D>>;
-    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> U> =
-        Expression<impl Producer<Item = U, Dim = D::Max<I::Dim>>>;
+impl<'a, T, U, D: 'a + Dim, L: Layout> Apply<U> for ViewArray<'a, T, D, L> {
+    type Output<F: FnMut(&'a T) -> U> = Map<Self::IntoExpr, F>;
+    type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
     fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output<F> {
         self.into_expr().map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
-        F: FnMut(&'a T, I::Item) -> U,
+        F: FnMut((&'a T, I::Item)) -> U,
     {
-        self.into_expr().zip(expr).map(move |(x, y)| f(x, y))
+        self.into_expr().zip(expr).map(f)
     }
 }
 
-impl<'a, T, U, D: Dim, L: Layout> Apply<U> for ViewArrayMut<'a, T, D, L> {
-    type Output<F: FnMut(&'a mut T) -> U> = Expression<impl Producer<Item = U, Dim = D>>;
-    type ZippedWith<I: IntoExpression, F: FnMut(Self::Item, I::Item) -> U> =
-        Expression<impl Producer<Item = U, Dim = D::Max<I::Dim>>>;
+impl<'a, T, U, D: 'a + Dim, L: Layout> Apply<U> for ViewArrayMut<'a, T, D, L> {
+    type Output<F: FnMut(&'a mut T) -> U> = Map<Self::IntoExpr, F>;
+    type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
     fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output<F> {
         self.into_expr().map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self::ZippedWith<I, F>
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
-        F: FnMut(&'a mut T, I::Item) -> U,
+        F: FnMut((&'a mut T, I::Item)) -> U,
     {
-        self.into_expr().zip(expr).map(move |(x, y)| f(x, y))
+        self.into_expr().zip(expr).map(f)
     }
 }
 
@@ -359,23 +359,21 @@ impl<'a, T> From<&'a mut T> for ViewArrayMut<'a, T, Const<0>, Dense> {
     }
 }
 
-impl<'a, T, D: Dim, L: Layout> IntoExpression for ViewArray<'a, T, D, L> {
-    type Item = &'a T;
+impl<'a, T, D: 'a + Dim, L: Layout> IntoExpression for ViewArray<'a, T, D, L> {
     type Dim = D;
-    type Producer = Expr<'a, T, D, L>;
+    type IntoExpr = Expr<'a, T, D, L>;
 
-    fn into_expr(self) -> Expression<Self::Producer> {
-        Expression::new(unsafe { Expr::new_unchecked(self.as_ptr(), self.mapping()) })
+    fn into_expr(self) -> Self::IntoExpr {
+        unsafe { Expr::new_unchecked(self.as_ptr(), self.mapping()) }
     }
 }
 
-impl<'a, T, D: Dim, L: Layout> IntoExpression for ViewArrayMut<'a, T, D, L> {
-    type Item = &'a mut T;
+impl<'a, T, D: 'a + Dim, L: Layout> IntoExpression for ViewArrayMut<'a, T, D, L> {
     type Dim = D;
-    type Producer = ExprMut<'a, T, D, L>;
+    type IntoExpr = ExprMut<'a, T, D, L>;
 
-    fn into_expr(mut self) -> Expression<Self::Producer> {
-        Expression::new(unsafe { ExprMut::new_unchecked(self.as_mut_ptr(), self.mapping()) })
+    fn into_expr(mut self) -> Self::IntoExpr {
+        unsafe { ExprMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
     }
 }
 
@@ -384,7 +382,7 @@ impl<'a, T, D: 'a + Dim, L: Layout> IntoIterator for ViewArray<'a, T, D, L> {
     type IntoIter = Iter<Expr<'a, T, D, L>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter::new(self.into_expr().into_producer())
+        Iter::new(self.into_expr())
     }
 }
 
@@ -393,6 +391,6 @@ impl<'a, T, D: 'a + Dim, L: Layout> IntoIterator for ViewArrayMut<'a, T, D, L> {
     type IntoIter = Iter<ExprMut<'a, T, D, L>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter::new(self.into_expr().into_producer())
+        Iter::new(self.into_expr())
     }
 }

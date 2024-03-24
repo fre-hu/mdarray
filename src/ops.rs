@@ -11,8 +11,8 @@ use std::ops::{
 use crate::alloc::Allocator;
 use crate::array::{Array, GridArray, ViewArray};
 use crate::buffer::{Buffer, BufferMut};
-use crate::dim::{Const, Dim};
-use crate::expr::Producer;
+use crate::dim::{Const, Dim, Shape};
+use crate::expr::{Drain, Expr, Fill, FillWith, FromElem, FromFn, IntoExpr, Map};
 use crate::expression::Expression;
 use crate::layout::Layout;
 use crate::traits::{Apply, IntoExpression};
@@ -100,21 +100,87 @@ macro_rules! impl_binary_op {
         where
             for<'b> &'b B::Item: $trt<I::Item, Output = T>,
         {
-            type Output = I::ZippedWith<Self, impl FnMut(I::Item, &'a B::Item) -> T>;
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a B::Item)) -> T>;
 
             fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |x, y| y.$fn(x))
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
         }
 
-        impl<T, P: Producer, I: Apply<T>> $trt<I> for Expression<P>
+        impl<'a, T, U, D: Dim, A: Allocator, I: Apply<U>> $trt<I> for Drain<'a, T, D, A>
         where
-            P::Item: $trt<I::Item, Output = T>,
+            T: $trt<I::Item, Output = U>,
         {
-            type Output = I::ZippedWith<Self, impl FnMut(I::Item, P::Item) -> T>;
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
             fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |x, y| y.$fn(x))
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<'a, T, U, D: Dim, L: Layout, I: Apply<U>> $trt<I> for Expr<'a, T, D, L>
+        where
+            &'a T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<T: Clone, U, I: Apply<U>> $trt<I> for Fill<T>
+        where
+            T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<T: Clone, U, F: FnMut() -> T, I: Apply<U>> $trt<I> for FillWith<F>
+        where
+            T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<S: Shape, T: Clone, U, I: Apply<U>> $trt<I> for FromElem<S, T>
+        where
+            T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<S: Shape, T, U, F: FnMut(S) -> T, I: Apply<U>> $trt<I> for FromFn<S, F>
+        where
+            T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<T, U, D: Dim, A: Allocator, I: Apply<U>> $trt<I> for IntoExpr<T, D, A>
+        where
+            T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
         }
 
@@ -125,18 +191,29 @@ macro_rules! impl_binary_op {
             type Output = Self;
 
             fn $fn(self, rhs: I) -> Self {
-                self.zip_with(rhs, |x, y| x.$fn(y))
+                self.zip_with(rhs, |(x, y)| x.$fn(y))
             }
         }
 
-        impl<'a, T, U, D: Dim, I: Apply<U>, L: Layout> $trt<I> for ViewArray<'a, T, D, L>
+        impl<T, U, E: Expression, F: FnMut(E::Item) -> T, I: Apply<U>> $trt<I> for Map<E, F>
+        where
+            T: $trt<I::Item, Output = U>,
+        {
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<'a, T, U, D: 'a + Dim, I: Apply<U>, L: Layout> $trt<I> for ViewArray<'a, T, D, L>
         where
             for<'b> &'b T: $trt<I::Item, Output = U>,
         {
-            type Output = I::ZippedWith<Self, impl FnMut(I::Item, &'a T) -> U>;
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
             fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |x, y| y.$fn(x))
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
         }
     };
@@ -179,22 +256,88 @@ impl_op_assign!(ShrAssign, shr_assign);
 
 macro_rules! impl_unary_op {
     ($trt:tt, $fn:tt) => {
-        impl<T, B: Buffer + ?Sized> $trt for &Array<B>
+        impl<'a, T, B: Buffer + ?Sized> $trt for &'a Array<B>
         where
-            for<'a> &'a B::Item: $trt<Output = T>,
+            for<'b> &'b B::Item: $trt<Output = T>,
         {
-            type Output = Expression<impl Producer<Item = T, Dim = B::Dim>>;
+            type Output = <Self as Apply<T>>::Output<impl FnMut(&'a B::Item) -> T>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
         }
 
-        impl<T, P: Producer> $trt for Expression<P>
+        impl<'a, T, U, D: Dim, A: Allocator> $trt for Drain<'a, T, D, A>
         where
-            P::Item: $trt<Output = T>,
+            T: $trt<Output = U>,
         {
-            type Output = Expression<impl Producer<Item = T, Dim = P::Dim>>;
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<'a, T, U, D: Dim, L: Layout> $trt for Expr<'a, T, D, L>
+        where
+            &'a T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<T: Clone, U> $trt for Fill<T>
+        where
+            T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<T: Clone, U, F: FnMut() -> T> $trt for FillWith<F>
+        where
+            T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<S: Shape, T: Clone, U> $trt for FromElem<S, T>
+        where
+            T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<S: Shape, T, U, F: FnMut(S) -> T> $trt for FromFn<S, F>
+        where
+            T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<T, U, D: Dim, A: Allocator> $trt for IntoExpr<T, D, A>
+        where
+            T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
@@ -212,11 +355,22 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout> $trt for ViewArray<'a, T, D, L>
+        impl<T, U, E: Expression, F: FnMut(E::Item) -> T> $trt for Map<E, F>
+        where
+            T: $trt<Output = U>,
+        {
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<'a, T, U, D: 'a + Dim, L: Layout> $trt for ViewArray<'a, T, D, L>
         where
             for<'b> &'b T: $trt<Output = U>,
         {
-            type Output = Expression<impl Producer<Item = U, Dim = D>>;
+            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())

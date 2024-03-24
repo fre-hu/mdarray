@@ -29,10 +29,10 @@ pub trait Layout {
 }
 
 /// Trait for layout types with uniform stride.
-pub trait Uniform: Layout<UnitStrided = Dense, NonUnitStrided = Flat> {}
+pub trait Uniform: Layout<Uniform = Self, UnitStrided = Dense, NonUnitStrided = Flat> {}
 
 /// Trait for layout types with unit inner stride.
-pub trait UnitStrided: Layout<Uniform = Dense, NonUniform = General> {}
+pub trait UnitStrided: Layout<Uniform = Dense, UnitStrided = Self, NonUniform = General> {}
 
 /// Dense array layout type.
 pub struct Dense;
