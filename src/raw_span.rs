@@ -1,9 +1,9 @@
 use std::mem;
 use std::ptr::NonNull;
 
-use crate::array::SpanArray;
 use crate::dim::Dim;
 use crate::layout::Layout;
+use crate::span::Span;
 
 pub(crate) struct RawSpan<T, D: Dim, L: Layout> {
     ptr: NonNull<T>,
@@ -15,11 +15,11 @@ impl<T, D: Dim, L: Layout> RawSpan<T, D, L> {
         self.ptr.as_ptr()
     }
 
-    pub(crate) fn as_mut_span(&mut self) -> &mut SpanArray<T, D, L> {
+    pub(crate) fn as_mut_span(&mut self) -> &mut Span<T, D, L> {
         if D::RANK > 0 {
-            unsafe { &mut *(self as *mut Self as *mut SpanArray<T, D, L>) }
+            unsafe { &mut *(self as *mut Self as *mut Span<T, D, L>) }
         } else {
-            unsafe { &mut *(self.ptr.as_ptr() as *mut SpanArray<T, D, L>) }
+            unsafe { &mut *(self.ptr.as_ptr() as *mut Span<T, D, L>) }
         }
     }
 
@@ -27,24 +27,24 @@ impl<T, D: Dim, L: Layout> RawSpan<T, D, L> {
         self.ptr.as_ptr()
     }
 
-    pub(crate) fn as_span(&self) -> &SpanArray<T, D, L> {
+    pub(crate) fn as_span(&self) -> &Span<T, D, L> {
         if D::RANK > 0 {
-            unsafe { &*(self as *const Self as *const SpanArray<T, D, L>) }
+            unsafe { &*(self as *const Self as *const Span<T, D, L>) }
         } else {
-            unsafe { &*(self.ptr.as_ptr() as *const SpanArray<T, D, L>) }
+            unsafe { &*(self.ptr.as_ptr() as *const Span<T, D, L>) }
         }
     }
 
-    pub(crate) fn from_mut_span(span: &mut SpanArray<T, D, L>) -> &mut Self {
+    pub(crate) fn from_mut_span(span: &mut Span<T, D, L>) -> &mut Self {
         assert!(D::RANK > 0, "invalid rank");
 
-        unsafe { &mut *(span as *mut SpanArray<T, D, L> as *mut Self) }
+        unsafe { &mut *(span as *mut Span<T, D, L> as *mut Self) }
     }
 
-    pub(crate) fn from_span(span: &SpanArray<T, D, L>) -> &Self {
+    pub(crate) fn from_span(span: &Span<T, D, L>) -> &Self {
         assert!(D::RANK > 0, "invalid rank");
 
-        unsafe { &*(span as *const SpanArray<T, D, L> as *const Self) }
+        unsafe { &*(span as *const Span<T, D, L> as *const Self) }
     }
 
     pub(crate) fn mapping(&self) -> L::Mapping<D> {

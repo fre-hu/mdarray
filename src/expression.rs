@@ -3,9 +3,9 @@ use std::alloc::Allocator;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::array::GridArray;
 use crate::dim::Dim;
 use crate::expr::{Cloned, Copied, Enumerate, Map, Zip};
+use crate::grid::Grid;
 use crate::iter::Iter;
 use crate::traits::{Apply, IntoCloned, IntoExpression};
 
@@ -48,20 +48,20 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression into a new array.
-    fn eval(self) -> GridArray<Self::Item, Self::Dim>
+    fn eval(self) -> Grid<Self::Item, Self::Dim>
     where
         Self: Sized,
     {
-        GridArray::from_expr(self)
+        Grid::from_expr(self)
     }
 
     /// Evaluates the expression into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
-    fn eval_in<A: Allocator>(self, alloc: A) -> GridArray<Self::Item, Self::Dim, A>
+    fn eval_in<A: Allocator>(self, alloc: A) -> Grid<Self::Item, Self::Dim, A>
     where
         Self: Sized,
     {
-        GridArray::from_expr_in(self, alloc)
+        Grid::from_expr_in(self, alloc)
     }
 
     /// Evaluates the expression with broadcasting and appends to the given array
@@ -76,8 +76,8 @@ pub trait Expression: IntoIterator {
     /// is not valid.
     fn eval_into<D: Dim, A: Allocator>(
         self,
-        grid: &mut GridArray<Self::Item, D, A>,
-    ) -> &mut GridArray<Self::Item, D, A>
+        grid: &mut Grid<Self::Item, D, A>,
+    ) -> &mut Grid<Self::Item, D, A>
     where
         Self: Sized,
     {
@@ -186,11 +186,9 @@ pub trait Expression: IntoIterator {
 }
 
 impl<T, E: Expression> Apply<T> for E {
-    type Output<F: FnMut(Self::Item) -> T> =
-        Map<impl Expression<Item = Self::Item, Dim = E::Dim>, F>;
-
+    type Output<F: FnMut(Self::Item) -> T> = Map<E, F>;
     type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> =
-        Map<impl Expression<Item = (Self::Item, I::Item), Dim = <E::Dim as Dim>::Max<I::Dim>>, F>;
+        Map<Zip<Self, I::IntoExpr>, F>;
 
     fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
         self.map(f)

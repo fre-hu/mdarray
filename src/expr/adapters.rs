@@ -6,33 +6,33 @@ use crate::iter::Iter;
 use crate::traits::IntoExpression;
 
 /// Expression that clones the elements of an underlying expression.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Cloned<E> {
     expr: E,
 }
 
 /// Expression that copies the elements of an underlying expression.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Copied<E> {
     expr: E,
 }
 
 /// Expression that gives the current index and the element during iteration.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Enumerate<E, S> {
     expr: E,
     index: S,
 }
 
 /// Expression that calls a closure on each element.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Map<E, F> {
     expr: E,
     f: F,
 }
 
 /// Expression that gives tuples `(x, y)` of the elements from each expression.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Zip<A, B> {
     a: A,
     b: B,
@@ -43,9 +43,9 @@ pub struct Zip<A, B> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, Expression, View};
+/// use mdarray::{expr, Expression};
 ///
-/// let v = view![0, 1, 2];
+/// let v = expr![0, 1, 2];
 ///
 /// assert_eq!(expr::cloned(&v).eval(), v);
 /// ```
@@ -58,9 +58,9 @@ pub fn cloned<'a, T: 'a + Clone, I: IntoExpression<Item = &'a T>>(expr: I) -> Cl
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, Expression, View};
+/// use mdarray::{expr, Expression};
 ///
-/// let v = view![0, 1, 2];
+/// let v = expr![0, 1, 2];
 ///
 /// assert_eq!(expr::copied(&v).eval(), v);
 /// ```
@@ -73,11 +73,11 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid, view, Expression, Grid, View};
+/// use mdarray::{expr, grid, Expression};
 ///
 /// let g = grid![1, 2, 3];
 ///
-/// assert_eq!(expr::enumerate(g).eval(), view![([0], 1), ([1], 2), ([2], 3)]);
+/// assert_eq!(expr::enumerate(g).eval(), expr![([0], 1), ([1], 2), ([2], 3)]);
 /// ```
 pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr, <I::Dim as Dim>::Shape> {
     expr.into_expr().enumerate()
@@ -88,11 +88,11 @@ pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr, <I::Dim a
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, Expression, View};
+/// use mdarray::{expr, Expression};
 ///
-/// let v = view![0, 1, 2];
+/// let v = expr![0, 1, 2];
 ///
-/// assert_eq!(expr::map(v, |x| 2 * x).eval(), view![0, 2, 4]);
+/// assert_eq!(expr::map(v, |x| 2 * x).eval(), expr![0, 2, 4]);
 /// ```
 pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I::IntoExpr, F> {
     expr.into_expr().map(f)
@@ -107,12 +107,12 @@ pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid, view, Expression, Grid, View};
+/// use mdarray::{expr, grid, Expression};
 ///
 /// let a = grid![0, 1, 2];
 /// let b = grid![3, 4, 5];
 ///
-/// assert_eq!(expr::zip(a, b).eval(), view![(0, 3), (1, 4), (2, 5)]);
+/// assert_eq!(expr::zip(a, b).eval(), expr![(0, 3), (1, 4), (2, 5)]);
 /// ```
 pub fn zip<A: IntoExpression, B: IntoExpression>(a: A, b: B) -> Zip<A::IntoExpr, B::IntoExpr> {
     a.into_expr().zip(b)

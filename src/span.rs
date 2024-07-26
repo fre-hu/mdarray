@@ -1,20 +1,44 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
+use std::fmt::{Debug, Formatter, Result};
+use std::hash::{Hash, Hasher};
+#[cfg(feature = "nightly")]
+use std::marker::PhantomData;
+#[cfg(not(feature = "nightly"))]
+use std::marker::{PhantomData, PhantomPinned};
+use std::ops::{Index, IndexMut};
 
-use crate::array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
 use crate::dim::{Const, Dim, Shape};
-use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut, Lanes, LanesMut};
+use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut, Lanes, LanesMut, Map, Zip};
 use crate::expression::Expression;
+use crate::grid::Grid;
 use crate::index::{Axis, DimIndex, Permutation, SpanIndex, ViewIndex};
 use crate::iter::Iter;
 use crate::layout::{Dense, Flat, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_span::RawSpan;
-use crate::traits::{IntoCloned, IntoExpression};
+use crate::traits::{Apply, IntoCloned, IntoExpression};
+
+/// Multidimensional array span.
+pub struct Span<T, D: Dim, L: Layout = Dense> {
+    phantom: PhantomData<(T, D, L)>,
+    #[cfg(not(feature = "nightly"))]
+    _pinned: PhantomPinned,
+    #[cfg(feature = "nightly")]
+    _opaque: Opaque,
+}
+
+/// Multidimensional array span with the specified rank.
+pub type DSpan<T, const N: usize, L = Dense> = Span<T, Const<N>, L>;
+
+#[cfg(feature = "nightly")]
+extern "C" {
+    type Opaque;
+}
 
 type ValidMapping<D, L> = <<D as Dim>::Layout<L> as Layout>::Mapping<D>;
 
-impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
+impl<T, D: Dim, L: Layout> Span<T, D, L> {
     /// Returns a mutable pointer to the array buffer.
     pub fn as_mut_ptr(&mut self) -> *mut T {
         if D::RANK > 0 {
@@ -148,12 +172,12 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
 
     /// Returns an expression over the array span.
     pub fn expr(&self) -> Expr<T, D, L> {
-        self.to_view().into_expr()
+        unsafe { Expr::new_unchecked(self.as_ptr(), self.mapping()) }
     }
 
     /// Returns a mutable expression over the array span.
     pub fn expr_mut(&mut self) -> ExprMut<T, D, L> {
-        self.to_view_mut().into_expr()
+        unsafe { ExprMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
     }
 
     /// Fills the array span with elements by cloning `value`.
@@ -174,8 +198,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
-    pub fn flatten(&self) -> ViewArray<T, Const<1>, L::Uniform> {
-        self.to_view().into_flattened()
+    pub fn flatten(&self) -> Expr<T, Const<1>, L::Uniform> {
+        self.expr().into_flattened()
     }
 
     /// Returns a mutable one-dimensional array view over the array span.
@@ -183,8 +207,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
-    pub fn flatten_mut(&mut self) -> ViewArrayMut<T, Const<1>, L::Uniform> {
-        self.to_view_mut().into_flattened()
+    pub fn flatten_mut(&mut self) -> ExprMut<T, Const<1>, L::Uniform> {
+        self.expr_mut().into_flattened()
     }
 
     /// Returns a reference to an element or a subslice, without doing bounds checking.
@@ -222,12 +246,12 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
 
     /// Returns an iterator over the array span.
     pub fn iter(&self) -> Iter<Expr<'_, T, D, L>> {
-        self.to_view().into_iter()
+        self.expr().into_iter()
     }
 
     /// Returns a mutable iterator over the array span.
     pub fn iter_mut(&mut self) -> Iter<ExprMut<'_, T, D, L>> {
-        self.to_view_mut().into_iter()
+        self.expr_mut().into_iter()
     }
 
     /// Returns an expression that gives array views over the specified dimension,
@@ -340,8 +364,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
-    pub fn remap<M: Layout>(&self) -> ViewArray<T, D, M> {
-        self.to_view().into_mapping()
+    pub fn remap<M: Layout>(&self) -> Expr<T, D, M> {
+        self.expr().into_mapping()
     }
 
     /// Returns a mutable remapped array view of the array span.
@@ -349,8 +373,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
-    pub fn remap_mut<M: Layout>(&mut self) -> ViewArrayMut<T, D, M> {
-        self.to_view_mut().into_mapping()
+    pub fn remap_mut<M: Layout>(&mut self) -> ExprMut<T, D, M> {
+        self.expr_mut().into_mapping()
     }
 
     /// Returns a reshaped array view of the array span, with similar layout.
@@ -358,8 +382,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the array length is changed, or the memory layout is not compatible.
-    pub fn reshape<S: Shape>(&self, shape: S) -> ViewArray<T, S::Dim, <S::Dim as Dim>::Layout<L>> {
-        self.to_view().into_shape(shape)
+    pub fn reshape<S: Shape>(&self, shape: S) -> Expr<T, S::Dim, <S::Dim as Dim>::Layout<L>> {
+        self.expr().into_shape(shape)
     }
 
     /// Returns a mutable reshaped array view of the array span, with similar layout.
@@ -370,8 +394,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     pub fn reshape_mut<S: Shape>(
         &mut self,
         shape: S,
-    ) -> ViewArrayMut<T, S::Dim, <S::Dim as Dim>::Layout<L>> {
-        self.to_view_mut().into_shape(shape)
+    ) -> ExprMut<T, S::Dim, <S::Dim as Dim>::Layout<L>> {
+        self.expr_mut().into_shape(shape)
     }
 
     /// Returns an expression that gives row views iterating over the other dimensions.
@@ -433,8 +457,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_at(&self, mid: usize) -> (ViewArray<T, D, L>, ViewArray<T, D, L>) {
-        self.to_view().into_split_at(mid)
+    pub fn split_at(&self, mid: usize) -> (Expr<T, D, L>, Expr<T, D, L>) {
+        self.expr().into_split_at(mid)
     }
 
     /// Divides a mutable array span into two at an index along the outermost dimension.
@@ -442,8 +466,8 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     /// # Panics
     ///
     /// Panics if the split point is larger than the number of elements in that dimension.
-    pub fn split_at_mut(&mut self, mid: usize) -> (ViewArrayMut<T, D, L>, ViewArrayMut<T, D, L>) {
-        self.to_view_mut().into_split_at(mid)
+    pub fn split_at_mut(&mut self, mid: usize) -> (ExprMut<T, D, L>, ExprMut<T, D, L>) {
+        self.expr_mut().into_split_at(mid)
     }
 
     /// Divides an array span into two at an index along the specified dimension.
@@ -455,13 +479,13 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         &self,
         mid: usize,
     ) -> (
-        ViewArray<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
-        ViewArray<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
+        Expr<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
+        Expr<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
     )
     where
         Const<DIM>: Axis<D>,
     {
-        self.to_view().into_split_axis_at(mid)
+        self.expr().into_split_axis_at(mid)
     }
 
     /// Divides a mutable array span into two at an index along the specified dimension.
@@ -473,13 +497,13 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ViewArrayMut<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
-        ViewArrayMut<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
+        ExprMut<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
+        ExprMut<T, D, <Const<DIM> as Axis<D>>::Split<L>>,
     )
     where
         Const<DIM>: Axis<D>,
     {
-        self.to_view_mut().into_split_axis_at(mid)
+        self.expr_mut().into_split_axis_at(mid)
     }
 
     /// Returns the distance between elements in the specified dimension.
@@ -498,7 +522,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
 
     /// Copies the array span into a new array.
     #[cfg(not(feature = "nightly"))]
-    pub fn to_grid(&self) -> GridArray<T, D>
+    pub fn to_grid(&self) -> Grid<T, D>
     where
         T: Clone,
     {
@@ -507,7 +531,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
 
     /// Copies the array span into a new array.
     #[cfg(feature = "nightly")]
-    pub fn to_grid(&self) -> GridArray<T, D>
+    pub fn to_grid(&self) -> Grid<T, D>
     where
         T: Clone,
     {
@@ -516,7 +540,7 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
 
     /// Copies the array span into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> GridArray<T, D, A>
+    pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> Grid<T, D, A>
     where
         T: Clone,
     {
@@ -539,37 +563,27 @@ impl<T, D: Dim, L: Layout> SpanArray<T, D, L> {
     {
         self.to_grid_in(alloc).into_vec()
     }
-
-    /// Returns an array view of the entire array span.
-    pub fn to_view(&self) -> ViewArray<T, D, L> {
-        unsafe { ViewArray::new_unchecked(self.as_ptr(), self.mapping()) }
-    }
-
-    /// Returns a mutable array view of the entire array span.
-    pub fn to_view_mut(&mut self) -> ViewArrayMut<T, D, L> {
-        unsafe { ViewArrayMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
-    }
 }
 
-impl<T, D: Dim> SpanArray<T, D, Dense> {
+impl<T, D: Dim> Span<T, D> {
     /// Returns a mutable slice of all elements in the array, which must have dense layout.
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self.to_view_mut().into_slice()
+        self.expr_mut().into_slice()
     }
 
     /// Returns a slice of all elements in the array, which must have dense layout.
     pub fn as_slice(&self) -> &[T] {
-        self.to_view().into_slice()
+        self.expr().into_slice()
     }
 }
 
-impl<T, L: Layout> SpanArray<T, Const<2>, L> {
+impl<T, L: Layout> Span<T, Const<2>, L> {
     /// Returns an array view for the specified column.
     ///
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn col(&self, index: usize) -> ViewArray<T, Const<1>, L::Uniform> {
+    pub fn col(&self, index: usize) -> Expr<T, Const<1>, L::Uniform> {
         self.view(.., index)
     }
 
@@ -578,7 +592,7 @@ impl<T, L: Layout> SpanArray<T, Const<2>, L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn col_mut(&mut self, index: usize) -> ViewArrayMut<T, Const<1>, L::Uniform> {
+    pub fn col_mut(&mut self, index: usize) -> ExprMut<T, Const<1>, L::Uniform> {
         self.view_mut(.., index)
     }
 
@@ -588,8 +602,8 @@ impl<T, L: Layout> SpanArray<T, Const<2>, L> {
     /// # Panics
     ///
     /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag(&self, index: isize) -> ViewArray<T, Const<1>, Flat> {
-        self.to_view().into_diag(index)
+    pub fn diag(&self, index: isize) -> Expr<T, Const<1>, Flat> {
+        self.expr().into_diag(index)
     }
 
     /// Returns a mutable array view for the given diagonal of the array span,
@@ -598,8 +612,8 @@ impl<T, L: Layout> SpanArray<T, Const<2>, L> {
     /// # Panics
     ///
     /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag_mut(&mut self, index: isize) -> ViewArrayMut<T, Const<1>, Flat> {
-        self.to_view_mut().into_diag(index)
+    pub fn diag_mut(&mut self, index: isize) -> ExprMut<T, Const<1>, Flat> {
+        self.expr_mut().into_diag(index)
     }
 
     /// Returns an array view for the specified row.
@@ -607,7 +621,7 @@ impl<T, L: Layout> SpanArray<T, Const<2>, L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn row(&self, index: usize) -> ViewArray<T, Const<1>, Flat> {
+    pub fn row(&self, index: usize) -> Expr<T, Const<1>, Flat> {
         self.view(index, ..).into_mapping()
     }
 
@@ -616,32 +630,32 @@ impl<T, L: Layout> SpanArray<T, Const<2>, L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn row_mut(&mut self, index: usize) -> ViewArrayMut<T, Const<1>, Flat> {
+    pub fn row_mut(&mut self, index: usize) -> ExprMut<T, Const<1>, Flat> {
         self.view_mut(index, ..).into_mapping()
     }
 }
 
 macro_rules! impl_permute {
     ($n:tt, ($($xyz:tt),+)) => {
-        impl<T, L: Layout> SpanArray<T, Const<$n>, L> {
+        impl<T, L: Layout> Span<T, Const<$n>, L> {
             /// Returns an array view with the dimensions permuted.
             pub fn permute<$(const $xyz: usize),+>(
                 &self
-            ) -> ViewArray<T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
+            ) -> Expr<T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
             where
                 ($(Const<$xyz>,)+): Permutation
             {
-                self.to_view().into_permuted()
+                self.expr().into_permuted()
             }
 
             /// Returns a mutable array view with the dimensions permuted.
             pub fn permute_mut<$(const $xyz: usize),+>(
                 &mut self
-            ) -> ViewArrayMut<T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
+            ) -> ExprMut<T, Const<$n>, <($(Const<$xyz>,)+) as Permutation>::Layout<L>>
             where
                 ($(Const<$xyz>,)+): Permutation
             {
-                self.to_view_mut().into_permuted()
+                self.expr_mut().into_permuted()
             }
         }
     };
@@ -657,7 +671,7 @@ impl_permute!(6, (X, Y, Z, W, U, V));
 macro_rules! impl_view {
     ($n:tt, ($($xyz:tt),+), ($($idx:tt),+)) => {
         #[allow(unused_parens)]
-        impl<T, L: Layout> SpanArray<T, Const<$n>, L> {
+        impl<T, L: Layout> Span<T, Const<$n>, L> {
             /// Copies the specified subarray into a new array.
             ///
             /// # Panics
@@ -666,7 +680,7 @@ macro_rules! impl_view {
             pub fn grid<$($xyz: DimIndex),+>(
                 &self,
                 $($idx: $xyz),+
-            ) -> GridArray<T, <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim>
+            ) -> Grid<T, <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim>
             where
                 T: Clone,
             {
@@ -681,12 +695,12 @@ macro_rules! impl_view {
             pub fn view<$($xyz: DimIndex),+>(
                 &self,
                 $($idx: $xyz),+
-            ) -> ViewArray<
+            ) -> Expr<
                 T,
                 <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim,
                 <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Layout,
             > {
-                self.to_view().into_view($($idx),+)
+                self.expr().into_view($($idx),+)
             }
 
             /// Returns a mutable array view for the specified subarray.
@@ -697,12 +711,12 @@ macro_rules! impl_view {
             pub fn view_mut<$($xyz: DimIndex),+>(
                 &mut self,
                 $($idx: $xyz),+,
-            ) -> ViewArrayMut<
+            ) -> ExprMut<
                 T,
                 <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Dim,
                 <($($xyz,)+) as ViewIndex<Const<$n>, L>>::Layout,
             > {
-                self.to_view_mut().into_view($($idx),+)
+                self.expr_mut().into_view($($idx),+)
             }
         }
     };
@@ -715,28 +729,160 @@ impl_view!(4, (X, Y, Z, W), (x, y, z, w));
 impl_view!(5, (X, Y, Z, W, U), (x, y, z, w, u));
 impl_view!(6, (X, Y, Z, W, U, V), (x, y, z, w, u, v));
 
-impl<T: Clone, D: Dim> ToOwned for SpanArray<T, D, Dense> {
-    type Owned = GridArray<T, D>;
+impl<'a, T, U, D: Dim, L: Layout> Apply<U> for &'a Span<T, D, L> {
+    type Output<F: FnMut(&'a T) -> U> = Map<Self::IntoExpr, F>;
+    type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
+
+    fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output<F> {
+        self.expr().map(f)
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
+    where
+        F: FnMut((&'a T, I::Item)) -> U,
+    {
+        self.expr().zip(expr).map(f)
+    }
+}
+
+impl<'a, T, U, D: Dim, L: Layout> Apply<U> for &'a mut Span<T, D, L> {
+    type Output<F: FnMut(&'a mut T) -> U> = Map<Self::IntoExpr, F>;
+    type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
+
+    fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output<F> {
+        self.expr_mut().map(f)
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
+    where
+        F: FnMut((&'a mut T, I::Item)) -> U,
+    {
+        self.expr_mut().zip(expr).map(f)
+    }
+}
+
+impl<T, D: Dim, L: Layout> AsMut<Span<T, D, L>> for Span<T, D, L> {
+    fn as_mut(&mut self) -> &mut Span<T, D, L> {
+        self
+    }
+}
+
+impl<T, D: Dim> AsMut<[T]> for Span<T, D> {
+    fn as_mut(&mut self) -> &mut [T] {
+        &mut self[..]
+    }
+}
+
+impl<T, D: Dim, L: Layout> AsRef<Span<T, D, L>> for Span<T, D, L> {
+    fn as_ref(&self) -> &Span<T, D, L> {
+        self
+    }
+}
+
+impl<T, D: Dim> AsRef<[T]> for Span<T, D> {
+    fn as_ref(&self) -> &[T] {
+        &self[..]
+    }
+}
+
+impl<T: Debug, D: Dim, L: Layout> Debug for Span<T, D, L> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        if D::RANK == 0 {
+            self[D::Shape::default()].fmt(f)
+        } else {
+            let mut list = f.debug_list();
+
+            // Empty arrays should give an empty list.
+            if !self.is_empty() {
+                _ = list.entries(self.outer_expr());
+            }
+
+            list.finish()
+        }
+    }
+}
+
+impl<T: Hash, D: Dim, L: Layout> Hash for Span<T, D, L> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        for i in 0..D::RANK {
+            #[cfg(not(feature = "nightly"))]
+            state.write_usize(self.size(i));
+            #[cfg(feature = "nightly")]
+            state.write_length_prefix(self.size(i));
+        }
+
+        self.expr().for_each(|x| x.hash(state));
+    }
+}
+
+impl<T, D: Dim, L: Layout, I: SpanIndex<T, D, L>> Index<I> for Span<T, D, L> {
+    type Output = I::Output;
+
+    fn index(&self, index: I) -> &I::Output {
+        index.index(self)
+    }
+}
+
+impl<T, D: Dim, L: Layout, I: SpanIndex<T, D, L>> IndexMut<I> for Span<T, D, L> {
+    fn index_mut(&mut self, index: I) -> &mut I::Output {
+        index.index_mut(self)
+    }
+}
+
+impl<'a, T, D: Dim, L: Layout> IntoExpression for &'a Span<T, D, L> {
+    type Dim = D;
+    type IntoExpr = Expr<'a, T, D, L>;
+
+    fn into_expr(self) -> Self::IntoExpr {
+        self.expr()
+    }
+}
+
+impl<'a, T, D: Dim, L: Layout> IntoExpression for &'a mut Span<T, D, L> {
+    type Dim = D;
+    type IntoExpr = ExprMut<'a, T, D, L>;
+
+    fn into_expr(self) -> Self::IntoExpr {
+        self.expr_mut()
+    }
+}
+
+impl<'a, T, D: Dim, L: Layout> IntoIterator for &'a Span<T, D, L> {
+    type Item = &'a T;
+    type IntoIter = Iter<Expr<'a, T, D, L>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T, D: Dim, L: Layout> IntoIterator for &'a mut Span<T, D, L> {
+    type Item = &'a mut T;
+    type IntoIter = Iter<ExprMut<'a, T, D, L>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<T: Clone, D: Dim> ToOwned for Span<T, D> {
+    type Owned = Grid<T, D>;
 
     fn to_owned(&self) -> Self::Owned {
         self.to_grid()
     }
 
     fn clone_into(&self, target: &mut Self::Owned) {
-        unsafe {
-            target.buffer.with_mut_vec(|vec| {
-                self.as_slice().clone_into(vec);
-            });
-
-            target.buffer.set_mapping(self.mapping());
-        }
+        target.clone_from_span(self);
     }
 }
 
-fn contains<T: PartialEq, D: Dim, L: Layout>(this: &SpanArray<T, D, L>, value: &T) -> bool {
+fn contains<T: PartialEq, D: Dim, L: Layout>(this: &Span<T, D, L>, value: &T) -> bool {
     if L::IS_UNIFORM {
         if L::IS_UNIT_STRIDED {
-            this.remap().as_slice().contains(value)
+            this.remap()[..].contains(value)
         } else {
             this.iter().any(|x| x == value)
         }

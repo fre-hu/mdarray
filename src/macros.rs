@@ -1,3 +1,69 @@
+/// Creates a multidimensional array view containing the arguments.
+///
+/// This macro is used to create an array view, similar to the `vec!` macro for vectors.
+/// There are two forms of this macro:
+///
+/// - Create an array view containing a given list of elements:
+///
+/// ```
+/// use mdarray::{expr, expr::Expr};
+///
+/// let a = expr![[1, 2], [3, 4]];
+///
+/// assert_eq!(a, Expr::from(&[[1, 2], [3, 4]]));
+/// ```
+///
+/// - Create an array view from a given element and shape:
+///
+/// ```
+/// use mdarray::{expr, expr::Expr};
+///
+/// let a = expr![[1; 2]; 3];
+///
+/// assert_eq!(a, Expr::from(&[[1; 2]; 3]));
+/// ```
+///
+/// In the second form, the argument must be an array repeat expression with constant shape.
+#[macro_export]
+macro_rules! expr {
+    ($([$([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
+        $crate::expr::Expr::<_, $crate::Const<6>>::from(&[$([$([$([$([$([$($x),*]),+]),+]),+]),+]),+])
+    );
+    ($([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
+        $crate::expr::Expr::<_, $crate::Const<5>>::from(&[$([$([$([$([$($x),*]),+]),+]),+]),+])
+    );
+    ($([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
+        $crate::expr::Expr::<_, $crate::Const<4>>::from(&[$([$([$([$($x),*]),+]),+]),+])
+    );
+    ($([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?) => (
+        $crate::expr::Expr::<_, $crate::Const<3>>::from(&[$([$([$($x),*]),+]),+])
+    );
+    ($([$($x:expr),* $(,)?]),+ $(,)?) => (
+        $crate::expr::Expr::<_, $crate::Const<2>>::from(&[$([$($x),*]),+])
+    );
+    ($($x:expr),* $(,)?) => (
+        $crate::expr::Expr::<_, $crate::Const<1>>::from(&[$($x),*])
+    );
+    ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
+        $crate::expr::Expr::<_, $crate::Const<6>>::from(&[[[[[[$elem; $i]; $j]; $k]; $l]; $m]; $n])
+    );
+    ([[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr) => (
+        $crate::expr::Expr::<_, $crate::Const<5>>::from(&[[[[[$elem; $i]; $j]; $k]; $l]; $m])
+    );
+    ([[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr) => (
+        $crate::expr::Expr::<_, $crate::Const<4>>::from(&[[[[$elem; $i]; $j]; $k]; $l])
+    );
+    ([[$elem:expr; $i:expr]; $j:expr]; $k:expr) => (
+        $crate::expr::Expr::<_, $crate::Const<3>>::from(&[[[$elem; $i]; $j]; $k])
+    );
+    ([$elem:expr; $i:expr]; $j:expr) => (
+        $crate::expr::Expr::<_, $crate::Const<2>>::from(&[[$elem; $i]; $j])
+    );
+    ($elem:expr; $i:expr) => (
+        $crate::expr::Expr::<_, $crate::Const<1>>::from(&[$elem; $i])
+    );
+}
+
 /// Creates a dense multidimensional array containing the arguments.
 ///
 /// This macro is used to create an array, similar to the `vec!` macro for vectors.
@@ -27,105 +93,39 @@
 #[macro_export]
 macro_rules! grid {
     ($([$([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        Grid::<_, 6>::from([$([$([$([$([$([$($x),*]),+]),+]),+]),+]),+])
+        $crate::DGrid::<_, 6>::from([$([$([$([$([$([$($x),*]),+]),+]),+]),+]),+])
     );
     ($([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        Grid::<_, 5>::from([$([$([$([$([$($x),*]),+]),+]),+]),+])
+        $crate::DGrid::<_, 5>::from([$([$([$([$([$($x),*]),+]),+]),+]),+])
     );
     ($([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        Grid::<_, 4>::from([$([$([$([$($x),*]),+]),+]),+])
+        $crate::DGrid::<_, 4>::from([$([$([$([$($x),*]),+]),+]),+])
     );
     ($([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?) => (
-        Grid::<_, 3>::from([$([$([$($x),*]),+]),+])
+        $crate::DGrid::<_, 3>::from([$([$([$($x),*]),+]),+])
     );
     ($([$($x:expr),* $(,)?]),+ $(,)?) => (
-        Grid::<_, 2>::from([$([$($x),*]),+])
+        $crate::DGrid::<_, 2>::from([$([$($x),*]),+])
     );
     ($($x:expr),* $(,)?) => (
-        Grid::<_, 1>::from([$($x),*])
+        $crate::DGrid::<_, 1>::from([$($x),*])
     );
     ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
-        Grid::<_, 6>::from_elem([$i, $j, $k, $l, $m, $n], $elem)
+        $crate::DGrid::<_, 6>::from_elem([$i, $j, $k, $l, $m, $n], $elem)
     );
     ([[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr) => (
-        Grid::<_, 5>::from_elem([$i, $j, $k, $l, $m], $elem)
+        $crate::DGrid::<_, 5>::from_elem([$i, $j, $k, $l, $m], $elem)
     );
     ([[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr) => (
-        Grid::<_, 4>::from_elem([$i, $j, $k, $l], $elem)
+        $crate::DGrid::<_, 4>::from_elem([$i, $j, $k, $l], $elem)
     );
     ([[$elem:expr; $i:expr]; $j:expr]; $k:expr) => (
-        Grid::<_, 3>::from_elem([$i, $j, $k], $elem)
+        $crate::DGrid::<_, 3>::from_elem([$i, $j, $k], $elem)
     );
     ([$elem:expr; $i:expr]; $j:expr) => (
-        Grid::<_, 2>::from_elem([$i, $j], $elem)
+        $crate::DGrid::<_, 2>::from_elem([$i, $j], $elem)
     );
     ($elem:expr; $i:expr) => (
-        Grid::<_, 1>::from_elem([$i], $elem)
-    );
-}
-
-/// Creates a multidimensional array view containing the arguments.
-///
-/// This macro is used to create an array view, similar to the `vec!` macro for vectors.
-/// There are two forms of this macro:
-///
-/// - Create an array view containing a given list of elements:
-///
-/// ```
-/// use mdarray::{view, View};
-///
-/// let a = view![[1, 2], [3, 4]];
-///
-/// assert_eq!(a, View::from(&[[1, 2], [3, 4]]));
-/// ```
-///
-/// - Create an array view from a given element and shape:
-///
-/// ```
-/// use mdarray::{view, View};
-///
-/// let a = view![[1; 2]; 3];
-///
-/// assert_eq!(a, View::from(&[[1; 2]; 3]));
-/// ```
-///
-/// In the second form, the argument must be an array repeat expression with constant shape.
-#[macro_export]
-macro_rules! view {
-    ($([$([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        View::<_, 6>::from(&[$([$([$([$([$([$($x),*]),+]),+]),+]),+]),+])
-    );
-    ($([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        View::<_, 5>::from(&[$([$([$([$([$($x),*]),+]),+]),+]),+])
-    );
-    ($([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        View::<_, 4>::from(&[$([$([$([$($x),*]),+]),+]),+])
-    );
-    ($([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?) => (
-        View::<_, 3>::from(&[$([$([$($x),*]),+]),+])
-    );
-    ($([$($x:expr),* $(,)?]),+ $(,)?) => (
-        View::<_, 2>::from(&[$([$($x),*]),+])
-    );
-    ($($x:expr),* $(,)?) => (
-        View::<_, 1>::from(&[$($x),*])
-    );
-    ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
-        View::<_, 6>::from(&[[[[[[$elem; $i]; $j]; $k]; $l]; $m]; $n])
-    );
-    ([[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr) => (
-        View::<_, 5>::from(&[[[[[$elem; $i]; $j]; $k]; $l]; $m])
-    );
-    ([[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr) => (
-        View::<_, 4>::from(&[[[[$elem; $i]; $j]; $k]; $l])
-    );
-    ([[$elem:expr; $i:expr]; $j:expr]; $k:expr) => (
-        View::<_, 3>::from(&[[[$elem; $i]; $j]; $k])
-    );
-    ([$elem:expr; $i:expr]; $j:expr) => (
-        View::<_, 2>::from(&[[$elem; $i]; $j])
-    );
-    ($elem:expr; $i:expr) => (
-        View::<_, 1>::from(&[$elem; $i])
+        $crate::DGrid::<_, 1>::from_elem([$i], $elem)
     );
 }

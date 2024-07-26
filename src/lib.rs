@@ -14,35 +14,36 @@
 //! - Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
 //! - Generic expressions for multidimensional iteration.
 //!
-//! The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
-//! the proposed C++ mdarray and mdspan types, and multidimensional arrays in
-//! Julia, Matlab and Python.
+//! The design is inspired from other Rust crates (ndarray, nalgebra, bitvec
+//! and dfdx), the proposed C++ mdarray and mdspan types, and multidimensional
+//! arrays in other languages.
 //!
 //! ## Array types
 //!
-//! The base type for multidimensional arrays is `Array<B>`, where the generic
-//! parameter is a buffer for the array storage. The following variants exist:
+//! The basic array type is `Grid` for a dense array that owns the storage,
+//! similar to the Rust `Vec` type. It is parameterized by the element type,
+//! the rank (i.e. the number of dimensions) and optionally an allocator.
 //!
-//! - `Array<GridBuffer>` is a dense array that owns the storage, similar to
-//!   the Rust `Vec` type.
-//! - `Array<ViewBuffer>` and `Array<ViewBufferMut>` are arrays that refer to a
-//!   parent array. They are used for example when creating views of a larger
-//!   array without duplicating elements.
-//! - `Array<SpanBuffer>` is used as a generic array reference, similar to the
-//!   Rust `slice` type. It consists of a pointer to an internal structure that
-//!   holds the storage and the layout mapping. Arrays and array views can be
-//!   dereferenced to an array span.
+//! `Expr` and `ExprMut` are array types that refer to a parent array. They are
+//! used for example when creating array views without duplicating elements.
+//!
+//! `Span` is a generic array reference, similar to the Rust `slice` type.
+//! It consists of a pointer to an internal structure that holds the storage
+//! and the layout mapping. All arrays can be dereferenced to an array span.
+//!
+//! The following type aliases are provided:
+//!
+//! - `DGrid<T, const N: usize, ...>` for a dense array with a given rank.
+//! - `DSpan<T, const N: usize, ...>` for an array span with a given rank.
 //!
 //! The layout mapping describes how elements are stored in memory. The mapping
-//! is parameterized by the rank (i.e. the number of dimensions) and the array
-//! layout. It contains the shape (i.e. the size in each dimension), and the
-//! strides per dimension if needed.
+//! is parameterized by the rank and the layout. It contains the shape (i.e.
+//! the size of each dimension), and strides per dimension if needed.
 //!
-//! The array layout is `Dense` if elements are stored contiguously without gaps.
-//! In this case, the strides are calculated from the shape and not stored as
-//! part of the layout. The layout is `General` if each dimension can have
-//! arbitrary stride except for the innermost one, which has unit stride. It is
-//! compatible with the BLAS/LAPACK general matrix storage.
+//! The layout is `Dense` if elements are stored contiguously without gaps.
+//! The layout is `General` if each dimension can have arbitrary stride except
+//! for the innermost one, which has unit stride. It is compatible with the
+//! BLAS/LAPACK general matrix storage.
 //!
 //! The layout is `Flat` if the innermost dimension can have arbitrary stride
 //! and the other dimensions must follow in order, allowing for linear indexing.
@@ -50,18 +51,6 @@
 //!
 //! The array elements are stored in column-major or Fortran order, where the
 //! first dimension is the innermost one.
-//!
-//! The following type aliases are provided:
-//!
-//! - `Grid<T, const N: usize, A = Global>` for a dense array
-//! - `Span<T, const N: usize, L = Dense>` for an array span
-//! - `View<T, const N: usize, L = Dense>` for an array view
-//! - `ViewMut<T, const N: usize, L = Dense>` for a mutable array view
-//!
-//! Prefer using `Span` instead of array views for function parameters, since
-//! they can refer to either an owned array or an array view. Array views
-//! are useful for example when lifetimes need to be maintained in function
-//! return types.
 //!
 //! ## Indexing and views
 //!
@@ -91,20 +80,18 @@
 //! An iterator can be created from an array with the `iter`, `iter_mut` and
 //! `into_iter` methods like for `Vec` and `slice`.
 //!
-//! Expressions are similar to iterators, but have consistency checking of shapes
-//! and support multidimensional iteration more efficiently. An expression is
-//! created with the `expr`, `expr_mut` and `into_expr` methods.
+//! Expressions are similar to iterators, but support multidimensional iteration
+//! and have consistency checking of shapes. An expression is created with the
+//! `expr`, `expr_mut` and `into_expr` methods. Note that the array types `Expr`
+//! and `ExprMut` are also expressions.
 //!
-//! An expression consists of a base type `Expression<P>`, where the generic
-//! parameter is a tree of producer nodes. The base type has several methods
-//! for evaluating expressions or converting into other expressions, such as
-//! `eval`, `for_each` and `map`.
+//! There are methods for for evaluating expressions or converting into other
+//! expressions, such as `eval`, `for_each` and `map`. Two expressions can be
+//! merged to an expression of tuples with the `zip` method or free function.
 //!
-//! Two expressions can be merged to an expression of tuples with the `zip` method
-//! or free function. When merging expressions, if the rank differs the expression
-//! with the lower rank is broadcast into the larger shape by adding a number of
-//! outer dimensions. It is not possible to broadcast mutable arrays or when
-//! moving elements out of an array.
+//! When merging expressions, if the rank differs the expression with the lower
+//! rank is broadcast into the larger shape by adding outer dimensions. It is not
+//! possible to broadcast mutable arrays or when moving elements out of an array.
 //!
 //! For multidimensional arrays, iteration over a single dimension can be done
 //! with `outer_expr`, `outer_expr_mut`, `axis_expr` and `axis_expr_mut`.
@@ -140,9 +127,9 @@
 //! is avoided, and the compiler is able to vectorize the inner loop.
 //!
 //! ```
-//! use mdarray::{grid, view, Expression, Grid, Span, View};
+//! use mdarray::{expr, grid, DSpan, Expression};
 //!
-//! fn matmul(a: &Span<f64, 2>, b: &Span<f64, 2>, c: &mut Span<f64, 2>) {
+//! fn matmul(a: &DSpan<f64, 2>, b: &DSpan<f64, 2>, c: &mut DSpan<f64, 2>) {
 //!     for (mut cj, bj) in c.cols_mut().zip(b.cols()) {
 //!         for (ak, bkj) in a.cols().zip(bj) {
 //!             for (cij, aik) in cj.expr_mut().zip(ak) {
@@ -152,14 +139,14 @@
 //!     }
 //! }
 //!
-//! let a = view![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-//! let b = view![[0.0, 1.0], [1.0, 1.0]];
+//! let a = expr![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+//! let b = expr![[0.0, 1.0], [1.0, 1.0]];
 //!
 //! let mut c = grid![[0.0; 3]; 2];
 //!
 //! matmul(&a, &b, &mut c);
 //!
-//! assert_eq!(c, view![[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]);
+//! assert_eq!(c, expr![[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]);
 //! ```
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
@@ -173,9 +160,6 @@
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
-/// Buffer module for array storage.
-pub mod buffer;
-
 /// Expression module, for multidimensional iteration.
 pub mod expr;
 
@@ -185,7 +169,6 @@ pub mod index;
 /// Array layout mapping module.
 pub mod mapping;
 
-mod array;
 mod dim;
 mod expression;
 mod grid;
@@ -193,10 +176,10 @@ mod iter;
 mod layout;
 mod macros;
 mod ops;
+mod raw_grid;
 mod raw_span;
 mod span;
 mod traits;
-mod view;
 
 #[cfg(feature = "serde")]
 mod serde;
@@ -211,29 +194,11 @@ mod alloc {
     impl Allocator for Global {}
 }
 
-#[cfg(feature = "nightly")]
-use std::alloc::Global;
-
-#[cfg(not(feature = "nightly"))]
-use alloc::Global;
-use array::{GridArray, SpanArray, ViewArray, ViewArrayMut};
-
-pub use array::Array;
 pub use dim::{Const, Dim, Shape, Strides};
 pub use expression::Expression;
+pub use grid::{DGrid, Grid};
 pub use iter::Iter;
 pub use layout::{Dense, Flat, General, Layout, Strided, Uniform, UnitStrided};
 pub use ops::{step, StepRange};
+pub use span::{DSpan, Span};
 pub use traits::{Apply, IntoCloned, IntoExpression};
-
-/// Dense multidimensional array.
-pub type Grid<T, const N: usize, A = Global> = GridArray<T, Const<N>, A>;
-
-/// Multidimensional array span.
-pub type Span<T, const N: usize, L = Dense> = SpanArray<T, Const<N>, L>;
-
-/// Multidimensional array view.
-pub type View<'a, T, const N: usize, L = Dense> = ViewArray<'a, T, Const<N>, L>;
-
-/// Mutable multidimensional array view.
-pub type ViewMut<'a, T, const N: usize, L = Dense> = ViewArrayMut<'a, T, Const<N>, L>;

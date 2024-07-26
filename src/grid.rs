@@ -1,18 +1,25 @@
 #[cfg(feature = "nightly")]
 use std::alloc::{Allocator, Global};
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::TryReserveError;
+use std::fmt::{self, Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::mem::{self, MaybeUninit};
 use std::ops::RangeBounds;
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::{ptr, slice};
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::Allocator;
-use crate::array::GridArray;
-use crate::buffer::GridBuffer;
+use crate::alloc::{Allocator, Global};
 use crate::dim::{Const, Dim, Shape};
-use crate::expr::{self, Drain, IntoExpr};
+use crate::expr::{self, Drain, Expr, ExprMut, IntoExpr, Map, Zip};
 use crate::expression::Expression;
+use crate::index::SpanIndex;
+use crate::iter::Iter;
+use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
+use crate::raw_grid::RawGrid;
+use crate::span::Span;
 use crate::traits::{Apply, IntoCloned, IntoExpression};
 
 #[cfg(not(feature = "nightly"))]
@@ -29,11 +36,19 @@ macro_rules! vec_t {
     };
 }
 
-impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
+/// Dense multidimensional array.
+pub struct Grid<T, D: Dim, A: Allocator = Global> {
+    grid: RawGrid<T, D, A>,
+}
+
+/// Multidimensional array with the specified rank and dense layout.
+pub type DGrid<T, const N: usize, A = Global> = Grid<T, Const<N>, A>;
+
+impl<T, D: Dim, A: Allocator> Grid<T, D, A> {
     /// Returns a reference to the underlying allocator.
     #[cfg(feature = "nightly")]
     pub fn allocator(&self) -> &A {
-        self.buffer.allocator()
+        self.grid.allocator()
     }
 
     /// Moves all elements from another array into the array along the outermost dimension.
@@ -47,7 +62,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Returns the number of elements the array can hold without reallocating.
     pub fn capacity(&self) -> usize {
-        self.buffer.capacity()
+        self.grid.capacity()
     }
 
     /// Clears the array, removing all values.
@@ -55,8 +70,8 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     /// Note that this method has no effect on the allocated capacity of the array.
     pub fn clear(&mut self) {
         unsafe {
-            self.buffer.with_mut_vec(|vec| vec.clear());
-            self.buffer.set_mapping(DenseMapping::default());
+            self.grid.with_mut_vec(|vec| vec.clear());
+            self.grid.set_mapping(DenseMapping::default());
         }
     }
 
@@ -100,19 +115,19 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
             shape[D::RANK - 1] += if I::Dim::RANK < D::RANK { 1 } else { expr.size(D::RANK - 1) };
 
             unsafe {
-                self.buffer.with_mut_vec(|vec| {
+                self.grid.with_mut_vec(|vec| {
                     vec.reserve(len);
                     expr.clone_into_vec(vec);
                 });
 
-                self.set_shape(shape);
+                self.set_mapping(DenseMapping::new(shape));
             }
         }
     }
 
     /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn from_elem_in(shape: D::Shape, elem: T, alloc: A) -> Self
+    pub fn from_elem_in<S: Shape<Dim = D>>(shape: S, elem: T, alloc: A) -> Self
     where
         T: Clone,
     {
@@ -134,7 +149,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
     /// Creates an array with the results from the given function with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn from_fn_in<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F, alloc: A) -> Self {
+    pub fn from_fn_in<S: Shape<Dim = D>, F: FnMut(S) -> T>(shape: S, f: F, alloc: A) -> Self {
         expr::from_fn(shape, f).eval_in(alloc)
     }
 
@@ -156,14 +171,14 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     /// Converts the array into a one-dimensional array.
-    pub fn into_flattened(self) -> GridArray<T, Const<1>, A> {
+    pub fn into_flattened(self) -> Grid<T, Const<1>, A> {
         self.into_vec().into()
     }
 
     /// Decomposes an array into its raw components including the allocator.
     #[cfg(feature = "nightly")]
     pub fn into_raw_parts_with_alloc(self) -> (*mut T, D::Shape, usize, A) {
-        let (vec, mapping) = self.buffer.into_parts();
+        let (vec, mapping) = self.grid.into_parts();
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
 
         (ptr, mapping.shape(), capacity, alloc)
@@ -185,15 +200,15 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     /// # Panics
     ///
     /// Panics if the array length is changed.
-    pub fn into_shape<S: Shape>(self, shape: S) -> GridArray<T, S::Dim, A> {
-        let (vec, mapping) = self.buffer.into_parts();
+    pub fn into_shape<S: Shape>(self, shape: S) -> Grid<T, S::Dim, A> {
+        let (vec, mapping) = self.grid.into_parts();
 
-        unsafe { GridArray::from_parts(vec, Mapping::reshape(mapping, shape)) }
+        unsafe { Grid::from_parts(vec, Mapping::reshape(mapping, shape)) }
     }
 
     /// Converts the array into a vector.
     pub fn into_vec(self) -> vec_t!(T, A) {
-        let (vec, _) = self.buffer.into_parts();
+        let (vec, _) = self.grid.into_parts();
 
         vec
     }
@@ -207,14 +222,14 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     /// Reserves capacity for at least the additional number of elements in the array.
     pub fn reserve(&mut self, additional: usize) {
         unsafe {
-            self.buffer.with_mut_vec(|vec| vec.reserve(additional));
+            self.grid.with_mut_vec(|vec| vec.reserve(additional));
         }
     }
 
     /// Reserves the minimum capacity for the additional number of elements in the array.
     pub fn reserve_exact(&mut self, additional: usize) {
         unsafe {
-            self.buffer.with_mut_vec(|vec| vec.reserve_exact(additional));
+            self.grid.with_mut_vec(|vec| vec.reserve_exact(additional));
         }
     }
 
@@ -224,7 +239,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         T: Clone,
         A: Clone,
     {
-        self.buffer.resize_with(new_shape, || value.clone());
+        self.grid.resize_with(new_shape, || value.clone());
     }
 
     /// Resizes the array to the new shape, creating new elements from the given closure.
@@ -232,29 +247,29 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     where
         A: Clone,
     {
-        self.buffer.resize_with(new_shape, f);
+        self.grid.resize_with(new_shape, f);
     }
 
-    /// Forces the array shape to the new shape.
+    /// Forces the array layout mapping to the new mapping.
     ///
     /// # Safety
     ///
     /// All elements within the array length must be initialized.
-    pub unsafe fn set_shape(&mut self, new_shape: D::Shape) {
-        self.buffer.set_mapping(DenseMapping::new(new_shape));
+    pub unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<D>) {
+        self.grid.set_mapping(new_mapping);
     }
 
     /// Shrinks the capacity of the array with a lower bound.
     pub fn shrink_to(&mut self, min_capacity: usize) {
         unsafe {
-            self.buffer.with_mut_vec(|vec| vec.shrink_to(min_capacity));
+            self.grid.with_mut_vec(|vec| vec.shrink_to(min_capacity));
         }
     }
 
     /// Shrinks the capacity of the array as much as possible.
     pub fn shrink_to_fit(&mut self) {
         unsafe {
-            self.buffer.with_mut_vec(|vec| vec.shrink_to_fit());
+            self.grid.with_mut_vec(|vec| vec.shrink_to_fit());
         }
     }
 
@@ -275,8 +290,8 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
             let new_mapping = self.mapping().resize_dim(D::RANK - 1, size);
 
             unsafe {
-                self.buffer.with_mut_vec(|vec| vec.truncate(new_mapping.len()));
-                self.buffer.set_mapping(new_mapping);
+                self.grid.with_mut_vec(|vec| vec.truncate(new_mapping.len()));
+                self.grid.set_mapping(new_mapping);
             }
         }
     }
@@ -287,7 +302,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.buffer.with_mut_vec(|vec| vec.try_reserve(additional)) }
+        unsafe { self.grid.with_mut_vec(|vec| vec.try_reserve(additional)) }
     }
 
     /// Tries to reserve the minimum capacity for the additional number of elements in the array.
@@ -296,7 +311,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.buffer.with_mut_vec(|vec| vec.try_reserve_exact(additional)) }
+        unsafe { self.grid.with_mut_vec(|vec| vec.try_reserve_exact(additional)) }
     }
 
     /// Creates a new, empty array with the specified capacity and allocator.
@@ -306,7 +321,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
     }
 
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<D>) -> Self {
-        Self { buffer: GridBuffer::from_parts(vec, mapping) }
+        Self { grid: RawGrid::from_parts(vec, mapping) }
     }
 
     pub(crate) fn zip_with<I: IntoExpression, F>(mut self, expr: I, mut f: F) -> Self
@@ -314,7 +329,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
         F: FnMut((T, I::Item)) -> T,
     {
         struct DropGuard<'a, T, D: Dim, A: Allocator> {
-            grid: &'a mut GridArray<T, D, A>,
+            grid: &'a mut Grid<T, D, A>,
             index: usize,
         }
 
@@ -325,7 +340,7 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 
                 // Drop all elements except the current one, which is read but not written back.
                 unsafe {
-                    self.grid.buffer.set_mapping(DenseMapping::default());
+                    self.grid.grid.set_mapping(DenseMapping::default());
 
                     if self.index > 1 {
                         ptr::drop_in_place(ptr::slice_from_raw_parts_mut(ptr, self.index - 1));
@@ -351,9 +366,9 @@ impl<T, D: Dim, A: Allocator> GridArray<T, D, A> {
 }
 
 #[cfg(not(feature = "nightly"))]
-impl<T, D: Dim> GridArray<T, D> {
+impl<T, D: Dim> Grid<T, D> {
     /// Creates an array from the given element.
-    pub fn from_elem(shape: D::Shape, elem: T) -> Self
+    pub fn from_elem<S: Shape<Dim = D>>(shape: S, elem: T) -> Self
     where
         T: Clone,
     {
@@ -373,7 +388,7 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates an array with the results from the given function.
-    pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F) -> Self {
+    pub fn from_fn<S: Shape<Dim = D>, F: FnMut(S) -> T>(shape: S, f: F) -> Self {
         expr::from_fn(shape, f).eval()
     }
 
@@ -391,7 +406,7 @@ impl<T, D: Dim> GridArray<T, D> {
 
     /// Decomposes an array into its raw components.
     pub fn into_raw_parts(self) -> (*mut T, D::Shape, usize) {
-        let (vec, mapping) = self.buffer.into_parts();
+        let (vec, mapping) = self.grid.into_parts();
         let mut vec = mem::ManuallyDrop::new(vec);
 
         (vec.as_mut_ptr(), mapping.shape(), vec.capacity())
@@ -409,9 +424,9 @@ impl<T, D: Dim> GridArray<T, D> {
 }
 
 #[cfg(feature = "nightly")]
-impl<T, D: Dim> GridArray<T, D> {
+impl<T, D: Dim> Grid<T, D> {
     /// Creates an array from the given element.
-    pub fn from_elem(shape: D::Shape, elem: T) -> Self
+    pub fn from_elem<S: Shape<Dim = D>>(shape: S, elem: T) -> Self
     where
         T: Clone,
     {
@@ -424,7 +439,7 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 
     /// Creates an array with the results from the given function.
-    pub fn from_fn<F: FnMut(D::Shape) -> T>(shape: D::Shape, f: F) -> Self {
+    pub fn from_fn<S: Shape<Dim = D>, F: FnMut(S) -> T>(shape: S, f: F) -> Self {
         Self::from_fn_in(shape, f, Global)
     }
 
@@ -455,7 +470,50 @@ impl<T, D: Dim> GridArray<T, D> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Apply<T> for GridArray<T, D, A> {
+impl<T: Clone, D: Dim> Grid<T, D> {
+    pub(crate) fn clone_from_span(&mut self, span: &Span<T, D>) {
+        unsafe {
+            self.grid.with_mut_vec(|vec| span[..].clone_into(vec));
+            self.grid.set_mapping(span.mapping());
+        }
+    }
+}
+
+impl<'a, T, U, D: Dim, A: Allocator> Apply<U> for &'a Grid<T, D, A> {
+    type Output<F: FnMut(&'a T) -> U> = Map<Self::IntoExpr, F>;
+    type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
+
+    fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output<F> {
+        self.expr().map(f)
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
+    where
+        F: FnMut((&'a T, I::Item)) -> U,
+    {
+        self.expr().zip(expr).map(f)
+    }
+}
+
+impl<'a, T, U, D: Dim, A: Allocator> Apply<U> for &'a mut Grid<T, D, A> {
+    type Output<F: FnMut(&'a mut T) -> U> = Map<Self::IntoExpr, F>;
+    type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
+        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
+
+    fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output<F> {
+        self.expr_mut().map(f)
+    }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
+    where
+        F: FnMut((&'a mut T, I::Item)) -> U,
+    {
+        self.expr_mut().zip(expr).map(f)
+    }
+}
+
+impl<T, D: Dim, A: Allocator> Apply<T> for Grid<T, D, A> {
     type Output<F: FnMut(T) -> T> = Self;
     type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> = Self;
 
@@ -468,40 +526,114 @@ impl<T, D: Dim, A: Allocator> Apply<T> for GridArray<T, D, A> {
     }
 }
 
-impl<T, D: Dim> Default for GridArray<T, D> {
+impl<T, U: ?Sized, D: Dim, A: Allocator> AsMut<U> for Grid<T, D, A>
+where
+    Span<T, D>: AsMut<U>,
+{
+    fn as_mut(&mut self) -> &mut U {
+        (**self).as_mut()
+    }
+}
+
+impl<T, U: ?Sized, D: Dim, A: Allocator> AsRef<U> for Grid<T, D, A>
+where
+    Span<T, D>: AsRef<U>,
+{
+    fn as_ref(&self) -> &U {
+        (**self).as_ref()
+    }
+}
+
+impl<T, D: Dim, A: Allocator> Borrow<Span<T, D>> for Grid<T, D, A> {
+    fn borrow(&self) -> &Span<T, D> {
+        self
+    }
+}
+
+impl<T, D: Dim, A: Allocator> BorrowMut<Span<T, D>> for Grid<T, D, A> {
+    fn borrow_mut(&mut self) -> &mut Span<T, D> {
+        self
+    }
+}
+
+impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for Grid<T, D, A> {
+    fn clone(&self) -> Self {
+        Self { grid: self.grid.clone() }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.grid.clone_from(&source.grid);
+    }
+}
+
+impl<T: Debug, D: Dim, A: Allocator> Debug for Grid<T, D, A> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl<T, D: Dim> Default for Grid<T, D> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, T: 'a + Copy, A: Allocator> Extend<&'a T> for GridArray<T, Const<1>, A> {
+impl<T, D: Dim, A: Allocator> Deref for Grid<T, D, A> {
+    type Target = Span<T, D>;
+
+    fn deref(&self) -> &Self::Target {
+        self.grid.as_span()
+    }
+}
+
+impl<T, D: Dim, A: Allocator> DerefMut for Grid<T, D, A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.grid.as_mut_span()
+    }
+}
+
+impl<'a, T: 'a + Copy, A: Allocator> Extend<&'a T> for Grid<T, Const<1>, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().copied());
     }
 }
 
-impl<T, A: Allocator> Extend<T> for GridArray<T, Const<1>, A> {
+impl<T, A: Allocator> Extend<T> for Grid<T, Const<1>, A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         unsafe {
-            let len = self.buffer.with_mut_vec(|vec| {
+            let len = self.grid.with_mut_vec(|vec| {
                 vec.extend(iter);
                 vec.len()
             });
 
-            self.set_shape([len]);
+            self.set_mapping(DenseMapping::new([len]));
         }
     }
 }
 
-impl<T: Clone> From<&[T]> for GridArray<T, Const<1>> {
+impl<T: Clone> From<&[T]> for Grid<T, Const<1>> {
     fn from(slice: &[T]) -> Self {
         Self::from(slice.to_vec())
     }
 }
 
+impl<T, D: Dim, A: Allocator> From<Grid<T, D, A>> for vec_t!(T, A) {
+    fn from(grid: Grid<T, D, A>) -> Self {
+        grid.into_vec()
+    }
+}
+
+impl<T, A: Allocator> From<vec_t!(T, A)> for Grid<T, Const<1>, A> {
+    fn from(vec: vec_t!(T, A)) -> Self {
+        let mapping = DenseMapping::new([vec.len()]);
+
+        unsafe { Self::from_parts(vec, mapping) }
+    }
+}
+
 macro_rules! impl_from_array {
     ($n:tt, ($($size:tt),+), $array:tt) => {
-        impl<T, $(const $size: usize),+> From<$array> for GridArray<T, Const<$n,>> {
+        impl<T, $(const $size: usize),+> From<$array> for Grid<T, Const<$n,>> {
             #[cfg(not(feature = "nightly"))]
             fn from(array: $array) -> Self {
                 if [$($size),+].contains(&0) {
@@ -543,27 +675,51 @@ impl_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
 impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
-impl<T, D: Dim, A: Allocator> From<GridArray<T, D, A>> for vec_t!(T, A) {
-    fn from(grid: GridArray<T, D, A>) -> Self {
-        grid.into_vec()
-    }
-}
-
-impl<T, A: Allocator> From<vec_t!(T, A)> for GridArray<T, Const<1>, A> {
-    fn from(vec: vec_t!(T, A)) -> Self {
-        let mapping = DenseMapping::new([vec.len()]);
-
-        unsafe { Self::from_parts(vec, mapping) }
-    }
-}
-
-impl<T> FromIterator<T> for GridArray<T, Const<1>> {
+impl<T> FromIterator<T> for Grid<T, Const<1>> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
     }
 }
 
-impl<T, D: Dim, A: Allocator> IntoExpression for GridArray<T, D, A> {
+impl<T: Hash, D: Dim, A: Allocator> Hash for Grid<T, D, A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
+    }
+}
+
+impl<T, D: Dim, A: Allocator, I: SpanIndex<T, D, Dense>> Index<I> for Grid<T, D, A> {
+    type Output = I::Output;
+
+    fn index(&self, index: I) -> &I::Output {
+        index.index(self)
+    }
+}
+
+impl<T, D: Dim, A: Allocator, I: SpanIndex<T, D, Dense>> IndexMut<I> for Grid<T, D, A> {
+    fn index_mut(&mut self, index: I) -> &mut I::Output {
+        index.index_mut(self)
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> IntoExpression for &'a Grid<T, D, A> {
+    type Dim = D;
+    type IntoExpr = Expr<'a, T, D>;
+
+    fn into_expr(self) -> Self::IntoExpr {
+        self.expr()
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> IntoExpression for &'a mut Grid<T, D, A> {
+    type Dim = D;
+    type IntoExpr = ExprMut<'a, T, D>;
+
+    fn into_expr(self) -> Self::IntoExpr {
+        self.expr_mut()
+    }
+}
+
+impl<T, D: Dim, A: Allocator> IntoExpression for Grid<T, D, A> {
     type Dim = D;
     type IntoExpr = IntoExpr<T, D, A>;
 
@@ -572,7 +728,25 @@ impl<T, D: Dim, A: Allocator> IntoExpression for GridArray<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> IntoIterator for GridArray<T, D, A> {
+impl<'a, T, D: Dim, A: Allocator> IntoIterator for &'a Grid<T, D, A> {
+    type Item = &'a T;
+    type IntoIter = Iter<Expr<'a, T, D>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T, D: Dim, A: Allocator> IntoIterator for &'a mut Grid<T, D, A> {
+    type Item = &'a mut T;
+    type IntoIter = Iter<ExprMut<'a, T, D>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<T, D: Dim, A: Allocator> IntoIterator for Grid<T, D, A> {
     type Item = T;
     type IntoIter = <vec_t!(T, A) as IntoIterator>::IntoIter;
 

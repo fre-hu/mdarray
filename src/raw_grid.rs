@@ -1,19 +1,16 @@
 #[cfg(feature = "nightly")]
 use std::alloc::Allocator;
-#[cfg(feature = "nightly")]
 use std::marker::PhantomData;
-#[cfg(not(feature = "nightly"))]
-use std::marker::{PhantomData, PhantomPinned};
 use std::mem::{self, ManuallyDrop};
 use std::{cmp, ptr};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::array::SpanArray;
 use crate::dim::Dim;
-use crate::layout::{Dense, Layout};
+use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_span::RawSpan;
+use crate::span::Span;
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -29,62 +26,13 @@ macro_rules! vec_t {
     };
 }
 
-/// Buffer trait for array storage.
-pub trait Buffer {
-    /// Array element type.
-    type Item;
-
-    /// Array dimension type.
-    type Dim: Dim;
-
-    /// Array layout type.
-    type Layout: Layout;
-
-    #[doc(hidden)]
-    fn as_span(&self) -> &SpanArray<Self::Item, Self::Dim, Self::Layout>;
-}
-
-/// Mutable buffer trait for array storage.
-pub trait BufferMut: Buffer {
-    #[doc(hidden)]
-    fn as_mut_span(&mut self) -> &mut SpanArray<Self::Item, Self::Dim, Self::Layout>;
-}
-
-/// Sized buffer trait for array storage.
-pub trait SizedBuffer: Buffer {}
-
-/// Mutable sized buffer trait for array storage.
-pub trait SizedBufferMut: BufferMut + SizedBuffer {}
-
-/// Dense multidimensional array buffer.
-pub struct GridBuffer<T, D: Dim, A: Allocator> {
+pub(crate) struct RawGrid<T, D: Dim, A: Allocator> {
     span: RawSpan<T, D, Dense>,
     capacity: usize,
     #[cfg(not(feature = "nightly"))]
     phantom: PhantomData<A>,
     #[cfg(feature = "nightly")]
     alloc: ManuallyDrop<A>,
-}
-
-/// Multidimensional array span buffer.
-pub struct SpanBuffer<T, D: Dim, L: Layout> {
-    phantom: PhantomData<(T, D, L)>,
-    #[cfg(not(feature = "nightly"))]
-    _pinned: PhantomPinned,
-    #[cfg(feature = "nightly")]
-    _opaque: Opaque,
-}
-
-/// Multidimensional array view buffer.
-pub struct ViewBuffer<'a, T, D: Dim, L: Layout> {
-    span: RawSpan<T, D, L>,
-    phantom: PhantomData<&'a T>,
-}
-
-/// Mutable multidimensional array view buffer.
-pub struct ViewBufferMut<'a, T, D: Dim, L: Layout> {
-    span: RawSpan<T, D, L>,
-    phantom: PhantomData<&'a mut T>,
 }
 
 struct DropGuard<'a, T, A: Allocator> {
@@ -96,15 +44,18 @@ struct DropGuard<'a, T, A: Allocator> {
     phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
-#[cfg(feature = "nightly")]
-extern "C" {
-    type Opaque;
-}
-
-impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
+impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
     #[cfg(feature = "nightly")]
     pub(crate) fn allocator(&self) -> &A {
         &self.alloc
+    }
+
+    pub(crate) fn as_mut_span(&mut self) -> &mut Span<T, D> {
+        self.span.as_mut_span()
+    }
+
+    pub(crate) fn as_span(&self) -> &Span<T, D> {
+        self.span.as_span()
     }
 
     pub(crate) fn capacity(&self) -> usize {
@@ -205,24 +156,24 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
     #[cfg(not(feature = "nightly"))]
     pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T>) -> U>(&mut self, f: F) -> U {
         struct DropGuard<'a, T, D: Dim, A: Allocator> {
-            buffer: &'a mut GridBuffer<T, D, A>,
+            grid: &'a mut RawGrid<T, D, A>,
             vec: ManuallyDrop<Vec<T>>,
         }
 
         impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
             fn drop(&mut self) {
                 unsafe {
-                    self.buffer.span.set_ptr(self.vec.as_mut_ptr());
-                    self.buffer.capacity = self.vec.capacity();
+                    self.grid.span.set_ptr(self.vec.as_mut_ptr());
+                    self.grid.capacity = self.vec.capacity();
 
-                    let mapping = self.buffer.span.mapping();
+                    let mapping = self.grid.span.mapping();
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != mapping.len() {
                         if self.vec.len() > mapping.len() {
                             ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
                         } else {
-                            self.buffer.span.set_mapping(DenseMapping::default());
+                            self.grid.span.set_mapping(DenseMapping::default());
                             ptr::drop_in_place(self.vec.as_mut_slice());
                         }
                     }
@@ -233,12 +184,12 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
         let vec =
             Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.mapping().len(), self.capacity);
 
-        let mut guard = DropGuard { buffer: self, vec: ManuallyDrop::new(vec) };
+        let mut guard = DropGuard { grid: self, vec: ManuallyDrop::new(vec) };
 
         let result = f(&mut guard.vec);
 
-        guard.buffer.span.set_ptr(guard.vec.as_mut_ptr());
-        guard.buffer.capacity = guard.vec.capacity();
+        guard.grid.span.set_ptr(guard.vec.as_mut_ptr());
+        guard.grid.capacity = guard.vec.capacity();
 
         mem::forget(guard);
 
@@ -248,25 +199,25 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
     #[cfg(feature = "nightly")]
     pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T, A>) -> U>(&mut self, f: F) -> U {
         struct DropGuard<'a, T, D: Dim, A: Allocator> {
-            buffer: &'a mut GridBuffer<T, D, A>,
+            grid: &'a mut RawGrid<T, D, A>,
             vec: ManuallyDrop<Vec<T, A>>,
         }
 
         impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
             fn drop(&mut self) {
                 unsafe {
-                    self.buffer.span.set_ptr(self.vec.as_mut_ptr());
-                    self.buffer.capacity = self.vec.capacity();
-                    self.buffer.alloc = ManuallyDrop::new(ptr::read(self.vec.allocator()));
+                    self.grid.span.set_ptr(self.vec.as_mut_ptr());
+                    self.grid.capacity = self.vec.capacity();
+                    self.grid.alloc = ManuallyDrop::new(ptr::read(self.vec.allocator()));
 
-                    let mapping = self.buffer.span.mapping();
+                    let mapping = self.grid.span.mapping();
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != mapping.len() {
                         if self.vec.len() > mapping.len() {
                             ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
                         } else {
-                            self.buffer.span.set_mapping(DenseMapping::default());
+                            self.grid.span.set_mapping(DenseMapping::default());
                             ptr::drop_in_place(self.vec.as_mut_slice());
                         }
                     }
@@ -283,13 +234,13 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
             )
         };
 
-        let mut guard = DropGuard { buffer: self, vec: ManuallyDrop::new(vec) };
+        let mut guard = DropGuard { grid: self, vec: ManuallyDrop::new(vec) };
 
         let result = f(&mut guard.vec);
 
-        guard.buffer.span.set_ptr(guard.vec.as_mut_ptr());
-        guard.buffer.capacity = guard.vec.capacity();
-        guard.buffer.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
+        guard.grid.span.set_ptr(guard.vec.as_mut_ptr());
+        guard.grid.capacity = guard.vec.capacity();
+        guard.grid.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
 
         mem::forget(guard);
 
@@ -319,23 +270,7 @@ impl<T, D: Dim, A: Allocator> GridBuffer<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Buffer for GridBuffer<T, D, A> {
-    type Item = T;
-    type Dim = D;
-    type Layout = Dense;
-
-    fn as_span(&self) -> &SpanArray<T, D, Dense> {
-        self.span.as_span()
-    }
-}
-
-impl<T, D: Dim, A: Allocator> BufferMut for GridBuffer<T, D, A> {
-    fn as_mut_span(&mut self) -> &mut SpanArray<T, D, Dense> {
-        self.span.as_mut_span()
-    }
-}
-
-impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for GridBuffer<T, D, A> {
+impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for RawGrid<T, D, A> {
     fn clone(&self) -> Self {
         unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.span.mapping()) }
     }
@@ -348,7 +283,7 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for GridBuffer<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Drop for GridBuffer<T, D, A> {
+impl<T, D: Dim, A: Allocator> Drop for RawGrid<T, D, A> {
     #[cfg(not(feature = "nightly"))]
     fn drop(&mut self) {
         _ = unsafe {
@@ -369,81 +304,8 @@ impl<T, D: Dim, A: Allocator> Drop for GridBuffer<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> SizedBuffer for GridBuffer<T, D, A> {}
-impl<T, D: Dim, A: Allocator> SizedBufferMut for GridBuffer<T, D, A> {}
-
-unsafe impl<T: Send, D: Dim, A: Allocator + Send> Send for GridBuffer<T, D, A> {}
-unsafe impl<T: Sync, D: Dim, A: Allocator + Sync> Sync for GridBuffer<T, D, A> {}
-
-impl<T, D: Dim, L: Layout> Buffer for SpanBuffer<T, D, L> {
-    type Item = T;
-    type Dim = D;
-    type Layout = L;
-
-    fn as_span(&self) -> &SpanArray<T, D, L> {
-        unsafe { &*(self as *const Self as *const SpanArray<T, D, L>) }
-    }
-}
-
-impl<T, D: Dim, L: Layout> BufferMut for SpanBuffer<T, D, L> {
-    fn as_mut_span(&mut self) -> &mut SpanArray<T, D, L> {
-        unsafe { &mut *(self as *mut Self as *mut SpanArray<T, D, L>) }
-    }
-}
-
-unsafe impl<T: Send, D: Dim, L: Layout> Send for SpanBuffer<T, D, L> {}
-unsafe impl<T: Sync, D: Dim, L: Layout> Sync for SpanBuffer<T, D, L> {}
-
-macro_rules! impl_view_buffer {
-    ($name:tt, $raw_mut:tt) => {
-        impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
-            pub(crate) unsafe fn new_unchecked(ptr: *$raw_mut T, mapping: L::Mapping<D>) -> Self {
-                Self {
-                    span: RawSpan::new_unchecked(ptr as *mut T, mapping),
-                    phantom: PhantomData,
-                }
-            }
-        }
-
-        impl<'a, T, D: Dim, L: Layout> Buffer for $name<'a, T, D, L> {
-            type Item = T;
-            type Dim = D;
-            type Layout = L;
-
-            fn as_span(&self) -> &SpanArray<T, D, L> {
-                self.span.as_span()
-            }
-        }
-    };
-}
-
-impl_view_buffer!(ViewBuffer, const);
-impl_view_buffer!(ViewBufferMut, mut);
-
-impl<'a, T, D: Dim, L: Layout> BufferMut for ViewBufferMut<'a, T, D, L> {
-    fn as_mut_span(&mut self) -> &mut SpanArray<T, D, L> {
-        self.span.as_mut_span()
-    }
-}
-
-impl<'a, T, D: Dim, L: Layout> Clone for ViewBuffer<'a, T, D, L> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'a, T, D: Dim, L: Layout> Copy for ViewBuffer<'a, T, D, L> {}
-
-impl<'a, T, D: Dim, L: Layout> SizedBuffer for ViewBuffer<'a, T, D, L> {}
-
-impl<'a, T, D: Dim, L: Layout> SizedBuffer for ViewBufferMut<'a, T, D, L> {}
-impl<'a, T, D: Dim, L: Layout> SizedBufferMut for ViewBufferMut<'a, T, D, L> {}
-
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for ViewBuffer<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for ViewBuffer<'a, T, D, L> {}
-
-unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for ViewBufferMut<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for ViewBufferMut<'a, T, D, L> {}
+unsafe impl<T: Send, D: Dim, A: Allocator + Send> Send for RawGrid<T, D, A> {}
+unsafe impl<T: Sync, D: Dim, A: Allocator + Sync> Sync for RawGrid<T, D, A> {}
 
 impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     fn new(vec: &'a mut vec_t!(T, A)) -> Self {

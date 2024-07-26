@@ -14,9 +14,9 @@ Here are the main features of mdarray:
 - Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
 - Generic expressions for multidimensional iteration.
 
-The design is inspired from the Rust ndarray, nalgebra and bitvec crates,
-the proposed C++ mdarray and mdspan types, and multidimensional arrays in
-Julia, Matlab and Python.
+The design is inspired from other Rust crates (ndarray, nalgebra, bitvec
+and dfdx), the proposed C++ mdarray and mdspan types, and multidimensional
+arrays in other languages.
 
 ## License
 
