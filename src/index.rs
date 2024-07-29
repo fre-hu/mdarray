@@ -45,15 +45,3 @@ where
 pub(crate) fn panic_bounds_check(index: usize, len: usize) -> ! {
     panic!("index out of bounds: the len is {len} but the index is {index}")
 }
-
-#[cfg(not(feature = "nightly"))]
-fn div_ceil(this: usize, rhs: usize) -> usize {
-    let d = this / rhs;
-    let r = this % rhs;
-
-    if r > 0 && rhs > 0 {
-        d + 1
-    } else {
-        d
-    }
-}

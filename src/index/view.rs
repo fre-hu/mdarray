@@ -172,9 +172,6 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
         let range = crate::index::range(self.range, ..size);
         #[cfg(feature = "nightly")]
         let range = slice::range(self.range, ..size);
-        #[cfg(not(feature = "nightly"))]
-        let len = crate::index::div_ceil(range.len(), self.step.abs_diff(0));
-        #[cfg(feature = "nightly")]
         let len = range.len().div_ceil(self.step.abs_diff(0));
 
         let delta = if self.step < 0 && !range.is_empty() { range.end - 1 } else { range.start };

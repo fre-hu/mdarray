@@ -2,7 +2,7 @@
 name = "mdarray"
 version = "0.5.0"
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.79"
 description = "Multidimensional array for Rust"
 repository = "https://github.com/fre-hu/mdarray"
 license = "MIT OR Apache-2.0"
