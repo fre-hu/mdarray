@@ -26,8 +26,8 @@ use serde_test::{assert_tokens, Token};
 use aligned_alloc::AlignedAlloc;
 use mdarray::expr::{Expr, ExprMut};
 use mdarray::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-use mdarray::{expr, grid, step, Apply, DGrid, Expression, Grid, IntoExpression};
-use mdarray::{Const, Dense, Dim, Flat, General, IntoCloned, Layout, StepRange, Strided};
+use mdarray::{expr, grid, step, Apply, DGrid, Expression, Grid, IntoCloned, IntoExpression};
+use mdarray::{Const, Dense, Dyn, Flat, General, Layout, Rank, Shape, StepRange, Strided};
 
 macro_rules! to_slice {
     ($span:expr) => {
@@ -35,8 +35,8 @@ macro_rules! to_slice {
     };
 }
 
-fn check_mapping<D: Dim, L: Layout, M: Mapping>(_: M) {
-    assert_eq!(any::type_name::<L::Mapping<D>>(), any::type_name::<M>());
+fn check_mapping<S: Shape, L: Layout, M: Mapping>(_: M) {
+    assert_eq!(any::type_name::<L::Mapping<S>>(), any::type_name::<M>());
 }
 
 fn check_view<L: Layout>() {
@@ -45,91 +45,91 @@ fn check_view<L: Layout>() {
 
     // a.view(_, _, 0)
 
-    check_mapping::<Const<0>, Dense, _>(a.view(0, 0, 0).mapping());
-    check_mapping::<Const<1>, L::Uniform, _>(a.view(.., 0, 0).mapping());
-    check_mapping::<Const<1>, L::Uniform, _>(a.view(1.., 0, 0).mapping());
-    check_mapping::<Const<1>, Flat, _>(a.view(sr(), 0, 0).mapping());
+    check_mapping::<Rank<0>, Dense, _>(a.view(0, 0, 0).mapping());
+    check_mapping::<Rank<1>, L::Uniform, _>(a.view(.., 0, 0).mapping());
+    check_mapping::<Rank<1>, L::Uniform, _>(a.view(1.., 0, 0).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(sr(), 0, 0).mapping());
 
-    check_mapping::<Const<1>, Flat, _>(a.view(0, .., 0).mapping());
-    check_mapping::<Const<2>, L, _>(a.view(.., .., 0).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., .., 0).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view(sr(), .., 0).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(0, .., 0).mapping());
+    check_mapping::<Rank<2>, L, _>(a.view(.., .., 0).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(1.., .., 0).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), .., 0).mapping());
 
-    check_mapping::<Const<1>, Flat, _>(a.view(0, 1.., 0).mapping());
-    check_mapping::<Const<2>, L, _>(a.view(.., 1.., 0).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 1.., 0).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 1.., 0).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(0, 1.., 0).mapping());
+    check_mapping::<Rank<2>, L, _>(a.view(.., 1.., 0).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(1.., 1.., 0).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), 1.., 0).mapping());
 
-    check_mapping::<Const<1>, Flat, _>(a.view(0, sr(), 0).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., sr(), 0).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., sr(), 0).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view(sr(), sr(), 0).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(0, sr(), 0).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(.., sr(), 0).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(1.., sr(), 0).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), sr(), 0).mapping());
 
     // a.view(_, _, ..)
 
-    check_mapping::<Const<1>, Flat, _>(a.view(0, 0, ..).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., 0, ..).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 0, ..).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 0, ..).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(0, 0, ..).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(.., 0, ..).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(1.., 0, ..).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), 0, ..).mapping());
 
-    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view(0, .., ..).mapping());
-    check_mapping::<Const<3>, L, _>(a.view(.., .., ..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., .., ..).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), .., ..).mapping());
+    check_mapping::<Rank<2>, L::NonUnitStrided, _>(a.view(0, .., ..).mapping());
+    check_mapping::<Rank<3>, L, _>(a.view(.., .., ..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., .., ..).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), .., ..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, 1.., ..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., 1.., ..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., 1.., ..).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), 1.., ..).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, 1.., ..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., 1.., ..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., 1.., ..).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), 1.., ..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, sr(), ..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., sr(), ..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., sr(), ..).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), sr(), ..).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, sr(), ..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., sr(), ..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., sr(), ..).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), sr(), ..).mapping());
 
     // a.view(_, _, 1..)
 
-    check_mapping::<Const<1>, Flat, _>(a.view(0, 0, 1..).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., 0, 1..).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 0, 1..).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 0, 1..).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(0, 0, 1..).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(.., 0, 1..).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(1.., 0, 1..).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), 0, 1..).mapping());
 
-    check_mapping::<Const<2>, L::NonUnitStrided, _>(a.view(0, .., 1..).mapping());
-    check_mapping::<Const<3>, L, _>(a.view(.., .., 1..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., .., 1..).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), .., 1..).mapping());
+    check_mapping::<Rank<2>, L::NonUnitStrided, _>(a.view(0, .., 1..).mapping());
+    check_mapping::<Rank<3>, L, _>(a.view(.., .., 1..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., .., 1..).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), .., 1..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, 1.., 1..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., 1.., 1..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., 1.., 1..).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), 1.., 1..).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, 1.., 1..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., 1.., 1..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., 1.., 1..).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), 1.., 1..).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, sr(), 1..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., sr(), 1..).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., sr(), 1..).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), sr(), 1..).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, sr(), 1..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., sr(), 1..).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., sr(), 1..).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), sr(), 1..).mapping());
 
     // a.view(_, _, sr())
 
-    check_mapping::<Const<1>, Flat, _>(a.view(0, 0, sr()).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(.., 0, sr()).mapping());
-    check_mapping::<Const<2>, L::NonUniform, _>(a.view(1.., 0, sr()).mapping());
-    check_mapping::<Const<2>, Strided, _>(a.view(sr(), 0, sr()).mapping());
+    check_mapping::<Rank<1>, Flat, _>(a.view(0, 0, sr()).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(.., 0, sr()).mapping());
+    check_mapping::<Rank<2>, L::NonUniform, _>(a.view(1.., 0, sr()).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), 0, sr()).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, .., sr()).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., .., sr()).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., .., sr()).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), .., sr()).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, .., sr()).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., .., sr()).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., .., sr()).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), .., sr()).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, 1.., sr()).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., 1.., sr()).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., 1.., sr()).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), 1.., sr()).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, 1.., sr()).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., 1.., sr()).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., 1.., sr()).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), 1.., sr()).mapping());
 
-    check_mapping::<Const<2>, Strided, _>(a.view(0, sr(), sr()).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(.., sr(), sr()).mapping());
-    check_mapping::<Const<3>, L::NonUniform, _>(a.view(1.., sr(), sr()).mapping());
-    check_mapping::<Const<3>, Strided, _>(a.view(sr(), sr(), sr()).mapping());
+    check_mapping::<Rank<2>, Strided, _>(a.view(0, sr(), sr()).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(.., sr(), sr()).mapping());
+    check_mapping::<Rank<3>, L::NonUniform, _>(a.view(1.., sr(), sr()).mapping());
+    check_mapping::<Rank<3>, Strided, _>(a.view(sr(), sr(), sr()).mapping());
 }
 
 fn sr() -> StepRange<RangeFull, isize> {
@@ -147,10 +147,10 @@ fn test_base() {
     a.resize([3, 4, 5], 0);
     b.resize([5, 4, 3], 0);
 
+    assert_eq!(a.dim(1), 4);
+    assert_eq!(a.dims(), [3, 4, 5]);
     assert_eq!(a.len(), 60);
     assert_eq!(a.rank(), 3);
-    assert_eq!(a.shape(), [3, 4, 5]);
-    assert_eq!(a.size(1), 4);
     assert_eq!(a.stride(2), 12);
     assert_eq!(a.strides(), [1, 3, 12]);
 
@@ -219,7 +219,7 @@ fn test_base() {
     let mut s = b.clone();
 
     unsafe {
-        s.set_mapping(DenseMapping::new([3, 4, 5]));
+        s.set_mapping(DenseMapping::new((Dyn(3), Dyn(4), Dyn(5))));
     }
 
     a.resize([4, 4, 4], 9999);
@@ -228,8 +228,8 @@ fn test_base() {
     assert_eq!(a.flatten().iter().sum::<usize>(), 213576);
     assert_eq!(b.flatten().iter().sum::<usize>(), 213576);
 
-    assert_eq!(r.view(1.., 1.., 1..).shape(), [4, 3, 2]);
-    assert_eq!(s.view(1.., 1.., 1..).shape(), [2, 3, 4]);
+    assert_eq!(r.view(1.., 1.., 1..).dims(), [4, 3, 2]);
+    assert_eq!(s.view(1.., 1.., 1..).dims(), [2, 3, 4]);
 
     assert_eq!(r.view(1.., 1.., 1..).strides(), [1, 5, 20]);
     assert_eq!(s.view(1.., 1.., 1..).strides(), [1, 3, 12]);
@@ -295,7 +295,10 @@ fn test_base() {
     assert_eq!(d, Expr::from(&[[1, 2], [5, 6]]));
     assert_eq!(e, Expr::from(&[[3, 4]]));
 
-    assert_eq!(grid![123].into_scalar(), grid![[123]].into_scalar());
+    assert_eq!(grid![123].into_scalar(), Grid::from_elem((), 123)[[]]);
+
+    assert_eq!(DGrid::<i32, 3>::from([[[456; 0]; 3]; 0]).dims(), [0, 3, 0]);
+    assert_eq!(DGrid::<i32, 3>::from([[[456; 3]; 0]; 3]).dims(), [3, 0, 3]);
 
     assert_eq!(expr![1, 2, 3].permute::<0>(), expr![1, 2, 3]);
 
@@ -322,24 +325,24 @@ fn test_base() {
 fn test_expr() {
     let mut a = grid![[1, 2, 3], [4, 5, 6]];
 
-    assert_eq!(a.shape(), [3, 2]);
+    assert_eq!(a.dims(), [3, 2]);
 
     assert_eq!((&a + &expr![1, 2, 3]).eval()[..], [2, 4, 6, 5, 7, 9]);
     assert_eq!((&expr![1, 2, 3] + &a).eval()[..], [2, 4, 6, 5, 7, 9]);
 
-    assert_eq!(format!("{:?}", a.axis_expr::<0>()), "AxisExpr([[1, 4], [2, 5], [3, 6]])");
-    assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut([[1, 2, 3], [4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.axis_expr::<0>()), "AxisExpr(0, [[1, 2, 3], [4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut(1, [[1, 2, 3], [4, 5, 6]])");
 
-    assert_eq!(format!("{:?}", a.cols()), "Lanes([[1, 2, 3], [4, 5, 6]])");
-    assert_eq!(format!("{:?}", a.rows_mut()), "LanesMut([[1, 4], [2, 5], [3, 6]])");
+    assert_eq!(format!("{:?}", a.cols()), "Lanes(0, [[1, 2, 3], [4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.rows_mut()), "LanesMut(1, [[1, 2, 3], [4, 5, 6]])");
 
     assert_eq!(format!("{:?}", a.clone().drain(1..)), "Drain([[4, 5, 6]])");
     assert_eq!(format!("{:?}", a.clone().into_expr()), "IntoExpr([[1, 2, 3], [4, 5, 6]])");
 
     assert_eq!(format!("{:?}", expr::fill(1)), "Fill(1)");
     assert_eq!(format!("{:?}", expr::fill_with(|| 1)), "FillWith");
-    assert_eq!(format!("{:?}", expr::from_elem([1, 2], 3)), "FromElem([1, 2], 3)");
-    assert_eq!(format!("{:?}", expr::from_fn([1, 2], |i| i)), "FromFn([1, 2])");
+    assert_eq!(format!("{:?}", expr::from_elem([1, 2], 3)), "FromElem((Dyn(1), Dyn(2)), 3)");
+    assert_eq!(format!("{:?}", expr::from_fn([1, 2], |i| i)), "FromFn((Dyn(1), Dyn(2)))");
 
     let e1 = format!("{:?}", a.expr().cloned().map(|x| x + 3));
     let e2 = format!("{:?}", a.view(.., ..1).expr().zip(&a.view(.., 1..)));
@@ -428,19 +431,19 @@ fn test_macros() {
     let view5: Expr<usize, _> = expr![[[[[]]]]];
     let view6: Expr<usize, _> = expr![[[[[[]]]]]];
 
-    assert_eq!(grid1, Grid::new());
-    assert_eq!(grid2, Grid::new());
-    assert_eq!(grid3, Grid::new());
-    assert_eq!(grid4, Grid::new());
-    assert_eq!(grid5, Grid::new());
-    assert_eq!(grid6, Grid::new());
+    assert_eq!(grid1.dims(), [0]);
+    assert_eq!(grid2.dims(), [0, 1]);
+    assert_eq!(grid3.dims(), [0, 1, 1]);
+    assert_eq!(grid4.dims(), [0, 1, 1, 1]);
+    assert_eq!(grid5.dims(), [0, 1, 1, 1, 1]);
+    assert_eq!(grid6.dims(), [0, 1, 1, 1, 1, 1]);
 
-    assert_eq!(view1, Grid::new());
-    assert_eq!(view2, Grid::new());
-    assert_eq!(view3, Grid::new());
-    assert_eq!(view4, Grid::new());
-    assert_eq!(view5, Grid::new());
-    assert_eq!(view6, Grid::new());
+    assert_eq!(view1.dims(), [0]);
+    assert_eq!(view2.dims(), [0, 1]);
+    assert_eq!(view3.dims(), [0, 1, 1]);
+    assert_eq!(view4.dims(), [0, 1, 1, 1]);
+    assert_eq!(view5.dims(), [0, 1, 1, 1, 1]);
+    assert_eq!(view6.dims(), [0, 1, 1, 1, 1, 1]);
 
     assert_eq!(grid![1, 2, 3], Grid::from([1, 2, 3]));
     assert_eq!(grid![[1, 2, 3], [4, 5, 6]], Grid::from([[1, 2, 3], [4, 5, 6]]));
@@ -473,10 +476,10 @@ fn test_macros() {
 
 #[test]
 fn test_mapping() {
-    let d = DenseMapping::<Const<3>>::new([1, 2, 3]);
-    let f = FlatMapping::<Const<3>>::new([1, 2, 3], 4);
-    let g = GeneralMapping::<Const<3>>::new([1, 2, 3], [4, 5]);
-    let s = StridedMapping::<Const<3>>::new([1, 2, 3], [4, 5, 6]);
+    let d = DenseMapping::new((Const::<1>, Const::<2>, Const::<3>));
+    let f = FlatMapping::new((Const::<1>, Dyn(2), Const::<3>), 4);
+    let g = GeneralMapping::new((Dyn(1), Const::<2>, Dyn(3)), [4, 5]);
+    let s = StridedMapping::new((Dyn(1), Dyn(2), Dyn(3)), [4, 5, 6]);
 
     assert_eq!(d.is_contiguous(), true);
     assert_eq!(f.is_empty(), false);
@@ -484,15 +487,20 @@ fn test_mapping() {
     assert_eq!(s.len(), 6);
     assert_eq!(d.rank(), 3);
 
-    assert_eq!(d.shape(), [1, 2, 3]);
-    assert_eq!(f.size(2), 3);
+    assert_eq!(f.dim(2), 3);
+    assert_eq!(d.dims(), [1, 2, 3]);
     assert_eq!(g.stride(0), 1);
     assert_eq!(s.strides(), [4, 5, 6]);
 
-    assert_eq!(format!("{:?}", d), "DenseMapping { shape: [1, 2, 3] }");
-    assert_eq!(format!("{:?}", f), "FlatMapping { shape: [1, 2, 3], inner_stride: 4 }");
-    assert_eq!(format!("{:?}", g), "GeneralMapping { shape: [1, 2, 3], outer_strides: [4, 5] }");
-    assert_eq!(format!("{:?}", s), "StridedMapping { shape: [1, 2, 3], strides: [4, 5, 6] }");
+    let x = format!("{:?}", d);
+    let y = format!("{:?}", f);
+    let z = format!("{:?}", g);
+    let w = format!("{:?}", s);
+
+    assert_eq!(x, "DenseMapping { shape: (Const(1), Const(2), Const(3)) }");
+    assert_eq!(y, "FlatMapping { shape: (Const(1), Dyn(2), Const(3)), inner_stride: 4 }");
+    assert_eq!(z, "GeneralMapping { shape: (Dyn(1), Const(2), Dyn(3)), outer_strides: [4, 5] }");
+    assert_eq!(w, "StridedMapping { shape: (Dyn(1), Dyn(2), Dyn(3)), strides: [4, 5, 6] }");
 }
 
 #[test]
@@ -555,6 +563,27 @@ fn test_ops() {
 #[cfg(feature = "serde")]
 #[test]
 fn test_serde() {
+    assert_tokens(&Grid::from_elem((), 123), &[Token::I32(123)]);
+
+    assert_tokens(
+        &Grid::<i32, (Const<3>, Dyn)>::new(),
+        &[Token::Seq { len: Some(0) }, Token::SeqEnd],
+    );
+
+    assert_tokens(
+        &Grid::<i32, (Dyn, Const<3>)>::new(),
+        &[
+            Token::Seq { len: Some(3) },
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
+
     assert_tokens(
         &DGrid::<i32, 3>::from([[[4, 5, 6], [7, 8, 9]]]),
         &[

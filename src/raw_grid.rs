@@ -6,10 +6,11 @@ use std::{cmp, ptr};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::dim::Dim;
+use crate::index::{Axis, Outer};
 use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_span::RawSpan;
+use crate::shape::Shape;
 use crate::span::Span;
 
 #[cfg(not(feature = "nightly"))]
@@ -26,8 +27,8 @@ macro_rules! vec_t {
     };
 }
 
-pub(crate) struct RawGrid<T, D: Dim, A: Allocator> {
-    span: RawSpan<T, D, Dense>,
+pub(crate) struct RawGrid<T, S: Shape, A: Allocator> {
+    span: RawSpan<T, S, Dense>,
     capacity: usize,
     #[cfg(not(feature = "nightly"))]
     phantom: PhantomData<A>,
@@ -44,17 +45,17 @@ struct DropGuard<'a, T, A: Allocator> {
     phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
-impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
+impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
     #[cfg(feature = "nightly")]
     pub(crate) fn allocator(&self) -> &A {
         &self.alloc
     }
 
-    pub(crate) fn as_mut_span(&mut self) -> &mut Span<T, D> {
+    pub(crate) fn as_mut_span(&mut self) -> &mut Span<T, S> {
         self.span.as_mut_span()
     }
 
-    pub(crate) fn as_span(&self) -> &Span<T, D> {
+    pub(crate) fn as_span(&self) -> &Span<T, S> {
         self.span.as_span()
     }
 
@@ -63,10 +64,8 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
     }
 
     #[cfg(not(feature = "nightly"))]
-    pub(crate) unsafe fn from_parts(vec: Vec<T>, mapping: DenseMapping<D>) -> Self {
-        assert!(D::RANK > 0, "invalid rank");
-
-        debug_assert!(vec.len() == mapping.len(), "length mismatch");
+    pub(crate) unsafe fn from_parts(vec: Vec<T>, mapping: DenseMapping<S>) -> Self {
+        debug_assert!(Some(vec.len()) == mapping.shape().checked_len(), "length mismatch");
 
         let mut vec = ManuallyDrop::new(vec);
 
@@ -78,10 +77,8 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
     }
 
     #[cfg(feature = "nightly")]
-    pub(crate) unsafe fn from_parts(vec: Vec<T, A>, mapping: DenseMapping<D>) -> Self {
-        assert!(D::RANK > 0, "invalid rank");
-
-        debug_assert!(vec.len() == mapping.len(), "length mismatch");
+    pub(crate) unsafe fn from_parts(vec: Vec<T, A>, mapping: DenseMapping<S>) -> Self {
+        debug_assert!(Some(vec.len()) == mapping.shape().checked_len(), "length mismatch");
 
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
 
@@ -92,7 +89,7 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
         }
     }
 
-    pub(crate) fn into_parts(self) -> (vec_t!(T, A), DenseMapping<D>) {
+    pub(crate) fn into_parts(self) -> (vec_t!(T, A), DenseMapping<S>) {
         let mut me = ManuallyDrop::new(self);
 
         #[cfg(not(feature = "nightly"))]
@@ -112,42 +109,44 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
         (vec, me.span.mapping())
     }
 
-    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, new_shape: D::Shape, mut f: F)
+    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, new_shape: S, mut f: F)
     where
         A: Clone,
     {
-        let new_len = D::checked_len(new_shape);
-        let old_shape = self.span.mapping().shape();
+        if S::RANK > 0 {
+            let new_len = new_shape.checked_len().expect("invalid length");
+            let old_shape = self.span.mapping().shape();
 
-        unsafe {
-            self.with_mut_vec(|vec| {
-                if new_len == 0 {
-                    vec.clear();
-                } else if new_shape[..D::RANK - 1] == old_shape[..D::RANK - 1] {
-                    vec.resize_with(new_len, f);
-                } else {
-                    #[cfg(not(feature = "nightly"))]
-                    let mut new_vec = Vec::with_capacity(new_len);
-                    #[cfg(feature = "nightly")]
-                    let mut new_vec = Vec::with_capacity_in(new_len, vec.allocator().clone());
+            unsafe {
+                self.with_mut_vec(|vec| {
+                    if new_len == 0 {
+                        vec.clear();
+                    } else if new_shape.dims()[..S::RANK - 1] == old_shape.dims()[..S::RANK - 1] {
+                        vec.resize_with(new_len, f);
+                    } else {
+                        #[cfg(not(feature = "nightly"))]
+                        let mut new_vec = Vec::with_capacity(new_len);
+                        #[cfg(feature = "nightly")]
+                        let mut new_vec = Vec::with_capacity_in(new_len, vec.allocator().clone());
 
-                    copy_dim::<T, D, A, D::Lower>(
-                        &mut DropGuard::new(vec),
-                        &mut new_vec,
-                        old_shape,
-                        new_shape,
-                        &mut f,
-                    );
+                        copy_dim::<T, S, A>(
+                            &mut DropGuard::new(vec),
+                            &mut new_vec,
+                            old_shape,
+                            new_shape,
+                            &mut f,
+                        );
 
-                    *vec = new_vec;
-                }
-            });
+                        *vec = new_vec;
+                    }
+                });
 
-            self.set_mapping(DenseMapping::new(new_shape));
+                self.set_mapping(DenseMapping::new(new_shape));
+            }
         }
     }
 
-    pub(crate) unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<D>) {
+    pub(crate) unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<S>) {
         debug_assert!(new_mapping.len() <= self.capacity, "length exceeds capacity");
 
         self.span.set_mapping(new_mapping);
@@ -155,12 +154,12 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
 
     #[cfg(not(feature = "nightly"))]
     pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T>) -> U>(&mut self, f: F) -> U {
-        struct DropGuard<'a, T, D: Dim, A: Allocator> {
-            grid: &'a mut RawGrid<T, D, A>,
+        struct DropGuard<'a, T, S: Shape, A: Allocator> {
+            grid: &'a mut RawGrid<T, S, A>,
             vec: ManuallyDrop<Vec<T>>,
         }
 
-        impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
+        impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
             fn drop(&mut self) {
                 unsafe {
                     self.grid.span.set_ptr(self.vec.as_mut_ptr());
@@ -198,12 +197,12 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
 
     #[cfg(feature = "nightly")]
     pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T, A>) -> U>(&mut self, f: F) -> U {
-        struct DropGuard<'a, T, D: Dim, A: Allocator> {
-            grid: &'a mut RawGrid<T, D, A>,
+        struct DropGuard<'a, T, S: Shape, A: Allocator> {
+            grid: &'a mut RawGrid<T, S, A>,
             vec: ManuallyDrop<Vec<T, A>>,
         }
 
-        impl<'a, T, D: Dim, A: Allocator> Drop for DropGuard<'a, T, D, A> {
+        impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
             fn drop(&mut self) {
                 unsafe {
                     self.grid.span.set_ptr(self.vec.as_mut_ptr());
@@ -270,7 +269,7 @@ impl<T, D: Dim, A: Allocator> RawGrid<T, D, A> {
     }
 }
 
-impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for RawGrid<T, D, A> {
+impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for RawGrid<T, S, A> {
     fn clone(&self) -> Self {
         unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.span.mapping()) }
     }
@@ -283,7 +282,7 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for RawGrid<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Drop for RawGrid<T, D, A> {
+impl<T, S: Shape, A: Allocator> Drop for RawGrid<T, S, A> {
     #[cfg(not(feature = "nightly"))]
     fn drop(&mut self) {
         _ = unsafe {
@@ -304,8 +303,8 @@ impl<T, D: Dim, A: Allocator> Drop for RawGrid<T, D, A> {
     }
 }
 
-unsafe impl<T: Send, D: Dim, A: Allocator + Send> Send for RawGrid<T, D, A> {}
-unsafe impl<T: Sync, D: Dim, A: Allocator + Sync> Sync for RawGrid<T, D, A> {}
+unsafe impl<T: Send, S: Shape, A: Allocator + Send> Send for RawGrid<T, S, A> {}
+unsafe impl<T: Sync, S: Shape, A: Allocator + Sync> Sync for RawGrid<T, S, A> {}
 
 impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     fn new(vec: &'a mut vec_t!(T, A)) -> Self {
@@ -327,24 +326,30 @@ impl<'a, T, A: Allocator> Drop for DropGuard<'a, T, A> {
     }
 }
 
-unsafe fn copy_dim<T, D: Dim, A: Allocator, I: Dim>(
+unsafe fn copy_dim<T, S: Shape, A: Allocator>(
     old_vec: &mut DropGuard<T, A>,
     new_vec: &mut vec_t!(T, A),
-    old_shape: D::Shape,
-    new_shape: D::Shape,
+    old_shape: S,
+    new_shape: S,
     f: &mut impl FnMut() -> T,
 ) {
-    let old_stride: usize = old_shape[..I::RANK].iter().product();
-    let new_stride: usize = new_shape[..I::RANK].iter().product();
+    let old_stride: usize = old_shape.dims()[..S::RANK - 1].iter().product();
+    let new_stride: usize = new_shape.dims()[..S::RANK - 1].iter().product();
 
-    let old_size = old_shape[I::RANK];
-    let new_size = new_shape[I::RANK];
+    let old_size = old_shape.dim(S::RANK - 1);
+    let new_size = new_shape.dim(S::RANK - 1);
 
     let min_size = cmp::min(old_size, new_size);
 
-    if I::RANK > 0 {
+    if S::RANK > 1 {
         for _ in 0..min_size {
-            copy_dim::<T, D, A, I::Lower>(old_vec, new_vec, old_shape, new_shape, f);
+            copy_dim::<T, <Outer as Axis>::Other<S>, A>(
+                old_vec,
+                new_vec,
+                old_shape.remove_dim(S::RANK - 1),
+                new_shape.remove_dim(S::RANK - 1),
+                f,
+            );
         }
     } else {
         debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");

@@ -3,7 +3,7 @@ mod permutation;
 mod span;
 mod view;
 
-pub use axis::Axis;
+pub use axis::{Axis, Inner, Outer};
 pub use permutation::Permutation;
 pub use span::SpanIndex;
 pub use view::{DimIndex, Params, ViewIndex};

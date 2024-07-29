@@ -3,25 +3,25 @@ use std::alloc::Allocator;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::dim::Dim;
 use crate::expr::{Cloned, Copied, Enumerate, Map, Zip};
 use crate::grid::Grid;
 use crate::iter::Iter;
+use crate::shape::Shape;
 use crate::traits::{Apply, IntoCloned, IntoExpression};
 
 /// Expression trait, for multidimensional iteration.
 pub trait Expression: IntoIterator {
-    /// Array dimension type.
-    type Dim: Dim;
+    /// Array shape type.
+    type Shape: Shape;
 
-    #[doc(hidden)]
+    /// True if the expression can be restarted from the beginning after the last element.
     const IS_REPEATABLE: bool;
 
-    #[doc(hidden)]
+    /// Bitmask per dimension, indicating if it must not be merged with its outer dimension.
     const SPLIT_MASK: usize;
 
-    /// Returns the shape of the array.
-    fn shape(&self) -> <Self::Dim as Dim>::Shape;
+    /// Returns the array shape.
+    fn shape(&self) -> Self::Shape;
 
     /// Creates an expression which clones all of its elements.
     fn cloned<'a, T: 'a + Clone>(self) -> Cloned<Self>
@@ -39,8 +39,22 @@ pub trait Expression: IntoIterator {
         Copied::new(self)
     }
 
+    /// Returns the number of elements in the specified dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimension is out of bounds.
+    fn dim(&self, index: usize) -> usize {
+        self.shape().dim(index)
+    }
+
+    /// Returns the number of elements in each dimension.
+    fn dims(&self) -> <Self::Shape as Shape>::Dims {
+        self.shape().dims()
+    }
+
     /// Creates an expression which gives tuples of the current index and the element.
-    fn enumerate(self) -> Enumerate<Self, <Self::Dim as Dim>::Shape>
+    fn enumerate(self) -> Enumerate<Self, <Self::Shape as Shape>::Dims>
     where
         Self: Sized,
     {
@@ -48,7 +62,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression into a new array.
-    fn eval(self) -> Grid<Self::Item, Self::Dim>
+    fn eval(self) -> Grid<Self::Item, Self::Shape>
     where
         Self: Sized,
     {
@@ -57,7 +71,7 @@ pub trait Expression: IntoIterator {
 
     /// Evaluates the expression into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
-    fn eval_in<A: Allocator>(self, alloc: A) -> Grid<Self::Item, Self::Dim, A>
+    fn eval_in<A: Allocator>(self, alloc: A) -> Grid<Self::Item, Self::Shape, A>
     where
         Self: Sized,
     {
@@ -70,14 +84,16 @@ pub trait Expression: IntoIterator {
     /// If the rank of the expression equals one less than the rank of the array,
     /// the expression is assumed to have outermost dimension of size 1.
     ///
+    /// If the array is empty, it is reshaped to match the shape of the expression.
+    ///
     /// # Panics
     ///
-    /// Panics if the inner dimensions do not match, or if the rank of the expression
-    /// is not valid.
-    fn eval_into<D: Dim, A: Allocator>(
+    /// Panics if the inner dimensions do not match, if the rank of the expression
+    /// is not valid, or if the outermost dimension is not dynamically-sized.
+    fn eval_into<S: Shape, A: Allocator>(
         self,
-        grid: &mut Grid<Self::Item, D, A>,
-    ) -> &mut Grid<Self::Item, D, A>
+        grid: &mut Grid<Self::Item, S, A>,
+    ) -> &mut Grid<Self::Item, S, A>
     where
         Self: Sized,
     {
@@ -103,12 +119,12 @@ pub trait Expression: IntoIterator {
 
     /// Returns `true` if the array contains no elements.
     fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.shape().is_empty()
     }
 
     /// Returns the number of elements in the array.
     fn len(&self) -> usize {
-        self.shape()[..].iter().product()
+        self.shape().len()
     }
 
     /// Creates an expression that calls a closure on each element.
@@ -121,18 +137,7 @@ pub trait Expression: IntoIterator {
 
     /// Returns the array rank, i.e. the number of dimensions.
     fn rank(&self) -> usize {
-        Self::Dim::RANK
-    }
-
-    /// Returns the number of elements in the specified dimension.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the dimension is out of bounds.
-    fn size(&self, dim: usize) -> usize {
-        assert!(dim < Self::Dim::RANK, "invalid dimension");
-
-        self.shape()[dim]
+        Self::Shape::RANK
     }
 
     /// Creates an expression that gives tuples `(x, y)` of the elements from each expression.
@@ -151,10 +156,10 @@ pub trait Expression: IntoIterator {
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item;
 
     #[doc(hidden)]
-    unsafe fn reset_dim(&mut self, dim: usize, count: usize);
+    unsafe fn reset_dim(&mut self, index: usize, count: usize);
 
     #[doc(hidden)]
-    unsafe fn step_dim(&mut self, dim: usize);
+    unsafe fn step_dim(&mut self, index: usize);
 
     #[cfg(not(feature = "nightly"))]
     #[doc(hidden)]
@@ -203,7 +208,7 @@ impl<T, E: Expression> Apply<T> for E {
 }
 
 impl<E: Expression> IntoExpression for E {
-    type Dim = E::Dim;
+    type Shape = E::Shape;
     type IntoExpr = E;
 
     fn into_expr(self) -> Self {

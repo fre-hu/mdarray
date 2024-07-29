@@ -2,6 +2,7 @@ use crate::expression::Expression;
 use crate::traits::IntoExpression;
 
 mod adapters;
+#[allow(clippy::module_inception)]
 mod expr;
 mod sources;
 

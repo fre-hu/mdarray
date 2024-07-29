@@ -1,10 +1,10 @@
-use crate::dim::Dim;
 use crate::expression::Expression;
+use crate::shape::Shape;
 
 /// Trait for applying a closure and returning an existing array or an expression.
 pub trait Apply<T>: IntoExpression {
     /// The resulting type after applying a closure.
-    type Output<F: FnMut(Self::Item) -> T>: IntoExpression<Item = T, Dim = Self::Dim>;
+    type Output<F: FnMut(Self::Item) -> T>: IntoExpression<Item = T, Shape = Self::Shape>;
 
     /// The resulting type after zipping elements and applying a closure.
     type ZippedWith<I: IntoExpression, F>: IntoExpression<Item = T>
@@ -31,11 +31,11 @@ pub trait IntoCloned<T> {
 
 /// Conversion trait into an expression.
 pub trait IntoExpression: IntoIterator {
-    /// Array dimension type.
-    type Dim: Dim;
+    /// Array shape type.
+    type Shape: Shape;
 
     /// Which kind of expression are we turning this into?
-    type IntoExpr: Expression<Item = Self::Item, Dim = Self::Dim>;
+    type IntoExpr: Expression<Item = Self::Item, Shape = Self::Shape>;
 
     /// Creates an expression from a value.
     fn into_expr(self) -> Self::IntoExpr;

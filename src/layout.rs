@@ -1,5 +1,5 @@
-use crate::dim::Dim;
 use crate::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
+use crate::shape::Shape;
 
 /// Array memory layout trait.
 pub trait Layout {
@@ -15,11 +15,12 @@ pub trait Layout {
     /// Corresponding layout with unit inner stride.
     type UnitStrided: UnitStrided;
 
-    /// Combined layout based on the dimension.
-    type Layout<D: Dim, L: Layout>: Layout;
+    /// Combined layout, which has uniform strides if both inputs have uniform
+    /// strides, and is unit strided if both inputs are unit strided.
+    type Merge<L: Layout>: Layout;
 
     /// Array layout mapping type.
-    type Mapping<D: Dim>: Mapping<Dim = D, Layout = Self>;
+    type Mapping<S: Shape>: Mapping<Shape = S, Layout = Self>;
 
     /// True if the layout type has uniform stride.
     const IS_UNIFORM: bool;
@@ -52,8 +53,8 @@ impl Layout for Dense {
     type Uniform = Self;
     type UnitStrided = Self;
 
-    type Layout<D: Dim, L: Layout> = D::Layout<L>;
-    type Mapping<D: Dim> = DenseMapping<D>;
+    type Merge<L: Layout> = L;
+    type Mapping<S: Shape> = DenseMapping<S>;
 
     const IS_UNIFORM: bool = true;
     const IS_UNIT_STRIDED: bool = true;
@@ -65,8 +66,8 @@ impl Layout for Flat {
     type Uniform = Self;
     type UnitStrided = Dense;
 
-    type Layout<D: Dim, L: Layout> = D::Layout<L::NonUnitStrided>;
-    type Mapping<D: Dim> = FlatMapping<D>;
+    type Merge<L: Layout> = L::NonUnitStrided;
+    type Mapping<S: Shape> = FlatMapping<S>;
 
     const IS_UNIFORM: bool = true;
     const IS_UNIT_STRIDED: bool = false;
@@ -78,8 +79,8 @@ impl Layout for General {
     type Uniform = Dense;
     type UnitStrided = Self;
 
-    type Layout<D: Dim, L: Layout> = D::Layout<L::NonUniform>;
-    type Mapping<D: Dim> = GeneralMapping<D>;
+    type Merge<L: Layout> = L::NonUniform;
+    type Mapping<S: Shape> = GeneralMapping<S>;
 
     const IS_UNIFORM: bool = false;
     const IS_UNIT_STRIDED: bool = true;
@@ -91,8 +92,8 @@ impl Layout for Strided {
     type Uniform = Flat;
     type UnitStrided = General;
 
-    type Layout<D: Dim, L: Layout> = D::Layout<Self>;
-    type Mapping<D: Dim> = StridedMapping<D>;
+    type Merge<L: Layout> = Self;
+    type Mapping<S: Shape> = StridedMapping<S>;
 
     const IS_UNIFORM: bool = false;
     const IS_UNIT_STRIDED: bool = false;

@@ -150,7 +150,6 @@
 //! ```
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
-#![cfg_attr(feature = "nightly", feature(associated_type_defaults))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(int_roundings))]
@@ -178,6 +177,7 @@ mod macros;
 mod ops;
 mod raw_grid;
 mod raw_span;
+mod shape;
 mod span;
 mod traits;
 
@@ -194,11 +194,12 @@ mod alloc {
     impl Allocator for Global {}
 }
 
-pub use dim::{Const, Dim, Shape, Strides};
+pub use dim::{Const, Dim, Dims, Dyn, Strides};
 pub use expression::Expression;
 pub use grid::{DGrid, Grid};
 pub use iter::Iter;
 pub use layout::{Dense, Flat, General, Layout, Strided, Uniform, UnitStrided};
 pub use ops::{step, StepRange};
+pub use shape::{IntoShape, Rank, Shape};
 pub use span::{DSpan, Span};
 pub use traits::{Apply, IntoCloned, IntoExpression};

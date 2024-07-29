@@ -9,122 +9,115 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::dim::{Const, Dim};
+use crate::dim::Dim;
 use crate::expr::{Expr, ExprMut};
 use crate::grid::Grid;
+use crate::index::{Axis, Outer};
 use crate::layout::Layout;
+use crate::shape::Shape;
 use crate::span::Span;
 
-struct GridVisitor<T, D: Dim> {
-    phantom: PhantomData<(T, D)>,
+struct GridVisitor<T, S: Shape> {
+    phantom: PhantomData<(T, S)>,
 }
 
-impl<'a, T: Deserialize<'a>, D: Dim> Visitor<'a> for GridVisitor<T, D>
-where
-    Grid<T, D::Lower>: Deserialize<'a>,
-{
-    type Value = Grid<T, D>;
+impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
+    type Value = Grid<T, S>;
 
     fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
-        write!(formatter, "an array of rank {}", D::RANK)
+        write!(formatter, "an array of rank {}", S::RANK)
     }
 
     fn visit_seq<A: SeqAccess<'a>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-        assert!(D::RANK > 0, "invalid rank");
+        assert!(S::RANK > 0, "invalid rank");
 
-        if D::RANK == 1 {
-            if let Some(value) = seq.next_element()? {
-                let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(0));
-                let mut shape = D::Shape::default();
+        let mut vec = Vec::new();
+        let mut dims = S::default().dims();
+        let mut size = 0;
 
+        let size_hint = seq.size_hint().unwrap_or(0);
+
+        if S::RANK == 1 {
+            vec.reserve(size_hint);
+
+            while let Some(value) = seq.next_element()? {
                 vec.push(value);
-
-                while let Some(value) = seq.next_element()? {
-                    vec.push(value);
-                }
-
-                shape[0] = vec.len();
-
-                Ok(Grid::<T, Const<1>>::from(vec).into_shape(shape))
-            } else {
-                Ok(Grid::new())
+                size += 1;
             }
-        } else if let Some(value) = seq.next_element::<Grid<T, D::Lower>>()? {
-            if value.is_empty() {
-                Err(A::Error::custom("inner sequence must be non-empty"))
-            } else {
-                let capacity = value.len() * seq.size_hint().unwrap_or(0);
-                let expected = value.shape();
+        } else {
+            while let Some(value) = seq.next_element::<Grid<T, <Outer as Axis>::Other<S>>>()? {
+                if size == 0 {
+                    vec.reserve(value.len() * size_hint);
+                    dims[..S::RANK - 1].copy_from_slice(&value.dims()[..]);
+                } else {
+                    let found = &value.dims()[..];
+                    let expect = &dims[..S::RANK - 1];
 
-                let mut grid = Grid::<T, D>::with_capacity(capacity);
-                let mut larger = D::Shape::default();
-
-                larger[..D::RANK - 1].copy_from_slice(&expected[..]);
-                larger[D::RANK - 1] = 1;
-
-                grid.append(&mut value.into_shape(larger));
-
-                while let Some(value) = seq.next_element::<Grid<T, D::Lower>>()? {
-                    let shape = value.shape();
-
-                    if shape[..] != expected[..] {
-                        let msg = format!("invalid shape {:?}, expected {:?}", shape, expected);
+                    if found != expect {
+                        let msg = format!("invalid dimensions {:?}, expected {:?}", found, expect);
 
                         return Err(A::Error::custom(msg));
                     }
-
-                    grid.append(&mut value.into_shape(larger));
                 }
 
-                Ok(grid)
+                vec.append(&mut value.into_vec());
+                size += 1;
             }
+        }
+
+        if <Outer as Axis>::Dim::<S>::SIZE.is_none() {
+            dims[S::RANK - 1] = size;
+        } else if size != dims[S::RANK - 1] {
+            let msg = format!("invalid dimension {:?}, expected {:?}", size, dims[S::RANK - 1]);
+
+            return Err(A::Error::custom(msg));
+        }
+
+        Ok(Grid::from(vec).into_shape(S::from_dims(dims)))
+    }
+}
+
+impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Grid<T, S> {
+    fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
+        let visitor = GridVisitor { phantom: PhantomData };
+
+        if S::RANK > 0 {
+            deserializer.deserialize_seq(visitor)
         } else {
-            Ok(Grid::new())
+            let value = <T as Deserialize>::deserialize(deserializer)?;
+
+            Ok(Grid::from([value]).into_shape(S::default()))
         }
     }
 }
 
-impl<'a, T: Deserialize<'a>, D: Dim> Deserialize<'a> for Grid<T, D> {
-    fn deserialize<S: Deserializer<'a>>(deserializer: S) -> Result<Self, S::Error> {
-        let visitor = GridVisitor { phantom: PhantomData };
-
-        deserializer.deserialize_seq(visitor)
-    }
-}
-
-impl<T: Serialize, D: Dim, L: Layout> Serialize for Expr<'_, T, D, L> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl<T: Serialize, S: Shape, L: Layout> Serialize for Expr<'_, T, S, L> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }
 }
 
-impl<T: Serialize, D: Dim, L: Layout> Serialize for ExprMut<'_, T, D, L> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl<T: Serialize, S: Shape, L: Layout> Serialize for ExprMut<'_, T, S, L> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }
 }
 
-impl<T: Serialize, D: Dim, A: Allocator> Serialize for Grid<T, D, A> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl<T: Serialize, S: Shape, A: Allocator> Serialize for Grid<T, S, A> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }
 }
 
-impl<T: Serialize, D: Dim, L: Layout> Serialize for Span<T, D, L> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if D::RANK == 0 {
-            self[D::Shape::default()].serialize(serializer)
+impl<T: Serialize, S: Shape, L: Layout> Serialize for Span<T, S, L> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
+        if S::RANK == 0 {
+            self[S::Dims::default()].serialize(serializer)
         } else {
-            let dim = D::RANK - 1;
-            let len = if self.is_empty() { 0 } else { self.size(dim) };
+            let mut seq = serializer.serialize_seq(Some(self.dim(S::RANK - 1)))?;
 
-            let mut seq = serializer.serialize_seq(Some(len))?;
-
-            // Empty arrays should give an empty sequence.
-            if len > 0 {
-                for x in self.outer_expr() {
-                    seq.serialize_element(&x)?;
-                }
+            for x in self.outer_expr() {
+                seq.serialize_element(&x)?;
             }
 
             seq.end()

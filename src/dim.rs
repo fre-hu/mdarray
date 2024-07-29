@@ -1,72 +1,30 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter, Result};
 
 use std::ops::{
     Bound, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use crate::layout::{Dense, Layout};
+/// Array dimension trait.
+pub trait Dim: Copy + Debug + Default + Send + Sync {
+    /// Merge dimensions, where constant size is preferred over dynamic.
+    type Merge<D: Dim>: Dim;
 
-/// Array dimension trait, for rank and types for shape and strides.
-pub trait Dim {
-    /// Next higher dimension.
-    type Higher: Dim;
+    /// Dimension size if known statically, or `None` if dynamic.
+    const SIZE: Option<usize>;
 
-    /// Next lower dimension.
-    type Lower: Dim;
+    /// Creates an array dimension with the given size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the size is not matching a constant-sized dimension.
+    fn from_size(size: usize) -> Self;
 
-    /// Maximum dimension.
-    type Max<D: Dim>: Dim;
-
-    /// Corresponding layout based on the dimension.
-    type Layout<L: Layout>: Layout;
-
-    /// Array shape type.
-    type Shape: Shape<Dim = Self>;
-
-    /// Array strides type.
-    type Strides: Strides<Dim = Self>;
-
-    /// Array rank, i.e. the number of dimensions.
-    const RANK: usize;
-
-    #[doc(hidden)]
-    fn add_dim(shape: Self::Shape, size: usize) -> <Self::Higher as Dim>::Shape {
-        assert!(<Self::Higher as Dim>::RANK > Self::RANK, "invalid rank");
-
-        let mut new_shape = <Self::Higher as Dim>::Shape::default();
-
-        new_shape[..Self::RANK].copy_from_slice(&shape[..]);
-        new_shape[Self::RANK] = size;
-        new_shape
-    }
-
-    #[doc(hidden)]
-    fn checked_len(shape: Self::Shape) -> usize {
-        shape[..].iter().fold(1, |acc, &x| acc.checked_mul(x).expect("length too large"))
-    }
-
-    #[doc(hidden)]
-    fn remove_dim(shape: Self::Shape, dim: usize) -> <Self::Lower as Dim>::Shape {
-        assert!(dim < Self::RANK, "invalid dimension");
-
-        let mut new_shape = <Self::Lower as Dim>::Shape::default();
-
-        new_shape[..dim].copy_from_slice(&shape[..dim]);
-        new_shape[dim..].copy_from_slice(&shape[dim + 1..]);
-        new_shape
-    }
-
-    #[doc(hidden)]
-    fn resize_dim(mut shape: Self::Shape, dim: usize, new_size: usize) -> Self::Shape {
-        assert!(dim < Self::RANK, "invalid dimension");
-
-        shape[dim] = new_size;
-        shape
-    }
+    /// Returns the number of elements in the dimension.
+    fn size(self) -> usize;
 }
 
-/// Array shape trait.
-pub trait Shape:
+/// Array dimensions trait.
+pub trait Dims:
     Copy
     + Debug
     + Default
@@ -78,9 +36,10 @@ pub trait Shape:
     + IndexMut<RangeInclusive<usize>, Output = [usize]>
     + IndexMut<RangeTo<usize>, Output = [usize]>
     + IndexMut<RangeToInclusive<usize>, Output = [usize]>
+    + Send
+    + Sync
+    + for<'a> TryFrom<&'a [usize], Error: Debug>
 {
-    /// Array dimension type.
-    type Dim: Dim<Shape = Self>;
 }
 
 /// Array strides trait.
@@ -96,62 +55,63 @@ pub trait Strides:
     + IndexMut<RangeInclusive<usize>, Output = [isize]>
     + IndexMut<RangeTo<usize>, Output = [isize]>
     + IndexMut<RangeToInclusive<usize>, Output = [isize]>
+    + Send
+    + Sync
+    + for<'a> TryFrom<&'a [isize], Error: Debug>
 {
-    /// Array dimension type.
-    type Dim: Dim<Strides = Self>;
 }
 
 /// Type-level constant.
+#[derive(Clone, Copy, Default)]
 pub struct Const<const N: usize>;
 
-impl Dim for Const<0> {
-    type Higher = Const<1>;
-    type Lower = Self;
+/// Dynamically-sized dimension type.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Dyn(pub usize);
 
-    type Max<D: Dim> = D;
-
-    type Layout<L: Layout> = Dense;
-
-    type Shape = [usize; 0];
-    type Strides = [isize; 0];
-
-    const RANK: usize = 0;
-}
-
-macro_rules! impl_dim {
-    (($($n:tt),*), ($($m:tt),*), ($($k:tt),*), ($($layout:ty),*)) => {
-        $(
-            impl Dim for Const<$n> {
-                type Higher = Const<$k>;
-                type Lower = Const<$m>;
-
-                type Max<D: Dim> = <<Const<$m> as Dim>::Max<D::Lower> as Dim>::Higher;
-
-                type Layout<L: Layout> = $layout;
-
-                type Shape = [usize; $n];
-                type Strides = [isize; $n];
-
-                const RANK: usize = $n;
-            }
-        )*
+impl<const N: usize> Debug for Const<N> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_tuple("Const").field(&N).finish()
     }
 }
 
-impl_dim!((1, 2, 3, 4, 5, 6), (0, 1, 2, 3, 4, 5), (2, 3, 4, 5, 6, 6), (L::Uniform, L, L, L, L, L));
+impl<const N: usize> Dim for Const<N> {
+    type Merge<D: Dim> = Self;
 
-macro_rules! impl_shape_strides {
-    ($($n:tt),*) => {
-        $(
-            impl Shape for [usize; $n] {
-                type Dim = Const<$n>;
-            }
+    const SIZE: Option<usize> = Some(N);
 
-            impl Strides for [isize; $n] {
-                type Dim = Const<$n>;
-            }
-        )*
+    fn from_size(size: usize) -> Self {
+        assert!(size == N, "invalid size");
+
+        Self
+    }
+
+    fn size(self) -> usize {
+        N
     }
 }
 
-impl_shape_strides!(0, 1, 2, 3, 4, 5, 6);
+impl Dim for Dyn {
+    type Merge<D: Dim> = D;
+
+    const SIZE: Option<usize> = None;
+
+    fn from_size(size: usize) -> Self {
+        Self(size)
+    }
+
+    fn size(self) -> usize {
+        self.0
+    }
+}
+
+macro_rules! impl_dims_strides {
+    ($($n:tt),+) => {
+        $(
+            impl Dims for [usize; $n] {}
+            impl Strides for [isize; $n] {}
+        )+
+    };
+}
+
+impl_dims_strides!(0, 1, 2, 3, 4, 5, 6);

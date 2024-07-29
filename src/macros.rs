@@ -27,40 +27,40 @@
 #[macro_export]
 macro_rules! expr {
     ($([$([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        $crate::expr::Expr::<_, $crate::Const<6>>::from(&[$([$([$([$([$([$($x),*]),+]),+]),+]),+]),+])
+        $crate::expr::Expr::<_, $crate::Rank<6>>::from(&[$([$([$([$([$([$($x),*]),+]),+]),+]),+]),+])
     );
     ($([$([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        $crate::expr::Expr::<_, $crate::Const<5>>::from(&[$([$([$([$([$($x),*]),+]),+]),+]),+])
+        $crate::expr::Expr::<_, $crate::Rank<5>>::from(&[$([$([$([$([$($x),*]),+]),+]),+]),+])
     );
     ($([$([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?]),+ $(,)?) => (
-        $crate::expr::Expr::<_, $crate::Const<4>>::from(&[$([$([$([$($x),*]),+]),+]),+])
+        $crate::expr::Expr::<_, $crate::Rank<4>>::from(&[$([$([$([$($x),*]),+]),+]),+])
     );
     ($([$([$($x:expr),* $(,)?]),+ $(,)?]),+ $(,)?) => (
-        $crate::expr::Expr::<_, $crate::Const<3>>::from(&[$([$([$($x),*]),+]),+])
+        $crate::expr::Expr::<_, $crate::Rank<3>>::from(&[$([$([$($x),*]),+]),+])
     );
     ($([$($x:expr),* $(,)?]),+ $(,)?) => (
-        $crate::expr::Expr::<_, $crate::Const<2>>::from(&[$([$($x),*]),+])
+        $crate::expr::Expr::<_, $crate::Rank<2>>::from(&[$([$($x),*]),+])
     );
     ($($x:expr),* $(,)?) => (
-        $crate::expr::Expr::<_, $crate::Const<1>>::from(&[$($x),*])
+        $crate::expr::Expr::<_, $crate::Rank<1>>::from(&[$($x),*])
     );
     ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
-        $crate::expr::Expr::<_, $crate::Const<6>>::from(&[[[[[[$elem; $i]; $j]; $k]; $l]; $m]; $n])
+        $crate::expr::Expr::<_, $crate::Rank<6>>::from(&[[[[[[$elem; $i]; $j]; $k]; $l]; $m]; $n])
     );
     ([[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr) => (
-        $crate::expr::Expr::<_, $crate::Const<5>>::from(&[[[[[$elem; $i]; $j]; $k]; $l]; $m])
+        $crate::expr::Expr::<_, $crate::Rank<5>>::from(&[[[[[$elem; $i]; $j]; $k]; $l]; $m])
     );
     ([[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr) => (
-        $crate::expr::Expr::<_, $crate::Const<4>>::from(&[[[[$elem; $i]; $j]; $k]; $l])
+        $crate::expr::Expr::<_, $crate::Rank<4>>::from(&[[[[$elem; $i]; $j]; $k]; $l])
     );
     ([[$elem:expr; $i:expr]; $j:expr]; $k:expr) => (
-        $crate::expr::Expr::<_, $crate::Const<3>>::from(&[[[$elem; $i]; $j]; $k])
+        $crate::expr::Expr::<_, $crate::Rank<3>>::from(&[[[$elem; $i]; $j]; $k])
     );
     ([$elem:expr; $i:expr]; $j:expr) => (
-        $crate::expr::Expr::<_, $crate::Const<2>>::from(&[[$elem; $i]; $j])
+        $crate::expr::Expr::<_, $crate::Rank<2>>::from(&[[$elem; $i]; $j])
     );
     ($elem:expr; $i:expr) => (
-        $crate::expr::Expr::<_, $crate::Const<1>>::from(&[$elem; $i])
+        $crate::expr::Expr::<_, $crate::Rank<1>>::from(&[$elem; $i])
     );
 }
 

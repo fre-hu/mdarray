@@ -2,39 +2,37 @@
 use std::alloc::Allocator;
 use std::fmt::{Debug, Formatter, Result};
 use std::marker::PhantomData;
-use std::ptr::{self, NonNull};
+use std::ptr;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::dim::{Const, Dim, Shape};
 use crate::expr::expr::{Expr, ExprMut};
 use crate::expression::Expression;
 use crate::grid::Grid;
+use crate::index::Axis;
 use crate::iter::Iter;
-use crate::layout::{Layout, Strided};
-use crate::mapping::{FlatMapping, Mapping, StridedMapping};
+use crate::layout::Layout;
+use crate::mapping::{DenseMapping, Mapping};
+use crate::shape::{IntoShape, Shape};
+use crate::span::Span;
 
 /// Array axis expression.
-pub struct AxisExpr<'a, T, D: Dim, L: Layout> {
-    ptr: NonNull<T>,
-    mapping: L::Mapping<D::Lower>,
-    size: usize,
-    stride: isize,
-    phantom: PhantomData<&'a T>,
+pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
+    span: &'a Span<T, S, L>,
+    offset: isize,
+    phantom: PhantomData<A>,
 }
 
 /// Mutable array axis expression.
-pub struct AxisExprMut<'a, T, D: Dim, L: Layout> {
-    ptr: NonNull<T>,
-    mapping: L::Mapping<D::Lower>,
-    size: usize,
-    stride: isize,
-    phantom: PhantomData<&'a mut T>,
+pub struct AxisExprMut<'a, T, S: Shape, L: Layout, A: Axis> {
+    span: &'a mut Span<T, S, L>,
+    offset: isize,
+    phantom: PhantomData<A>,
 }
 
 /// Expression that moves out of an array range.
-pub struct Drain<'a, T, D: Dim, A: Allocator> {
-    grid: &'a mut Grid<T, D, A>,
+pub struct Drain<'a, T, S: Shape, A: Allocator> {
+    grid: &'a mut Grid<T, S, A>,
     start: usize,
     end: usize,
     tail: usize,
@@ -63,34 +61,30 @@ pub struct FromElem<S, T> {
 
 /// Expression with a defined shape and elements from the given function.
 #[derive(Clone, Copy)]
-pub struct FromFn<S, F> {
+pub struct FromFn<S: Shape, F> {
     shape: S,
     f: F,
-    index: S,
+    index: S::Dims,
 }
 
 /// Expression that moves out of an array.
-pub struct IntoExpr<T, D: Dim, A: Allocator> {
-    grid: Grid<T, D, A>,
+pub struct IntoExpr<T, S: Shape, A: Allocator> {
+    grid: Grid<T, S, A>,
     index: usize,
 }
 
 /// Array lanes expression.
-pub struct Lanes<'a, T, D: Dim, L: Layout> {
-    ptr: NonNull<T>,
-    mapping: L::Mapping<Const<1>>,
-    shape: <D::Lower as Dim>::Shape,
-    strides: <D::Lower as Dim>::Strides,
-    phantom: PhantomData<&'a T>,
+pub struct Lanes<'a, T, S: Shape, L: Layout, A: Axis> {
+    span: &'a Span<T, S, L>,
+    offset: isize,
+    phantom: PhantomData<A>,
 }
 
 /// Mutable array lanes expression.
-pub struct LanesMut<'a, T, D: Dim, L: Layout> {
-    ptr: NonNull<T>,
-    mapping: L::Mapping<Const<1>>,
-    shape: <D::Lower as Dim>::Shape,
-    strides: <D::Lower as Dim>::Strides,
-    phantom: PhantomData<&'a mut T>,
+pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
+    span: &'a mut Span<T, S, L>,
+    offset: isize,
+    phantom: PhantomData<A>,
 }
 
 /// Creates an expression with elements by cloning `value`.
@@ -136,8 +130,8 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 ///
 /// assert_eq!(expr::from_elem([2, 3], 1).eval(), expr![[1; 2]; 3]);
 /// ```
-pub fn from_elem<S: Shape, T: Clone>(shape: S, elem: T) -> FromElem<S, T> {
-    FromElem::new(shape, elem)
+pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<I::IntoShape, T> {
+    FromElem::new(shape.into_shape(), elem)
 }
 
 /// Creates an expression with the given shape and elements from the given function.
@@ -149,76 +143,70 @@ pub fn from_elem<S: Shape, T: Clone>(shape: S, elem: T) -> FromElem<S, T> {
 ///
 /// assert_eq!(expr::from_fn([2, 3], |[i, j]| 2 * j + i).eval(), expr![[0, 1], [2, 3], [4, 5]]);
 /// ```
-pub fn from_fn<T, S: Shape, F: FnMut(S) -> T>(shape: S, f: F) -> FromFn<S, F> {
-    FromFn::new(shape, f)
+pub fn from_fn<T, I: IntoShape, F>(shape: I, f: F) -> FromFn<I::IntoShape, F>
+where
+    F: FnMut(<I::IntoShape as Shape>::Dims) -> T,
+{
+    FromFn::new(shape.into_shape(), f)
 }
 
 macro_rules! impl_axis_expr {
-    ($name:tt, $expr:tt, $raw_mut:tt, $repeatable:tt) => {
-        impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
-            pub(crate) unsafe fn new_unchecked(
-                ptr: *$raw_mut T,
-                mapping: L::Mapping<D::Lower>,
-                size: usize,
-                stride: isize,
+    ($name:tt, $expr:tt, $as_ptr:tt, {$($mut:tt)?}, $repeatable:tt) => {
+        impl<'a, T, S: Shape, L: Layout, A: Axis> $name<'a, T, S, L, A> {
+            pub(crate) fn new(
+                span: &'a $($mut)? Span<T, S, L>,
             ) -> Self {
-                Self {
-                    ptr: NonNull::new_unchecked(ptr as *mut T),
-                    mapping,
-                    size,
-                    stride: if mapping.is_empty() { 0 } else { stride },
-                    phantom: PhantomData
-                }
+                // Ensure that the dimension is valid.
+                _ = A::index(S::RANK);
+
+                // Ensure that the subarray is valid.
+                _ = A::remove(span.mapping()).shape().checked_len().expect("invalid length");
+
+                Self { span, offset: 0, phantom: PhantomData }
             }
         }
 
-        impl<'a, T: Debug, D: Dim, L: Layout> Debug for $name<'a, T, D, L> {
+        impl<'a, T: Debug, S: Shape, L: Layout, A: Axis> Debug for $name<'a, T, S, L, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                let mut shape = D::Shape::default();
-                let mut strides = D::Strides::default();
+                let index = A::index(S::RANK);
 
-                shape[..D::RANK - 1].copy_from_slice(&self.mapping.shape()[..]);
-                shape[D::RANK - 1] = self.size;
-
-                strides[..D::RANK - 1].copy_from_slice(&self.mapping.strides()[..]);
-                strides[D::RANK - 1] = self.stride;
-
-                let mapping = if D::RANK > 1 {
-                    Mapping::remap(StridedMapping::new(shape, strides))
-                } else {
-                    Mapping::remap(FlatMapping::new(shape, strides[0]))
-                };
-
-                let view = unsafe {
-                    Expr::<T, D, D::Layout<Strided>>::new_unchecked(self.ptr.as_ptr(), mapping)
-                };
-
-                f.debug_tuple(stringify!($name)).field(&view).finish()
+                f.debug_tuple(stringify!($name)).field(&index).field(&self.span).finish()
             }
         }
 
-        impl<'a, T, D: Dim, L: Layout> Expression for $name<'a, T, D, L> {
-            type Dim = Const<1>;
+        impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
+            type Shape = A::Dim<S>;
 
             const IS_REPEATABLE: bool = $repeatable;
             const SPLIT_MASK: usize = 1;
 
-            fn shape(&self) -> [usize; 1] {
-                [self.size]
+            fn shape(&self) -> Self::Shape {
+                A::keep(self.span.mapping()).shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-                let count = self.stride * index as isize;
+                let stride = A::keep(self.span.mapping()).stride(0);
+                let offset = self.offset + stride * index as isize;
 
-                $expr::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping)
+                let mapping = A::remove(self.span.mapping());
+
+                // If the view is empty, we must not offset the pointer.
+                let count = if mapping.is_empty() { 0 } else { offset };
+
+                $expr::new_unchecked(self.span.$as_ptr().offset(count), mapping)
             }
 
-            unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
-            unsafe fn step_dim(&mut self, _: usize) {}
+            unsafe fn reset_dim(&mut self, _: usize, _: usize) {
+                self.offset = 0;
+            }
+
+            unsafe fn step_dim(&mut self, _: usize) {
+                self.offset += A::keep(self.span.mapping()).stride(0);
+            }
         }
 
-        impl<'a, T, D: Dim, L: Layout> IntoIterator for $name<'a, T, D, L> {
-            type Item = $expr<'a, T, D::Lower, L>;
+        impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
+            type Item = $expr<'a, T, A::Other<S>, A::Remove<S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {
@@ -228,60 +216,60 @@ macro_rules! impl_axis_expr {
     };
 }
 
-impl_axis_expr!(AxisExpr, Expr, const, true);
-impl_axis_expr!(AxisExprMut, ExprMut, mut, false);
+impl_axis_expr!(AxisExpr, Expr, as_ptr, {}, true);
+impl_axis_expr!(AxisExprMut, ExprMut, as_mut_ptr, {mut}, false);
 
-impl<'a, T, D: Dim, L: Layout> Clone for AxisExpr<'a, T, D, L> {
+impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for AxisExpr<'a, T, S, L, A> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, T, D: Dim, L: Layout> Copy for AxisExpr<'a, T, D, L> {}
+impl<'a, T, S: Shape, L: Layout, A: Axis> Copy for AxisExpr<'a, T, S, L, A> {}
 
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for AxisExpr<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for AxisExpr<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Send for AxisExpr<'a, T, S, L, A> {}
+unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for AxisExpr<'a, T, S, L, A> {}
 
-unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for AxisExprMut<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for AxisExprMut<'a, T, D, L> {}
+unsafe impl<'a, T: Send, S: Shape, L: Layout, A: Axis> Send for AxisExprMut<'a, T, S, L, A> {}
+unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for AxisExprMut<'a, T, S, L, A> {}
 
-impl<'a, T, D: Dim, A: Allocator> Drain<'a, T, D, A> {
-    pub(crate) fn new(grid: &'a mut Grid<T, D, A>, start: usize, end: usize) -> Self {
-        assert!(start <= end && end <= grid.size(D::RANK - 1), "invalid range");
+impl<'a, T, S: Shape, A: Allocator> Drain<'a, T, S, A> {
+    pub(crate) fn new(grid: &'a mut Grid<T, S, A>, start: usize, end: usize) -> Self {
+        assert!(start <= end && end <= grid.dim(S::RANK - 1), "invalid range");
 
-        let tail = grid.size(D::RANK - 1) - end;
-        let inner_len = grid.shape()[..D::RANK - 1].iter().product::<usize>();
+        let tail = grid.dim(S::RANK - 1) - end;
+        let inner_len = grid.dims()[..S::RANK - 1].iter().product::<usize>();
         let index = start * inner_len;
 
         // Shrink the array, to be safe in case Drain is leaked.
         unsafe {
-            grid.set_mapping(Mapping::resize_dim(grid.mapping(), D::RANK - 1, start));
+            grid.set_mapping(Mapping::resize_dim(grid.mapping(), S::RANK - 1, start));
         }
 
         Self { grid, start, end, tail, inner_len, index }
     }
 }
 
-impl<'a, T: Debug, D: Dim, A: Allocator> Debug for Drain<'a, T, D, A> {
+impl<'a, T: Debug, S: Shape, A: Allocator> Debug for Drain<'a, T, S, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         assert!(self.index == self.start * self.inner_len, "expression in use");
 
         let ptr = unsafe { self.grid.as_ptr().add(self.index) };
-        let mapping = Mapping::resize_dim(self.grid.mapping(), D::RANK - 1, self.end - self.start);
-        let view = unsafe { Expr::<T, D>::new_unchecked(ptr, mapping) };
+        let mapping = Mapping::resize_dim(self.grid.mapping(), S::RANK - 1, self.end - self.start);
+        let view = unsafe { Expr::<T, S>::new_unchecked(ptr, mapping) };
 
         f.debug_tuple("Drain").field(&view).finish()
     }
 }
 
-impl<'a, T, D: Dim, A: Allocator> Drop for Drain<'a, T, D, A> {
+impl<'a, T, S: Shape, A: Allocator> Drop for Drain<'a, T, S, A> {
     fn drop(&mut self) {
-        struct DropGuard<'a, 'b, T, D: Dim, A: Allocator>(&'b mut Drain<'a, T, D, A>);
+        struct DropGuard<'a, 'b, T, S: Shape, A: Allocator>(&'b mut Drain<'a, T, S, A>);
 
-        impl<'a, 'b, T, D: Dim, A: Allocator> Drop for DropGuard<'a, 'b, T, D, A> {
+        impl<'a, 'b, T, S: Shape, A: Allocator> Drop for DropGuard<'a, 'b, T, S, A> {
             fn drop(&mut self) {
                 let size = self.0.start + self.0.tail;
-                let mapping = Mapping::resize_dim(self.0.grid.mapping(), D::RANK - 1, size);
+                let mapping = Mapping::resize_dim(self.0.grid.mapping(), S::RANK - 1, size);
 
                 unsafe {
                     let src = self.0.grid.as_ptr().add(self.0.end * self.0.inner_len);
@@ -304,14 +292,14 @@ impl<'a, T, D: Dim, A: Allocator> Drop for Drain<'a, T, D, A> {
     }
 }
 
-impl<'a, T, D: Dim, A: Allocator> Expression for Drain<'a, T, D, A> {
-    type Dim = D;
+impl<'a, T, S: Shape, A: Allocator> Expression for Drain<'a, T, S, A> {
+    type Shape = S;
 
     const IS_REPEATABLE: bool = false;
-    const SPLIT_MASK: usize = (1 << D::RANK) >> 1;
+    const SPLIT_MASK: usize = (1 << S::RANK) >> 1;
 
-    fn shape(&self) -> D::Shape {
-        Mapping::resize_dim(self.grid.mapping(), D::RANK - 1, self.end - self.start).shape()
+    fn shape(&self) -> S {
+        DenseMapping::resize_dim(self.grid.mapping(), S::RANK - 1, self.end - self.start).shape()
     }
 
     unsafe fn get_unchecked(&mut self, _: usize) -> Self::Item {
@@ -326,7 +314,7 @@ impl<'a, T, D: Dim, A: Allocator> Expression for Drain<'a, T, D, A> {
     unsafe fn step_dim(&mut self, _: usize) {}
 }
 
-impl<'a, T, D: Dim, A: Allocator> IntoIterator for Drain<'a, T, D, A> {
+impl<'a, T, S: Shape, A: Allocator> IntoIterator for Drain<'a, T, S, A> {
     type Item = T;
     type IntoIter = Iter<Self>;
 
@@ -335,8 +323,8 @@ impl<'a, T, D: Dim, A: Allocator> IntoIterator for Drain<'a, T, D, A> {
     }
 }
 
-unsafe impl<'a, T: Send, D: Dim, A: Allocator> Send for Drain<'a, T, D, A> {}
-unsafe impl<'a, T: Sync, D: Dim, A: Allocator> Sync for Drain<'a, T, D, A> {}
+unsafe impl<'a, T: Send, S: Shape, A: Allocator> Send for Drain<'a, T, S, A> {}
+unsafe impl<'a, T: Sync, S: Shape, A: Allocator> Sync for Drain<'a, T, S, A> {}
 
 impl<T> Fill<T> {
     pub(crate) fn new(value: T) -> Self {
@@ -351,14 +339,12 @@ impl<T: Debug> Debug for Fill<T> {
 }
 
 impl<T: Clone> Expression for Fill<T> {
-    type Dim = Const<0>;
+    type Shape = ();
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = 0;
 
-    fn shape(&self) -> [usize; 0] {
-        []
-    }
+    fn shape(&self) {}
 
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         self.value.clone()
@@ -390,14 +376,12 @@ impl<T: Debug, F: FnMut() -> T> Debug for FillWith<F> {
 }
 
 impl<T, F: FnMut() -> T> Expression for FillWith<F> {
-    type Dim = Const<0>;
+    type Shape = ();
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = 0;
 
-    fn shape(&self) -> [usize; 0] {
-        []
-    }
+    fn shape(&self) {}
 
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         (self.f)()
@@ -418,7 +402,7 @@ impl<T, F: FnMut() -> T> IntoIterator for FillWith<F> {
 
 impl<S: Shape, T> FromElem<S, T> {
     pub(crate) fn new(shape: S, elem: T) -> Self {
-        _ = <S::Dim as Dim>::checked_len(shape);
+        _ = shape.checked_len().expect("invalid length");
 
         Self { shape, elem }
     }
@@ -431,7 +415,7 @@ impl<S: Shape, T: Debug> Debug for FromElem<S, T> {
 }
 
 impl<S: Shape, T: Clone> Expression for FromElem<S, T> {
-    type Dim = S::Dim;
+    type Shape = S;
 
     const IS_REPEATABLE: bool = true;
     const SPLIT_MASK: usize = 0;
@@ -459,46 +443,46 @@ impl<S: Shape, T: Clone> IntoIterator for FromElem<S, T> {
 
 impl<S: Shape, F> FromFn<S, F> {
     pub(crate) fn new(shape: S, f: F) -> Self {
-        _ = <S::Dim as Dim>::checked_len(shape);
+        _ = shape.checked_len().expect("invalid length");
 
-        Self { shape, f, index: S::default() }
+        Self { shape, f, index: S::Dims::default() }
     }
 }
 
-impl<S: Shape, T: Debug, F: FnMut(S) -> T> Debug for FromFn<S, F> {
+impl<S: Shape, T: Debug, F: FnMut(S::Dims) -> T> Debug for FromFn<S, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_tuple("FromFn").field(&self.shape).finish()
     }
 }
 
-impl<S: Shape, T, F: FnMut(S) -> T> Expression for FromFn<S, F> {
-    type Dim = S::Dim;
+impl<S: Shape, T, F: FnMut(S::Dims) -> T> Expression for FromFn<S, F> {
+    type Shape = S;
 
     const IS_REPEATABLE: bool = true;
-    const SPLIT_MASK: usize = (1 << S::Dim::RANK) - 1;
+    const SPLIT_MASK: usize = (1 << S::RANK) - 1;
 
     fn shape(&self) -> S {
         self.shape
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
-        if S::Dim::RANK > 0 {
+        if S::RANK > 0 {
             self.index[0] = index;
         }
 
         (self.f)(self.index)
     }
 
-    unsafe fn reset_dim(&mut self, dim: usize, _: usize) {
-        self.index[dim] = 0;
+    unsafe fn reset_dim(&mut self, index: usize, _: usize) {
+        self.index[index] = 0;
     }
 
-    unsafe fn step_dim(&mut self, dim: usize) {
-        self.index[dim] += 1;
+    unsafe fn step_dim(&mut self, index: usize) {
+        self.index[index] += 1;
     }
 }
 
-impl<S: Shape, T, F: FnMut(S) -> T> IntoIterator for FromFn<S, F> {
+impl<S: Shape, T, F: FnMut(S::Dims) -> T> IntoIterator for FromFn<S, F> {
     type Item = T;
     type IntoIter = Iter<Self>;
 
@@ -507,13 +491,13 @@ impl<S: Shape, T, F: FnMut(S) -> T> IntoIterator for FromFn<S, F> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> IntoExpr<T, D, A> {
-    pub(crate) fn new(grid: Grid<T, D, A>) -> Self {
+impl<T, S: Shape, A: Allocator> IntoExpr<T, S, A> {
+    pub(crate) fn new(grid: Grid<T, S, A>) -> Self {
         Self { grid, index: 0 }
     }
 }
 
-impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for IntoExpr<T, D, A> {
+impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for IntoExpr<T, S, A> {
     fn clone(&self) -> Self {
         assert!(self.index == 0, "expression in use");
 
@@ -527,7 +511,7 @@ impl<T: Clone, D: Dim, A: Allocator + Clone> Clone for IntoExpr<T, D, A> {
     }
 }
 
-impl<T: Debug, D: Dim, A: Allocator> Debug for IntoExpr<T, D, A> {
+impl<T: Debug, S: Shape, A: Allocator> Debug for IntoExpr<T, S, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         assert!(self.index == 0, "expression in use");
 
@@ -535,7 +519,7 @@ impl<T: Debug, D: Dim, A: Allocator> Debug for IntoExpr<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Drop for IntoExpr<T, D, A> {
+impl<T, S: Shape, A: Allocator> Drop for IntoExpr<T, S, A> {
     fn drop(&mut self) {
         unsafe {
             let ptr = self.grid.as_mut_ptr().add(self.index);
@@ -547,13 +531,13 @@ impl<T, D: Dim, A: Allocator> Drop for IntoExpr<T, D, A> {
     }
 }
 
-impl<T, D: Dim, A: Allocator> Expression for IntoExpr<T, D, A> {
-    type Dim = D;
+impl<T, S: Shape, A: Allocator> Expression for IntoExpr<T, S, A> {
+    type Shape = S;
 
     const IS_REPEATABLE: bool = false;
-    const SPLIT_MASK: usize = (1 << D::RANK) >> 1;
+    const SPLIT_MASK: usize = (1 << S::RANK) >> 1;
 
-    fn shape(&self) -> D::Shape {
+    fn shape(&self) -> S {
         self.grid.shape()
     }
 
@@ -569,7 +553,7 @@ impl<T, D: Dim, A: Allocator> Expression for IntoExpr<T, D, A> {
     unsafe fn step_dim(&mut self, _: usize) {}
 }
 
-impl<T, D: Dim, A: Allocator> IntoIterator for IntoExpr<T, D, A> {
+impl<T, S: Shape, A: Allocator> IntoIterator for IntoExpr<T, S, A> {
     type Item = T;
     type IntoIter = Iter<Self>;
 
@@ -578,81 +562,66 @@ impl<T, D: Dim, A: Allocator> IntoIterator for IntoExpr<T, D, A> {
     }
 }
 
-unsafe impl<T: Send, D: Dim, A: Allocator> Send for IntoExpr<T, D, A> {}
-unsafe impl<T: Sync, D: Dim, A: Allocator> Sync for IntoExpr<T, D, A> {}
+unsafe impl<T: Send, S: Shape, A: Allocator> Send for IntoExpr<T, S, A> {}
+unsafe impl<T: Sync, S: Shape, A: Allocator> Sync for IntoExpr<T, S, A> {}
 
 macro_rules! impl_lanes {
-    ($name:tt, $expr:tt, $raw_mut:tt, $repeatable:tt) => {
-        impl<'a, T, D: Dim, L: Layout> $name<'a, T, D, L> {
-            pub(crate) unsafe fn new_unchecked(
-                ptr: *$raw_mut T,
-                mapping: L::Mapping<Const<1>>,
-                shape: <D::Lower as Dim>::Shape,
-                strides: <D::Lower as Dim>::Strides,
+    ($name:tt, $expr:tt, $as_ptr:tt, {$($mut:tt)?}, $repeatable:tt) => {
+        impl<'a, T, S: Shape, L: Layout, A: Axis> $name<'a, T, S, L, A> {
+            pub(crate) fn new(
+                span: &'a $($mut)? Span<T, S, L>,
             ) -> Self {
-                Self {
-                    ptr: NonNull::new_unchecked(ptr as *mut T),
-                    mapping,
-                    shape,
-                    strides: if mapping.is_empty() { Default::default() } else { strides },
-                    phantom: PhantomData, }
+                // Ensure that the dimension is valid.
+                _ = A::index(S::RANK);
+
+                // Ensure that the subarray is valid.
+                _ = A::remove(span.mapping()).shape().checked_len().expect("invalid length");
+
+                Self { span, offset: 0, phantom: PhantomData }
             }
         }
 
-        impl<'a, T: Debug, D: Dim, L: Layout> Debug for $name<'a, T, D, L> {
+        impl<'a, T: Debug, S: Shape, L: Layout, A: Axis> Debug for $name<'a, T, S, L, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                let mut shape = D::Shape::default();
-                let mut strides = D::Strides::default();
+                let index = A::index(S::RANK);
 
-                shape[0] = self.mapping.size(0);
-                shape[1..].copy_from_slice(&self.shape[..]);
-
-                strides[0] = self.mapping.stride(0);
-                strides[1..].copy_from_slice(&self.strides[..]);
-
-                let mapping = if D::RANK > 1 {
-                    Mapping::remap(StridedMapping::new(shape, strides))
-                } else {
-                    Mapping::remap(FlatMapping::new(shape, strides[0]))
-                };
-
-                let view = unsafe { // Assuming expression not in use.
-                    Expr::<T, D, D::Layout<Strided>>::new_unchecked(self.ptr.as_ptr(), mapping)
-                };
-
-                f.debug_tuple(stringify!($name)).field(&view).finish()
+                f.debug_tuple(stringify!($name)).field(&index).field(&self.span).finish()
             }
         }
 
-         impl<'a, T, D: Dim, L: Layout> Expression for $name<'a, T, D, L> {
-            type Dim = D::Lower;
+         impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
+            type Shape = A::Other<S>;
 
             const IS_REPEATABLE: bool = $repeatable;
-            const SPLIT_MASK: usize = ((1 << D::RANK) - 1) >> 1;
+            const SPLIT_MASK: usize = ((1 << S::RANK) - 1) >> 1;
 
-            fn shape(&self) -> <D::Lower as Dim>::Shape {
-                self.shape
+            fn shape(&self) -> Self::Shape {
+                A::remove(self.span.mapping()).shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-                let count = if D::RANK > 1 { self.strides[0] * index as isize } else { 0 };
+                let stride = if S::RANK > 1 { A::remove(self.span.mapping()).stride(0) } else { 0 };
+                let offset = self.offset + stride * index as isize;
 
-                $expr::new_unchecked(self.ptr.as_ptr().offset(count), self.mapping)
+                let mapping = A::keep(self.span.mapping());
+
+                // If the view is empty, we must not offset the pointer.
+                let count = if mapping.is_empty() { 0 } else { offset };
+
+                $expr::new_unchecked(self.span.$as_ptr().offset(count), mapping)
             }
 
-            unsafe fn reset_dim(&mut self, dim: usize, count: usize) {
-                let count = -self.strides[dim] * count as isize;
-
-                self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(count));
+            unsafe fn reset_dim(&mut self, index: usize, count: usize) {
+                self.offset -= A::remove(self.span.mapping()).stride(index) * count as isize;
             }
 
-            unsafe fn step_dim(&mut self, dim: usize) {
-                self.ptr = NonNull::new_unchecked(self.ptr.as_ptr().offset(self.strides[dim]));
+            unsafe fn step_dim(&mut self, index: usize) {
+                self.offset += A::remove(self.span.mapping()).stride(index);
             }
         }
 
-        impl<'a, T, D: Dim, L: Layout> IntoIterator for $name<'a, T, D, L> {
-            type Item = $expr<'a, T, Const<1>, L>;
+        impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
+            type Item = $expr<'a, T, A::Dim<S>, A::Keep<S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {
@@ -662,19 +631,19 @@ macro_rules! impl_lanes {
     };
 }
 
-impl_lanes!(Lanes, Expr, const, true);
-impl_lanes!(LanesMut, ExprMut, mut, false);
+impl_lanes!(Lanes, Expr, as_ptr, {}, true);
+impl_lanes!(LanesMut, ExprMut, as_mut_ptr, {mut}, false);
 
-impl<'a, T, D: Dim, L: Layout> Clone for Lanes<'a, T, D, L> {
+impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for Lanes<'a, T, S, L, A> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a, T, D: Dim, L: Layout> Copy for Lanes<'a, T, D, L> {}
+impl<'a, T, S: Shape, L: Layout, A: Axis> Copy for Lanes<'a, T, S, L, A> {}
 
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Send for Lanes<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for Lanes<'a, T, D, L> {}
+unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Send for Lanes<'a, T, S, L, A> {}
+unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for Lanes<'a, T, S, L, A> {}
 
-unsafe impl<'a, T: Send, D: Dim, L: Layout> Send for LanesMut<'a, T, D, L> {}
-unsafe impl<'a, T: Sync, D: Dim, L: Layout> Sync for LanesMut<'a, T, D, L> {}
+unsafe impl<'a, T: Send, S: Shape, L: Layout, A: Axis> Send for LanesMut<'a, T, S, L, A> {}
+unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for LanesMut<'a, T, S, L, A> {}

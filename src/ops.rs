@@ -8,11 +8,11 @@ use std::ops::{
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::dim::{Dim, Shape};
 use crate::expr::{Drain, Expr, ExprMut, Fill, FillWith, FromElem, FromFn, IntoExpr, Map};
 use crate::expression::Expression;
 use crate::grid::Grid;
 use crate::layout::Layout;
+use crate::shape::Shape;
 use crate::span::Span;
 use crate::traits::{Apply, IntoExpression};
 
@@ -45,45 +45,46 @@ pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }
 
-impl<T: Eq, D: Dim, L: Layout> Eq for Expr<'_, T, D, L> {}
-impl<T: Eq, D: Dim, L: Layout> Eq for ExprMut<'_, T, D, L> {}
-impl<T: Eq, D: Dim, A: Allocator> Eq for Grid<T, D, A> {}
-impl<T: Eq, D: Dim, L: Layout> Eq for Span<T, D, L> {}
+impl<T: Eq, S: Shape, L: Layout> Eq for Expr<'_, T, S, L> {}
+impl<T: Eq, S: Shape, L: Layout> Eq for ExprMut<'_, T, S, L> {}
+impl<T: Eq, S: Shape, A: Allocator> Eq for Grid<T, S, A> {}
+impl<T: Eq, S: Shape, L: Layout> Eq for Span<T, S, L> {}
 
-impl<T, U, D: Dim, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Expr<'_, T, D, L>
+impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Expr<'_, U, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, U, D, M>>,
-    T: PartialEq<U>,
+    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, M>>,
+    U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
         eq(self, &other.into_expr())
     }
 }
 
-impl<T, U, D: Dim, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for ExprMut<'_, T, D, L>
+impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I>
+    for ExprMut<'_, U, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, U, D, M>>,
-    T: PartialEq<U>,
+    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, M>>,
+    U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
         eq(self, &other.into_expr())
     }
 }
 
-impl<T, U, D: Dim, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Grid<T, D, A>
+impl<U, V, S: Shape, T: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Grid<U, S, A>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, U, D, L>>,
-    T: PartialEq<U>,
+    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, L>>,
+    U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
         eq(self, &other.into_expr())
     }
 }
 
-impl<T, U, D: Dim, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Span<T, D, L>
+impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Span<U, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, U, D, M>>,
-    T: PartialEq<U>,
+    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, M>>,
+    U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
         eq(self, &other.into_expr())
@@ -92,7 +93,7 @@ where
 
 macro_rules! impl_binary_op {
     ($trt:tt, $fn:tt) => {
-        impl<'a, T, U, D: Dim, L: Layout, I: Apply<U>> $trt<I> for &'a Expr<'_, T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a Expr<'_, T, S, L>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -103,7 +104,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout, I: Apply<U>> $trt<I> for &'a ExprMut<'_, T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a ExprMut<'_, T, S, L>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -114,7 +115,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, A: Allocator, I: Apply<U>> $trt<I> for &'a Grid<T, D, A>
+        impl<'a, T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for &'a Grid<T, S, A>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -125,7 +126,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout, I: Apply<U>> $trt<I> for &'a Span<T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a Span<T, S, L>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -136,7 +137,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, A: Allocator, I: Apply<U>> $trt<I> for Drain<'a, T, D, A>
+        impl<'a, T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for Drain<'a, T, S, A>
         where
             T: $trt<I::Item, Output = U>,
         {
@@ -147,7 +148,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout, I: Apply<U>> $trt<I> for Expr<'a, T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for Expr<'a, T, S, L>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -191,7 +192,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<S: Shape, T, U, F: FnMut(S) -> T, I: Apply<U>> $trt<I> for FromFn<S, F>
+        impl<S: Shape, T, U, F: FnMut(S::Dims) -> T, I: Apply<U>> $trt<I> for FromFn<S, F>
         where
             T: $trt<I::Item, Output = U>,
         {
@@ -202,7 +203,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T, D: Dim, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, D, A>
+        impl<T, S: Shape, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, S, A>
         where
             T: $trt<I::Item, Output = T>,
         {
@@ -213,7 +214,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T, U, D: Dim, A: Allocator, I: Apply<U>> $trt<I> for IntoExpr<T, D, A>
+        impl<T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for IntoExpr<T, S, A>
         where
             T: $trt<I::Item, Output = U>,
         {
@@ -250,7 +251,7 @@ impl_binary_op!(Shr, shr);
 
 macro_rules! impl_op_assign {
     ($trt:tt, $fn:tt) => {
-        impl<T, D: Dim, L: Layout, I: IntoExpression> $trt<I> for ExprMut<'_, T, D, L>
+        impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for ExprMut<'_, T, S, L>
         where
             T: $trt<I::Item>,
         {
@@ -259,7 +260,7 @@ macro_rules! impl_op_assign {
             }
         }
 
-        impl<T, D: Dim, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, D, A>
+        impl<T, S: Shape, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, S, A>
         where
             T: $trt<I::Item>,
         {
@@ -268,7 +269,7 @@ macro_rules! impl_op_assign {
             }
         }
 
-        impl<T, D: Dim, L: Layout, I: IntoExpression> $trt<I> for Span<T, D, L>
+        impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for Span<T, S, L>
         where
             T: $trt<I::Item>,
         {
@@ -292,7 +293,7 @@ impl_op_assign!(ShrAssign, shr_assign);
 
 macro_rules! impl_unary_op {
     ($trt:tt, $fn:tt) => {
-        impl<'a, T, U, D: Dim, L: Layout> $trt for &'a Expr<'_, T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a Expr<'_, T, S, L>
         where
             &'a T: $trt<Output = U>,
         {
@@ -303,7 +304,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout> $trt for &'a ExprMut<'_, T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a ExprMut<'_, T, S, L>
         where
             &'a T: $trt<Output = U>,
         {
@@ -314,7 +315,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, A: Allocator> $trt for &'a Grid<T, D, A>
+        impl<'a, T, U, S: Shape, A: Allocator> $trt for &'a Grid<T, S, A>
         where
             &'a T: $trt<Output = U>,
         {
@@ -325,7 +326,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout> $trt for &'a Span<T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a Span<T, S, L>
         where
             &'a T: $trt<Output = U>,
         {
@@ -336,7 +337,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, A: Allocator> $trt for Drain<'a, T, D, A>
+        impl<'a, T, U, S: Shape, A: Allocator> $trt for Drain<'a, T, S, A>
         where
             T: $trt<Output = U>,
         {
@@ -347,7 +348,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, D: Dim, L: Layout> $trt for Expr<'a, T, D, L>
+        impl<'a, T, U, S: Shape, L: Layout> $trt for Expr<'a, T, S, L>
         where
             &'a T: $trt<Output = U>,
         {
@@ -391,7 +392,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<S: Shape, T, U, F: FnMut(S) -> T> $trt for FromFn<S, F>
+        impl<S: Shape, T, U, F: FnMut(S::Dims) -> T> $trt for FromFn<S, F>
         where
             T: $trt<Output = U>,
         {
@@ -402,7 +403,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T, D: Dim, A: Allocator> $trt for Grid<T, D, A>
+        impl<T, S: Shape, A: Allocator> $trt for Grid<T, S, A>
         where
             T: $trt<Output = T>,
         {
@@ -413,7 +414,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T, U, D: Dim, A: Allocator> $trt for IntoExpr<T, D, A>
+        impl<T, U, S: Shape, A: Allocator> $trt for IntoExpr<T, S, A>
         where
             T: $trt<Output = U>,
         {
@@ -440,11 +441,14 @@ macro_rules! impl_unary_op {
 impl_unary_op!(Neg, neg);
 impl_unary_op!(Not, not);
 
-fn eq<T, U, D: Dim, L: Layout, M: Layout>(this: &Span<T, D, L>, other: &Span<U, D, M>) -> bool
+fn eq<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
+    this: &Span<U, S, L>,
+    other: &Span<V, T, M>,
+) -> bool
 where
-    T: PartialEq<U>,
+    U: PartialEq<V>,
 {
-    if this.shape()[..] == other.shape()[..] {
+    if this.dims()[..] == other.dims()[..] {
         if L::IS_UNIFORM && M::IS_UNIFORM {
             if L::IS_UNIT_STRIDED && M::IS_UNIT_STRIDED {
                 this.remap()[..].eq(&other.remap()[..])
