@@ -203,7 +203,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T, S: Shape, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, S, A>
+        impl<T: Default, S: Shape, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, S, A>
         where
             T: $trt<I::Item, Output = T>,
         {
@@ -403,7 +403,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T, S: Shape, A: Allocator> $trt for Grid<T, S, A>
+        impl<T: Default, S: Shape, A: Allocator> $trt for Grid<T, S, A>
         where
             T: $trt<Output = T>,
         {

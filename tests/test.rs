@@ -243,6 +243,7 @@ fn test_base() {
     assert!(Grid::from_iter(0..10).view(step(..0, isize::MAX)).is_empty());
     assert!(Grid::from_iter(0..10).view_mut(step(..0, isize::MIN)).is_empty());
 
+    assert_eq!(Grid::from_iter(0..3).map(|x| 10 * x)[..], [0, 10, 20]);
     assert_eq!(Grid::from_iter(0..3).apply(|x| 10 * x)[..], [0, 10, 20]);
     assert_eq!(Grid::from_iter(0..3).zip_with(expr![3, 4, 5], |(x, y)| x + y)[..], [3, 5, 7]);
 

@@ -7,7 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::mem::{self, MaybeUninit};
 use std::ops::RangeBounds;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::{ptr, slice};
+use std::slice;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::{Allocator, Global};
@@ -237,6 +237,14 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
         vec
     }
 
+    /// Returns the array with the given closure applied to each element.
+    pub fn map(self, f: impl FnMut(T) -> T) -> Self
+    where
+        T: Default,
+    {
+        self.apply(f)
+    }
+
     /// Creates a new, empty array with the specified allocator.
     ///
     /// # Panics
@@ -369,46 +377,6 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
 
     unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
         Self { grid: RawGrid::from_parts(vec, mapping) }
-    }
-
-    fn zip_with<I: IntoExpression, F>(mut self, expr: I, mut f: F) -> Self
-    where
-        F: FnMut((T, I::Item)) -> T,
-    {
-        struct DropGuard<'a, T, S: Shape, A: Allocator> {
-            grid: &'a mut Grid<T, S, A>,
-            index: usize,
-        }
-
-        impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
-            fn drop(&mut self) {
-                let ptr = self.grid.as_mut_ptr();
-                let tail = self.grid.len() - self.index;
-
-                // Drop all elements except the current one, which is read but not written back.
-                unsafe {
-                    self.grid.set_mapping(DenseMapping::default());
-
-                    if self.index > 1 {
-                        ptr::drop_in_place(ptr::slice_from_raw_parts_mut(ptr, self.index - 1));
-                    }
-
-                    ptr::drop_in_place(ptr::slice_from_raw_parts_mut(ptr.add(self.index), tail));
-                }
-            }
-        }
-
-        let mut guard = DropGuard { grid: &mut self, index: 0 };
-        let expr = guard.grid.expr_mut().zip(expr);
-
-        expr.for_each(|(x, y)| unsafe {
-            guard.index += 1;
-            ptr::write(x, f((ptr::read(x), y)));
-        });
-
-        mem::forget(guard);
-
-        self
     }
 }
 
@@ -583,16 +551,21 @@ impl<'a, T, U, S: Shape, A: Allocator> Apply<U> for &'a mut Grid<T, S, A> {
     }
 }
 
-impl<T, S: Shape, A: Allocator> Apply<T> for Grid<T, S, A> {
+impl<T: Default, S: Shape, A: Allocator> Apply<T> for Grid<T, S, A> {
     type Output<F: FnMut(T) -> T> = Self;
     type ZippedWith<I: IntoExpression, F: FnMut((T, I::Item)) -> T> = Self;
 
-    fn apply<F: FnMut(T) -> T>(self, mut f: F) -> Self {
-        self.zip_with(expr::fill(()), |(x, ())| f(x))
+    fn apply<F: FnMut(T) -> T>(mut self, mut f: F) -> Self {
+        self.expr_mut().for_each(|x| *x = f(mem::take(x)));
+        self
     }
 
-    fn zip_with<I: IntoExpression, F: FnMut((T, I::Item)) -> T>(self, expr: I, f: F) -> Self {
-        self.zip_with(expr, f)
+    fn zip_with<I: IntoExpression, F>(mut self, expr: I, mut f: F) -> Self
+    where
+        F: FnMut((T, I::Item)) -> T,
+    {
+        self.expr_mut().zip(expr).for_each(|(x, y)| *x = f((mem::take(x), y)));
+        self
     }
 }
 
