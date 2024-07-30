@@ -56,7 +56,7 @@ where
     U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
-        eq(self, &other.into_expr())
+        (**self).eq(other)
     }
 }
 
@@ -67,7 +67,7 @@ where
     U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
-        eq(self, &other.into_expr())
+        (**self).eq(other)
     }
 }
 
@@ -77,7 +77,7 @@ where
     U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
-        eq(self, &other.into_expr())
+        (**self).eq(other)
     }
 }
 
@@ -87,7 +87,50 @@ where
     U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
-        eq(self, &other.into_expr())
+        let other = other.into_expr();
+
+        if self.dims()[..] == other.dims()[..] {
+            // Avoid very long compile times for release build with MIR inlining,
+            // by avoiding recursion until types are known.
+            //
+            // This is a workaround until const if is available, see #3582 and #122301.
+
+            fn compare_inner<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
+                this: &Span<U, S, L>,
+                other: &Span<V, T, M>,
+            ) -> bool
+            where
+                U: PartialEq<V>,
+            {
+                if L::IS_UNIT_STRIDED && M::IS_UNIT_STRIDED {
+                    this.remap()[..].eq(&other.remap()[..])
+                } else {
+                    this.iter().eq(other)
+                }
+            }
+
+            fn compare_outer<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
+                this: &Span<U, S, L>,
+                other: &Span<V, T, M>,
+            ) -> bool
+            where
+                U: PartialEq<V>,
+            {
+                this.outer_expr().into_iter().eq(other.outer_expr())
+            }
+
+            let f = const {
+                if L::IS_UNIFORM && M::IS_UNIFORM {
+                    compare_inner
+                } else {
+                    compare_outer
+                }
+            };
+
+            f(self, &other)
+        } else {
+            false
+        }
     }
 }
 
@@ -536,25 +579,3 @@ macro_rules! impl_unary_op {
 
 impl_unary_op!(Neg, neg);
 impl_unary_op!(Not, not);
-
-fn eq<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
-    this: &Span<U, S, L>,
-    other: &Span<V, T, M>,
-) -> bool
-where
-    U: PartialEq<V>,
-{
-    if this.dims()[..] == other.dims()[..] {
-        if L::IS_UNIFORM && M::IS_UNIFORM {
-            if L::IS_UNIT_STRIDED && M::IS_UNIT_STRIDED {
-                this.remap()[..].eq(&other.remap()[..])
-            } else {
-                this.iter().eq(other)
-            }
-        } else {
-            this.outer_expr().into_iter().eq(other.outer_expr())
-        }
-    } else {
-        false
-    }
-}

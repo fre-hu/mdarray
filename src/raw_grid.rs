@@ -342,8 +342,30 @@ unsafe fn copy_dim<T, S: Shape, A: Allocator>(
     let min_size = cmp::min(old_size, new_size);
 
     if S::RANK > 1 {
+        // Avoid very long compile times for release build with MIR inlining,
+        // by avoiding recursion until types are known.
+        //
+        // This is a workaround until const if is available, see #3582 and #122301.
+
+        unsafe fn dummy<T, S: Shape, A: Allocator>(
+            _: &mut DropGuard<T, A>,
+            _: &mut vec_t!(T, A),
+            _: S,
+            _: S,
+            _: &mut impl FnMut() -> T,
+        ) {
+        }
+
+        let g = const {
+            if S::RANK > 1 {
+                copy_dim::<T, <Outer as Axis>::Other<S>, A>
+            } else {
+                dummy::<T, <Outer as Axis>::Other<S>, A>
+            }
+        };
+
         for _ in 0..min_size {
-            copy_dim::<T, <Outer as Axis>::Other<S>, A>(
+            g(
                 old_vec,
                 new_vec,
                 old_shape.remove_dim(S::RANK - 1),
