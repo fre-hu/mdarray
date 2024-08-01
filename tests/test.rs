@@ -24,8 +24,9 @@ use serde_test::{assert_tokens, Token};
 use aligned_alloc::AlignedAlloc;
 use mdarray::expr::{Expr, ExprMut};
 use mdarray::mapping::{DenseMapping, FlatMapping, GeneralMapping, Mapping, StridedMapping};
-use mdarray::{expr, grid, step, Apply, DGrid, Expression, Grid, IntoCloned, IntoExpression};
-use mdarray::{Const, Dense, Dyn, Flat, General, Layout, Rank, Shape, StepRange, Strided};
+use mdarray::{array, expr, grid, step, Array, DGrid, Grid, StepRange};
+use mdarray::{Apply, Expression, IntoCloned, IntoExpression};
+use mdarray::{Const, Dense, Dyn, Flat, General, Layout, Rank, Shape, Strided};
 
 macro_rules! to_slice {
     ($span:expr) => {
@@ -289,7 +290,7 @@ fn test_base() {
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
     let mut d = DGrid::<usize, 2>::from([[1, 2], [3, 4], [5, 6]]);
-    let e = Grid::from_expr(d.drain(1..2));
+    let e = d.drain(1..2).eval();
 
     assert_eq!(d, Expr::from(&[[1, 2], [5, 6]]));
     assert_eq!(e, Expr::from(&[[3, 4]]));
@@ -313,6 +314,11 @@ fn test_base() {
     assert_eq!(v.into_permuted::<2, 0, 1>(), expr![[[1], [2], [3]], [[4], [5], [6]]]);
     assert_eq!(v.into_permuted::<2, 1, 0>(), expr![[[1], [4]], [[2], [5]], [[3], [6]]]);
 
+    assert_eq!(Array::<usize, ()>(123).into_scalar(), 123);
+    assert_eq!(array![1, 2, 3].into_shape((Const::<3>, Const::<1>)), expr![[1, 2, 3]]);
+    assert_eq!(array![1, 2, 3].into_shape((Const::<1>, Const::<3>)), expr![[1], [2], [3]]);
+    assert_eq!(array![[1, 2, 3], [4, 5, 6]], expr![[1, 2, 3], [4, 5, 6]]);
+
     #[cfg(feature = "nightly")]
     let u = DGrid::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 
@@ -335,8 +341,8 @@ fn test_expr() {
     assert_eq!(format!("{:?}", a.cols()), "Lanes(0, [[1, 2, 3], [4, 5, 6]])");
     assert_eq!(format!("{:?}", a.rows_mut()), "LanesMut(1, [[1, 2, 3], [4, 5, 6]])");
 
-    assert_eq!(format!("{:?}", a.clone().drain(1..)), "Drain([[4, 5, 6]])");
-    assert_eq!(format!("{:?}", a.clone().into_expr()), "IntoExpr([[1, 2, 3], [4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.clone().drain(1..)), "[[4, 5, 6]]");
+    assert_eq!(format!("{:?}", a.clone().into_expr()), "[[1, 2, 3], [4, 5, 6]]");
 
     assert_eq!(format!("{:?}", expr::fill(1)), "Fill(1)");
     assert_eq!(format!("{:?}", expr::fill_with(|| 1)), "FillWith");
@@ -562,6 +568,47 @@ fn test_ops() {
 #[cfg(feature = "serde")]
 #[test]
 fn test_serde() {
+    assert_tokens(&Array::<i32, ()>(123), &[Token::I32(123)]);
+
+    assert_tokens(
+        &Array::<i32, (Const<3>, Const<0>)>([]),
+        &[Token::Seq { len: Some(0) }, Token::SeqEnd],
+    );
+
+    assert_tokens(
+        &Array::<i32, (Const<0>, Const<3>)>([[], [], []]),
+        &[
+            Token::Seq { len: Some(3) },
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
+
+    assert_tokens(
+        &Array::<i32, (Const<3>, Const<2>, Const<1>)>([[[4, 5, 6], [7, 8, 9]]]),
+        &[
+            Token::Seq { len: Some(1) },
+            Token::Seq { len: Some(2) },
+            Token::Seq { len: Some(3) },
+            Token::I32(4),
+            Token::I32(5),
+            Token::I32(6),
+            Token::SeqEnd,
+            Token::Seq { len: Some(3) },
+            Token::I32(7),
+            Token::I32(8),
+            Token::I32(9),
+            Token::SeqEnd,
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
+
     assert_tokens(&Grid::from_elem((), 123), &[Token::I32(123)]);
 
     assert_tokens(

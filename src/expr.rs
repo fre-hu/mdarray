@@ -4,12 +4,14 @@ use crate::traits::IntoExpression;
 mod adapters;
 #[allow(clippy::module_inception)]
 mod expr;
+mod into_expr;
 mod sources;
 
 pub use adapters::{cloned, copied, enumerate, map, zip, Cloned, Copied, Enumerate, Map, Zip};
 pub use expr::{Expr, ExprMut};
+pub use into_expr::IntoExpr;
 pub use sources::{fill, fill_with, from_elem, from_fn, Fill, FillWith, FromElem, FromFn};
-pub use sources::{AxisExpr, AxisExprMut, Drain, IntoExpr, Lanes, LanesMut};
+pub use sources::{AxisExpr, AxisExprMut, Lanes, LanesMut};
 
 /// Folds all elements of the argument into an accumulator by applying an operation,
 /// and returns the result.

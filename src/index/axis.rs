@@ -3,7 +3,7 @@ use crate::layout::{Flat, Layout};
 use crate::mapping::{DenseMapping, Mapping};
 use crate::shape::Shape;
 
-/// Array axis trait, for subarray types when iterating over or splitting along a dimension.
+/// Array axis trait, for subarray types when removing or resizing dimensions.
 pub trait Axis {
     /// Corresponding dimension.
     type Dim<S: Shape>: Dim;
@@ -23,8 +23,8 @@ pub trait Axis {
     /// Layout with the dimension removed.
     type Remove<S: Shape, L: Layout>: Layout;
 
-    /// Layout when splitting along the dimension.
-    type Split<S: Shape, L: Layout>: Layout;
+    /// Layout when resizing the dimension.
+    type Resize<S: Shape, L: Layout>: Layout;
 
     #[doc(hidden)]
     fn index(rank: usize) -> usize;
@@ -46,10 +46,10 @@ pub trait Axis {
     }
 
     #[doc(hidden)]
-    fn split<M: Mapping>(
+    fn resize<M: Mapping>(
         mapping: M,
         new_size: usize,
-    ) -> <Self::Split<M::Shape, M::Layout> as Layout>::Mapping<Self::Replace<Dyn, M::Shape>> {
+    ) -> <Self::Resize<M::Shape, M::Layout> as Layout>::Mapping<Self::Replace<Dyn, M::Shape>> {
         Mapping::resize_dim::<M>(mapping, Self::index(M::Shape::RANK), new_size)
     }
 }
@@ -85,7 +85,7 @@ pub struct Outer;
 // ...
 // DynRank      NonUnitStrided  NonUniform      NonUniform      NonUniform
 //
-// Split<L>:
+// Resize<L>:
 //
 // Rank \ Index 0               1               2               3
 // -----------------------------------------------------------------------------
@@ -106,7 +106,7 @@ impl Axis for Inner<0> {
 
     type Keep<S: Shape, L: Layout> = L::Uniform;
     type Remove<S: Shape, L: Layout> = <S::Tail as Shape>::Layout<Flat, L::NonUnitStrided>;
-    type Split<S: Shape, L: Layout> = S::Layout<L, L::NonUniform>;
+    type Resize<S: Shape, L: Layout> = S::Layout<L, L::NonUniform>;
 
     fn index(rank: usize) -> usize {
         assert!(rank > 0, "invalid dimension");
@@ -125,7 +125,7 @@ impl Axis for Inner<1> {
 
     type Keep<S: Shape, L: Layout> = Flat;
     type Remove<S: Shape, L: Layout> = <S::Tail as Shape>::Layout<L::Uniform, L::NonUniform>;
-    type Split<S: Shape, L: Layout> = <S::Tail as Shape>::Layout<L, L::NonUniform>;
+    type Resize<S: Shape, L: Layout> = <S::Tail as Shape>::Layout<L, L::NonUniform>;
 
     fn index(rank: usize) -> usize {
         assert!(rank > 1, "invalid dimension");
@@ -149,7 +149,7 @@ macro_rules! impl_axis {
 
                 type Keep<S: Shape, L: Layout> = Flat;
                 type Remove<S: Shape, L: Layout> = <Inner<$k> as Axis>::Remove<S::Tail, L>;
-                type Split<S: Shape, L: Layout> = <Inner<$k> as Axis>::Split<S::Tail, L>;
+                type Resize<S: Shape, L: Layout> = <Inner<$k> as Axis>::Resize<S::Tail, L>;
 
                 fn index(rank: usize) -> usize {
                     assert!(rank > $n, "invalid dimension");
@@ -172,7 +172,7 @@ impl Axis for Outer {
 
     type Keep<S: Shape, L: Layout> = S::Layout<L::Uniform, Flat>;
     type Remove<S: Shape, L: Layout> = <S::Tail as Shape>::Layout<L::Uniform, L>;
-    type Split<S: Shape, L: Layout> = L;
+    type Resize<S: Shape, L: Layout> = L;
 
     fn index(rank: usize) -> usize {
         assert!(rank > 0, "invalid dimension");

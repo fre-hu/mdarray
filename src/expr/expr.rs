@@ -94,8 +94,8 @@ macro_rules! impl_expr {
                 self,
                 mid: usize,
             ) -> (
-                $name<'a, T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Split<S, L>>,
-                $name<'a, T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Split<S, L>>,
+                $name<'a, T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
+                $name<'a, T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
             )
             where
                 Inner<N>: Axis,
@@ -116,8 +116,8 @@ macro_rules! impl_expr {
                 $($mut)? self,
                 mid: usize
             ) -> (
-                $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
-                $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, A::Resize<S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, A::Resize<S, L>>,
             ) {
                 let index = A::index(S::RANK);
                 let size = self.dim(index);
@@ -126,8 +126,8 @@ macro_rules! impl_expr {
                     index::panic_bounds_check(mid, size);
                 }
 
-                let left_mapping = A::split(self.mapping(), mid);
-                let right_mapping = A::split(self.mapping(), size - mid);
+                let left_mapping = A::resize(self.mapping(), mid);
+                let right_mapping = A::resize(self.mapping(), size - mid);
 
                 // Calculate offset for the second view if non-empty.
                 let offset = self.stride(index) * mid as isize;
@@ -249,6 +249,15 @@ macro_rules! impl_expr {
                 let ptr = self.span.as_mut_ptr().offset(self.stride(index));
 
                 self.span.set_ptr(ptr);
+            }
+        }
+
+        impl<'a, T, S: Shape, L: Layout, I> From<&'a $($mut)? I> for $name<'a, T, S, L>
+        where
+            &'a $($mut)? I: IntoExpression<IntoExpr = $name<'a, T, S, L>>
+        {
+            fn from(value: &'a $($mut)? I) -> Self {
+                value.into_expr()
             }
         }
 

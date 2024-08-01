@@ -52,8 +52,6 @@ impl<T, S: Shape, L: Layout> RawSpan<T, S, L> {
     }
 
     pub(crate) unsafe fn new_unchecked(ptr: *mut T, mapping: L::Mapping<S>) -> Self {
-        assert!(mem::size_of::<T>() != 0, "ZST not allowed");
-
         Self { ptr: NonNull::new_unchecked(ptr), mapping }
     }
 

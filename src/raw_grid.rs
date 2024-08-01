@@ -321,7 +321,7 @@ impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
 impl<'a, T, A: Allocator> Drop for DropGuard<'a, T, A> {
     fn drop(&mut self) {
         unsafe {
-            ptr::drop_in_place(ptr::slice_from_raw_parts_mut(self.ptr, self.len));
+            ptr::slice_from_raw_parts_mut(self.ptr, self.len).drop_in_place();
         }
     }
 }

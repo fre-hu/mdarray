@@ -19,6 +19,9 @@ use crate::layout::{Dense, Flat, Layout};
 use crate::mapping::Mapping;
 use crate::raw_span::RawSpan;
 use crate::shape::{IntoShape, Rank, Shape};
+#[cfg(not(feature = "nightly"))]
+use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
+#[cfg(feature = "nightly")]
 use crate::traits::{Apply, IntoCloned, IntoExpression};
 
 /// Multidimensional array span.
@@ -418,8 +421,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &self,
         mid: usize,
     ) -> (
-        Expr<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Split<S, L>>,
-        Expr<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Split<S, L>>,
+        Expr<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
+        Expr<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
     )
     where
         Inner<N>: Axis,
@@ -437,8 +440,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ExprMut<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Split<S, L>>,
-        ExprMut<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Split<S, L>>,
+        ExprMut<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
+        ExprMut<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
     )
     where
         Inner<N>: Axis,
@@ -466,7 +469,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     where
         T: Clone,
     {
-        self.expr().cloned().eval()
+        Grid::from_expr(self.expr().cloned())
     }
 
     /// Copies the array span into a new array.

@@ -10,8 +10,8 @@
 //! Here are the main features of mdarray:
 //!
 //! - Dense array type, where the rank is known at compile time.
-//! - Subarrays (views) can be created with arbitrary shapes and strides.
-//! - Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
+//! - Static or dynamic array dimensions, with optional inline storage.
+//! - Standard Rust mechanisms are used for e.g. indexing and iteration.
 //! - Generic expressions for multidimensional iteration.
 //!
 //! The design is inspired from other Rust crates (ndarray, nalgebra, bitvec
@@ -22,7 +22,10 @@
 //!
 //! The basic array type is `Grid` for a dense array that owns the storage,
 //! similar to the Rust `Vec` type. It is parameterized by the element type,
-//! the rank (i.e. the number of dimensions) and optionally an allocator.
+//! the shape (i.e. the size of each dimension) and optionally an allocator.
+//!
+//! `Array` is a dense array which stores elements inline, similar to the Rust
+//! `array` type. The shape must consist of dimensions with constant size.
 //!
 //! `Expr` and `ExprMut` are array types that refer to a parent array. They are
 //! used for example when creating array views without duplicating elements.
@@ -37,8 +40,8 @@
 //! - `DSpan<T, const N: usize, ...>` for an array span with a given rank.
 //!
 //! The layout mapping describes how elements are stored in memory. The mapping
-//! is parameterized by the rank and the layout. It contains the shape (i.e.
-//! the size of each dimension), and strides per dimension if needed.
+//! is parameterized by the shape and the layout. It contains the dynamic size
+//! and stride per dimension when needed.
 //!
 //! The layout is `Dense` if elements are stored contiguously without gaps.
 //! The layout is `General` if each dimension can have arbitrary stride except
@@ -158,6 +161,9 @@
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
+/// Array buffer module.
+pub mod buffer;
+
 /// Expression module, for multidimensional iteration.
 pub mod expr;
 
@@ -167,6 +173,7 @@ pub mod index;
 /// Array layout mapping module.
 pub mod mapping;
 
+mod array;
 mod dim;
 mod expression;
 mod grid;
@@ -193,6 +200,7 @@ mod alloc {
     impl Allocator for Global {}
 }
 
+pub use array::Array;
 pub use dim::{Const, Dim, Dims, Dyn, Strides};
 pub use expression::Expression;
 pub use grid::{DGrid, Grid};

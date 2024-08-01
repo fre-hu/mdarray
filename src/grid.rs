@@ -4,24 +4,26 @@ use std::borrow::{Borrow, BorrowMut};
 use std::collections::TryReserveError;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
-use std::mem::{self, MaybeUninit};
+use std::mem::{self, ManuallyDrop, MaybeUninit};
 use std::ops::RangeBounds;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::{Allocator, Global};
-use crate::dim::{Dim, Dyn};
-use crate::expr::{self, Drain, Expr, ExprMut, IntoExpr, Map, Zip};
+use crate::array::Array;
+use crate::buffer::{Buffer, Drain};
+use crate::dim::{Const, Dim, Dyn};
+use crate::expr::{self, Expr, ExprMut, IntoExpr, Map, Zip};
 use crate::expression::Expression;
 use crate::index::{Axis, Outer, SpanIndex};
 use crate::iter::Iter;
-use crate::layout::Dense;
+use crate::layout::{Dense, Layout};
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_grid::RawGrid;
-use crate::shape::{IntoShape, Rank, Shape};
+use crate::shape::{ConstShape, IntoShape, Rank, Shape};
 use crate::span::Span;
-use crate::traits::{Apply, IntoCloned, IntoExpression};
+use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -91,7 +93,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     /// # Panics
     ///
     /// Panics if the outermost dimension is not dynamically-sized.
-    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> Drain<T, S, A> {
+    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<T, S, A>> {
         assert!(<Outer as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
 
         #[cfg(not(feature = "nightly"))]
@@ -99,7 +101,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
         #[cfg(feature = "nightly")]
         let range = slice::range(range, ..self.dim(S::RANK - 1));
 
-        Drain::new(self, range.start, range.end)
+        IntoExpr::new(Drain::new(self, range.start, range.end))
     }
 
     /// Appends an expression to the array along the outermost dimension with broadcasting,
@@ -155,19 +157,6 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
         T: Clone,
     {
         expr::from_elem(shape, elem).eval_in(alloc)
-    }
-
-    /// Creates an array from the given expression with the specified allocator.
-    #[cfg(feature = "nightly")]
-    pub fn from_expr_in<I: IntoExpression<Item = T, Shape = S>>(expr: I, alloc: A) -> Self {
-        let expr = expr.into_expr();
-        let shape = expr.shape();
-
-        let mut vec = Vec::with_capacity_in(expr.len(), alloc);
-
-        expr.clone_into_vec(&mut vec);
-
-        unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     /// Creates an array with the results from the given function with the specified allocator.
@@ -375,7 +364,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
         unsafe { Self::from_parts(Vec::with_capacity_in(capacity, alloc), DenseMapping::default()) }
     }
 
-    unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
+    pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
         Self { grid: RawGrid::from_parts(vec, mapping) }
     }
 }
@@ -387,19 +376,7 @@ impl<T, S: Shape> Grid<T, S> {
     where
         T: Clone,
     {
-        expr::from_elem(shape, elem).eval()
-    }
-
-    /// Creates an array from the given expression.
-    pub fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        let expr = expr.into_expr();
-        let shape = expr.shape();
-
-        let mut vec = Vec::with_capacity(expr.len());
-
-        expr.clone_into_vec(&mut vec);
-
-        unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
+        Self::from_expr(expr::from_elem(shape, elem))
     }
 
     /// Creates an array with the results from the given function.
@@ -407,7 +384,7 @@ impl<T, S: Shape> Grid<T, S> {
     where
         F: FnMut(S::Dims) -> T,
     {
-        expr::from_fn(shape, f).eval()
+        Self::from_expr(expr::from_fn(shape, f))
     }
 
     /// Creates an array from raw components of another array.
@@ -458,11 +435,6 @@ impl<T, S: Shape> Grid<T, S> {
         T: Clone,
     {
         Self::from_elem_in(shape, elem, Global)
-    }
-
-    /// Creates an array from the given expression.
-    pub fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        Self::from_expr_in(expr, Global)
     }
 
     /// Creates an array with the results from the given function.
@@ -660,9 +632,29 @@ impl<T: Clone> From<&[T]> for Grid<T, Dyn> {
     }
 }
 
+impl<T, S: ConstShape> From<Array<T, S>> for Grid<T, S> {
+    fn from(value: Array<T, S>) -> Self {
+        Self::from_expr(value)
+    }
+}
+
 impl<T, S: Shape, A: Allocator> From<Grid<T, S, A>> for vec_t!(T, A) {
     fn from(value: Grid<T, S, A>) -> Self {
         value.into_vec()
+    }
+}
+
+impl<'a, T: 'a + Clone, S: Shape, L: Layout, I: IntoExpression<IntoExpr = Expr<'a, T, S, L>>>
+    From<I> for Grid<T, S>
+{
+    fn from(value: I) -> Self {
+        Self::from_expr(value.into_expr().cloned())
+    }
+}
+
+impl<B: Buffer> From<IntoExpr<B>> for Grid<B::Item, B::Shape> {
+    fn from(value: IntoExpr<B>) -> Self {
+        Self::from_expr(value)
     }
 }
 
@@ -722,6 +714,27 @@ impl_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
 impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
+impl<T, S: Shape> FromExpression<T, S> for Grid<T, S> {
+    type WithConst<const N: usize> = Grid<T, S::Prepend<Const<N>>>;
+
+    #[cfg(not(feature = "nightly"))]
+    fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
+        let expr = expr.into_expr();
+        let shape = expr.shape();
+
+        let mut vec = Vec::with_capacity(shape.len());
+
+        expr.clone_into_vec(&mut vec);
+
+        unsafe { Grid::from_parts(vec, DenseMapping::new(shape)) }
+    }
+
+    #[cfg(feature = "nightly")]
+    fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
+        expr.into_expr().eval_in(Global)
+    }
+}
+
 impl<T> FromIterator<T> for Grid<T, Dyn> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
@@ -768,10 +781,34 @@ impl<'a, T, S: Shape, A: Allocator> IntoExpression for &'a mut Grid<T, S, A> {
 
 impl<T, S: Shape, A: Allocator> IntoExpression for Grid<T, S, A> {
     type Shape = S;
-    type IntoExpr = IntoExpr<T, S, A>;
+    type IntoExpr = IntoExpr<Grid<ManuallyDrop<T>, S, A>>;
 
+    #[cfg(not(feature = "nightly"))]
     fn into_expr(self) -> Self::IntoExpr {
-        IntoExpr::new(self)
+        let (vec, mapping) = self.grid.into_parts();
+
+        let mut vec = mem::ManuallyDrop::new(vec);
+        let (ptr, len, capacity) = (vec.as_mut_ptr(), vec.len(), vec.capacity());
+
+        let grid = unsafe {
+            Grid::from_parts(
+                Vec::from_raw_parts(ptr as *mut ManuallyDrop<T>, len, capacity),
+                mapping,
+            )
+        };
+
+        IntoExpr::new(grid)
+    }
+
+    #[cfg(feature = "nightly")]
+    fn into_expr(self) -> Self::IntoExpr {
+        let (ptr, mapping, capacity, alloc) = self.into_raw_parts_with_alloc();
+
+        let grid = unsafe {
+            Grid::from_raw_parts_in(ptr as *mut ManuallyDrop<T>, mapping, capacity, alloc)
+        };
+
+        IntoExpr::new(grid)
     }
 }
 

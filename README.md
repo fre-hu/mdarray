@@ -10,8 +10,8 @@ with interworking to other crates for e.g. BLAS/LAPACK functionality.
 Here are the main features of mdarray:
 
 - Dense array type, where the rank is known at compile time.
-- Subarrays (views) can be created with arbitrary shapes and strides.
-- Standard Rust mechanisms are used for e.g. slices, indexing and iteration.
+- Static or dynamic array dimensions, with optional stack allocation.
+- Standard Rust mechanisms are used for e.g. indexing and iteration.
 - Generic expressions for multidimensional iteration.
 
 The design is inspired from other Rust crates (ndarray, nalgebra, bitvec

@@ -1,7 +1,9 @@
 use std::fmt::Debug;
 
-use crate::dim::{Dim, Dims, Dyn, Strides};
+use crate::array::Array;
+use crate::dim::{Const, Dim, Dims, Dyn, Strides};
 use crate::layout::{Dense, Layout};
+use crate::traits::FromExpression;
 
 /// Array shape trait.
 pub trait Shape: Copy + Debug + Default + Send + Sync {
@@ -20,6 +22,9 @@ pub trait Shape: Copy + Debug + Default + Send + Sync {
     /// Merge each dimension pair, where constant size is preferred over dynamic.
     /// The result has dynamic rank if at least one of the inputs has dynamic rank.
     type Merge<S: Shape>: Shape;
+
+    /// The resulting type after conversion from an expression.
+    type FromExpr<T>: FromExpression<T, Self>;
 
     /// Select layout `Dense`, `L`, or `M` for rank 0, 1, or >1 respectively.
     type Layout<L: Layout, M: Layout>: Layout;
@@ -113,6 +118,17 @@ pub trait Shape: Copy + Debug + Default + Send + Sync {
     }
 }
 
+/// Trait for array shape where all dimensions are constant-sized.
+pub trait ConstShape: Shape {
+    /// Corresponding primitive array.
+    type Array<T>;
+
+    /// Add the constant-sized dimension to the type after conversion from an expression.
+    type WithConst<T, const N: usize, A>: FromExpression<T, Self::Prepend<Const<N>>>
+    where
+        A: FromExpression<T, Self>;
+}
+
 /// Conversion trait into an array shape.
 pub trait IntoShape {
     /// Which kind of array shape are we turning this into?
@@ -133,6 +149,7 @@ impl Shape for () {
     type Prepend<D: Dim> = D;
     type Merge<S: Shape> = S;
 
+    type FromExpr<T> = Array<T, ()>;
     type Layout<L: Layout, M: Layout> = Dense;
 
     type Dims = [usize; 0];
@@ -155,6 +172,7 @@ impl<X: Dim> Shape for X {
     type Prepend<D: Dim> = (D, X);
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
 
+    type FromExpr<T> = X::FromExpr<T, ()>;
     type Layout<L: Layout, M: Layout> = L;
 
     type Dims = [usize; 1];
@@ -183,6 +201,7 @@ macro_rules! impl_shape {
             type Merge<S: Shape> =
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
 
+            type FromExpr<T> = X::FromExpr<T, Self::Tail>;
             type Layout<L: Layout, M: Layout> = M;
 
             type Dims = [usize; $n];
@@ -206,6 +225,25 @@ impl_shape!(3, (1, 2), (Y, Z), (Z, Y, X), (D, X, Y, Z));
 impl_shape!(4, (1, 2, 3), (Y, Z, W), (W, Z, Y, X), (D, X, Y, Z, W));
 impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (U, W, Z, Y, X), (D, X, Y, Z, W, U));
 impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), (V, U, W, Z, Y, X), (D, X, Y, Z, W, U));
+
+macro_rules! impl_const_shape {
+    (($($xyz:tt),*), $array:ty) => {
+        #[allow(unused_parens)]
+        impl<$(const $xyz: usize),*> ConstShape for ($(Const<$xyz>),*) {
+            type Array<T> = $array;
+            type WithConst<T, const N: usize, A: FromExpression<T, Self>> =
+                Array<T, Self::Prepend<Const<N>>>;
+        }
+    };
+}
+
+impl_const_shape!((), T);
+impl_const_shape!((X), [T; X]);
+impl_const_shape!((X, Y), [[T; X]; Y]);
+impl_const_shape!((X, Y, Z), [[[T; X]; Y]; Z]);
+impl_const_shape!((X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_const_shape!((X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
 impl<S: Shape> IntoShape for S {
     type IntoShape = S;

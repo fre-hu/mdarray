@@ -1,3 +1,4 @@
+use crate::dim::Const;
 use crate::expression::Expression;
 use crate::shape::Shape;
 
@@ -18,6 +19,15 @@ pub trait Apply<T>: IntoExpression {
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((Self::Item, I::Item)) -> T;
+}
+
+/// Conversion trait from an expression.
+pub trait FromExpression<T, S: Shape> {
+    /// Add the constant-sized dimension to the type after conversion from an expression.
+    type WithConst<const N: usize>: FromExpression<T, S::Prepend<Const<N>>>;
+
+    /// Creates an array from an expression.
+    fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self;
 }
 
 /// Trait for generalization of `Clone` that can reuse an existing object.

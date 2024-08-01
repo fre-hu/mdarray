@@ -9,12 +9,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
+use crate::array::Array;
+use crate::buffer::Buffer;
 use crate::dim::Dim;
-use crate::expr::{Expr, ExprMut};
+use crate::expr::{Expr, ExprMut, IntoExpr};
 use crate::grid::Grid;
 use crate::index::{Axis, Outer};
 use crate::layout::Layout;
-use crate::shape::Shape;
+use crate::shape::{ConstShape, Shape};
 use crate::span::Span;
 
 struct GridVisitor<T, S: Shape> {
@@ -77,17 +79,29 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
     }
 }
 
+impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
+    fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
+        Ok(<Grid<T, S> as Deserialize>::deserialize(deserializer)?.into())
+    }
+}
+
 impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Grid<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
-        let visitor = GridVisitor { phantom: PhantomData };
-
         if S::RANK > 0 {
+            let visitor = GridVisitor { phantom: PhantomData };
+
             deserializer.deserialize_seq(visitor)
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
             Ok(Grid::from([value]).into_shape(S::default()))
         }
+    }
+}
+
+impl<T: Serialize, S: ConstShape> Serialize for Array<T, S> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
+        (**self).serialize(serializer)
     }
 }
 
@@ -104,6 +118,12 @@ impl<T: Serialize, S: Shape, L: Layout> Serialize for ExprMut<'_, T, S, L> {
 }
 
 impl<T: Serialize, S: Shape, A: Allocator> Serialize for Grid<T, S, A> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
+        (**self).serialize(serializer)
+    }
+}
+
+impl<B: Buffer<Item: Serialize>> Serialize for IntoExpr<B> {
     fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }
