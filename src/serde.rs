@@ -81,7 +81,13 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
 
 impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
-        Ok(<Grid<T, S> as Deserialize>::deserialize(deserializer)?.into())
+        if S::RANK > 0 {
+            Ok(<Grid<T, S> as Deserialize>::deserialize(deserializer)?.into())
+        } else {
+            let value = <T as Deserialize>::deserialize(deserializer)?;
+
+            Ok(Array::from([value]).into_shape(S::default()))
+        }
     }
 }
 

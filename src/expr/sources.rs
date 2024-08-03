@@ -205,12 +205,6 @@ impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for AxisExpr<'a, T, S, L, A> {
 
 impl<'a, T, S: Shape, L: Layout, A: Axis> Copy for AxisExpr<'a, T, S, L, A> {}
 
-unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Send for AxisExpr<'a, T, S, L, A> {}
-unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for AxisExpr<'a, T, S, L, A> {}
-
-unsafe impl<'a, T: Send, S: Shape, L: Layout, A: Axis> Send for AxisExprMut<'a, T, S, L, A> {}
-unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for AxisExprMut<'a, T, S, L, A> {}
-
 impl<T> Fill<T> {
     pub(crate) fn new(value: T) -> Self {
         Self { value }
@@ -452,9 +446,3 @@ impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for Lanes<'a, T, S, L, A> {
 }
 
 impl<'a, T, S: Shape, L: Layout, A: Axis> Copy for Lanes<'a, T, S, L, A> {}
-
-unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Send for Lanes<'a, T, S, L, A> {}
-unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for Lanes<'a, T, S, L, A> {}
-
-unsafe impl<'a, T: Send, S: Shape, L: Layout, A: Axis> Send for LanesMut<'a, T, S, L, A> {}
-unsafe impl<'a, T: Sync, S: Shape, L: Layout, A: Axis> Sync for LanesMut<'a, T, S, L, A> {}

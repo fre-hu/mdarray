@@ -33,7 +33,7 @@ pub struct Span<T, S: Shape, L: Layout = Dense> {
     _opaque: Opaque,
 }
 
-/// Multidimensional array span with the specified rank.
+/// Multidimensional array span with dynamically-sized dimensions.
 pub type DSpan<T, const N: usize, L = Dense> = Span<T, Rank<N>, L>;
 
 #[cfg(feature = "nightly")]
@@ -739,6 +739,45 @@ impl<T, S: Shape> AsRef<[T]> for Span<T, S> {
     }
 }
 
+macro_rules! impl_as_mut_ref {
+    (($($xyz:tt),+), $array:tt) => {
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsMut<Span<T, ($(Const<$xyz>),+)>> for $array {
+            fn as_mut(&mut self) -> &mut Span<T, ($(Const<$xyz>),+)> {
+                unsafe { &mut *(self as *mut $array as *mut Span<T, ($(Const<$xyz>),+)>) }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsMut<$array> for Span<T, ($(Const<$xyz>),+)> {
+            fn as_mut(&mut self) -> &mut $array {
+                unsafe { &mut *(self as *mut Span<T, ($(Const<$xyz>),+)>).cast() }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsRef<Span<T, ($(Const<$xyz>),+)>> for $array {
+            fn as_ref(&self) -> &Span<T, ($(Const<$xyz>),+)> {
+                unsafe { &*(self as *const $array as *const Span<T, ($(Const<$xyz>),+)>) }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsRef<$array> for Span<T, ($(Const<$xyz>),+)> {
+            fn as_ref(&self) -> &$array {
+                unsafe { &*(self as *const Span<T, ($(Const<$xyz>),+)>).cast() }
+            }
+        }
+    };
+}
+
+impl_as_mut_ref!((X), [T; X]);
+impl_as_mut_ref!((X, Y), [[T; X]; Y]);
+impl_as_mut_ref!((X, Y, Z), [[[T; X]; Y]; Z]);
+impl_as_mut_ref!((X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_as_mut_ref!((X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_as_mut_ref!((X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+
 impl<T: Debug, S: Shape, L: Layout> Debug for Span<T, S, L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if S::RANK == 0 {
@@ -818,6 +857,11 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Span<T, S, L> {
         self.iter_mut()
     }
 }
+
+#[cfg(feature = "nightly")]
+unsafe impl<T: Send, S: Shape, L: Layout> Send for Span<T, S, L> {}
+#[cfg(feature = "nightly")]
+unsafe impl<T: Sync, S: Shape, L: Layout> Sync for Span<T, S, L> {}
 
 impl<T: Clone, S: Shape> ToOwned for Span<T, S> {
     type Owned = Grid<T, S>;

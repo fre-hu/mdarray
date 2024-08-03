@@ -7,7 +7,7 @@ use std::ptr;
 
 use crate::buffer::Buffer;
 use crate::dim::Const;
-use crate::expr::{Expr, ExprMut, IntoExpr, Map, Zip};
+use crate::expr::{self, Expr, ExprMut, IntoExpr, Map, Zip};
 use crate::expression::Expression;
 use crate::grid::Grid;
 use crate::index::SpanIndex;
@@ -23,6 +23,19 @@ use crate::traits::{Apply, FromExpression, IntoExpression};
 pub struct Array<T, S: ConstShape>(pub S::Array<T>);
 
 impl<T, S: ConstShape> Array<T, S> {
+    /// Creates an array from the given element.
+    pub fn from_elem<I: IntoShape<IntoShape = S>>(shape: I, elem: T) -> Self
+    where
+        T: Clone,
+    {
+        from_expr(expr::from_elem(shape, elem))
+    }
+
+    /// Creates an array with the results from the given function.
+    pub fn from_fn<I: IntoShape<IntoShape = S>, F: FnMut(S::Dims) -> T>(shape: I, f: F) -> Self {
+        from_expr(expr::from_fn(shape, f))
+    }
+
     /// Converts an array with a single element into the contained value.
     ///
     /// # Panics
@@ -48,6 +61,11 @@ impl<T, S: ConstShape> Array<T, S> {
         let me = ManuallyDrop::new(self);
 
         unsafe { mem::transmute_copy(&me) }
+    }
+
+    /// Returns an array with the same shape, and the given closure applied to each element.
+    pub fn map<U, F: FnMut(T) -> U>(self, f: F) -> Array<U, S> {
+        self.apply(f)
     }
 }
 

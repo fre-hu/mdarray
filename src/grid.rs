@@ -44,7 +44,7 @@ pub struct Grid<T, S: Shape, A: Allocator = Global> {
     grid: RawGrid<T, S, A>,
 }
 
-/// Multidimensional array with the specified rank and dense layout.
+/// Multidimensional array with dynamically-sized dimensions and dense layout.
 pub type DGrid<T, const N: usize, A = Global> = Grid<T, Rank<N>, A>;
 
 impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
@@ -60,8 +60,8 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     ///
     /// # Panics
     ///
-    /// Panics if the inner dimensions do not match, or if the outermost dimension
-    /// is not dynamically-sized.
+    /// Panics if the inner dimensions do not match, if the rank is not at least 1,
+    /// or if the outermost dimension is not dynamically-sized.
     pub fn append(&mut self, other: &mut Self) {
         self.expand(other.drain(..));
     }
@@ -92,8 +92,10 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     ///
     /// # Panics
     ///
-    /// Panics if the outermost dimension is not dynamically-sized.
+    /// Panics if the rank is not at least 1, or if the outermost dimension
+    /// is not dynamically-sized.
     pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<T, S, A>> {
+        assert!(S::RANK > 0, "invalid rank");
         assert!(<Outer as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
 
         #[cfg(not(feature = "nightly"))]
@@ -227,7 +229,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     }
 
     /// Returns the array with the given closure applied to each element.
-    pub fn map(self, f: impl FnMut(T) -> T) -> Self
+    pub fn map<F: FnMut(T) -> T>(self, f: F) -> Self
     where
         T: Default,
     {
@@ -309,7 +311,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
         let ptr = self.as_mut_ptr();
         let len = self.capacity() - self.len();
 
-        unsafe { slice::from_raw_parts_mut(ptr.add(self.len()) as *mut MaybeUninit<T>, len) }
+        unsafe { slice::from_raw_parts_mut(ptr.add(self.len()).cast(), len) }
     }
 
     /// Shortens the array along the outermost dimension, keeping the first `size` indices.
@@ -320,8 +322,10 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     ///
     /// # Panics
     ///
-    /// Panics if the outermost dimension is not dynamically-sized.
+    /// Panics if the rank is not at least 1, or if the outermost dimension
+    /// is not dynamically-sized.
     pub fn truncate(&mut self, size: usize) {
+        assert!(S::RANK > 0, "invalid rank");
         assert!(<Outer as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
 
         if size < self.dim(S::RANK - 1) {
@@ -668,40 +672,31 @@ impl<T, A: Allocator> From<vec_t!(T, A)> for Grid<T, Dyn, A> {
 
 macro_rules! impl_from_array {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        impl<T: Clone, $(const $xyz: usize),+> From<&$array> for Grid<T, Rank<$n>> {
+            fn from(value: &$array) -> Self {
+                Self::from_expr(Expr::from(value).cloned())
+            }
+        }
+
         impl<T, $(const $xyz: usize),+> From<$array> for Grid<T, Rank<$n>> {
             #[cfg(not(feature = "nightly"))]
             fn from(value: $array) -> Self {
-                let mapping = DenseMapping::new([$($xyz),+].into_shape());
+                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
+                let capacity = mapping.shape().checked_len().expect("invalid length");
 
-                if mapping.shape().checked_len() == Some(0) {
-                    unsafe { Self::from_parts(Vec::new(), mapping) }
-                } else {
-                    let mut vec = std::mem::ManuallyDrop::new(Vec::from(value));
-                    let (ptr, capacity) = (vec.as_mut_ptr(), vec.capacity());
+                let ptr = Box::into_raw(Box::new(value));
 
-                    unsafe {
-                        let capacity = capacity * (mem::size_of_val(&*ptr) / mem::size_of::<T>());
-
-                        Self::from_raw_parts(ptr.cast(), mapping, capacity)
-                    }
-                }
+                unsafe { Self::from_raw_parts(ptr.cast(), mapping, capacity) }
             }
 
             #[cfg(feature = "nightly")]
             fn from(value: $array) -> Self {
-                let mapping = DenseMapping::new([$($xyz),+].into_shape());
+                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
+                let capacity = mapping.shape().checked_len().expect("invalid length");
 
-                if mapping.shape().checked_len() == Some(0) {
-                    unsafe { Self::from_parts(Vec::new(), mapping) }
-                } else {
-                    let (ptr, _, capacity, alloc) = Vec::from(value).into_raw_parts_with_alloc();
+                let (ptr, alloc) = Box::into_raw_with_allocator(Box::new(value));
 
-                    unsafe {
-                        let capacity = capacity * (mem::size_of_val(&*ptr) / mem::size_of::<T>());
-
-                        Self::from_raw_parts_in(ptr.cast(), mapping, capacity, alloc)
-                    }
-                }
+                unsafe { Self::from_raw_parts_in(ptr.cast(), mapping, capacity, alloc) }
             }
         }
     };
@@ -790,12 +785,8 @@ impl<T, S: Shape, A: Allocator> IntoExpression for Grid<T, S, A> {
         let mut vec = mem::ManuallyDrop::new(vec);
         let (ptr, len, capacity) = (vec.as_mut_ptr(), vec.len(), vec.capacity());
 
-        let grid = unsafe {
-            Grid::from_parts(
-                Vec::from_raw_parts(ptr as *mut ManuallyDrop<T>, len, capacity),
-                mapping,
-            )
-        };
+        let grid =
+            unsafe { Grid::from_parts(Vec::from_raw_parts(ptr.cast(), len, capacity), mapping) };
 
         IntoExpr::new(grid)
     }
@@ -804,9 +795,7 @@ impl<T, S: Shape, A: Allocator> IntoExpression for Grid<T, S, A> {
     fn into_expr(self) -> Self::IntoExpr {
         let (ptr, mapping, capacity, alloc) = self.into_raw_parts_with_alloc();
 
-        let grid = unsafe {
-            Grid::from_raw_parts_in(ptr as *mut ManuallyDrop<T>, mapping, capacity, alloc)
-        };
+        let grid = unsafe { Grid::from_raw_parts_in(ptr.cast(), mapping, capacity, alloc) };
 
         IntoExpr::new(grid)
     }
@@ -832,9 +821,38 @@ impl<'a, T, S: Shape, A: Allocator> IntoIterator for &'a mut Grid<T, S, A> {
 
 impl<T, S: Shape, A: Allocator> IntoIterator for Grid<T, S, A> {
     type Item = T;
-    type IntoIter = <vec_t!(T, A) as IntoIterator>::IntoIter;
+    type IntoIter = Iter<IntoExpr<Grid<ManuallyDrop<T>, S, A>>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.into_vec().into_iter()
+        self.into_expr().into_iter()
     }
 }
+
+macro_rules! impl_try_from_array {
+    ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        impl<T: Clone, $(const $xyz: usize),+> TryFrom<Grid<T, Rank<$n>>> for $array {
+            type Error = Grid<T, Rank<$n>>;
+
+            fn try_from(value: Grid<T, Rank<$n>>) -> Result<Self, Self::Error> {
+                if value.dims() == [$($xyz),+] {
+                    let mut vec = value.into_vec();
+
+                    unsafe {
+                        vec.set_len(0);
+
+                        Ok((vec.as_ptr() as *const $array).read())
+                    }
+                } else {
+                    Err(value)
+                }
+            }
+        }
+    };
+}
+
+impl_try_from_array!(1, (X), [T; X]);
+impl_try_from_array!(2, (X, Y), [[T; X]; Y]);
+impl_try_from_array!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
+impl_try_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_try_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_try_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);

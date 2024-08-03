@@ -452,6 +452,8 @@ impl<S: Shape> Mapping for StridedMapping<S> {
     }
 
     fn reshape<M: Mapping>(mapping: M, new_shape: Self::Shape) -> Self {
+        assert!(new_shape.checked_len() == Some(mapping.len()), "length must not change");
+
         let old_dims = mapping.dims();
         let new_dims = new_shape.dims();
 
@@ -482,7 +484,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
 
             // Add dimensions within the current region.
             while k < S::RANK {
-                let len = new_len.checked_mul(new_dims[k]).expect("length too large");
+                let len = new_len * new_dims[k];
 
                 if len > old_len {
                     break;
@@ -501,13 +503,12 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         while k < S::RANK {
             new_strides[k] = new_stride;
 
-            new_len = new_len.checked_mul(new_dims[k]).expect("length too large");
+            new_len *= new_dims[k];
             new_stride *= new_dims[k] as isize;
 
             k += 1;
         }
 
-        assert!(new_len == old_len, "length must not change");
         assert!(new_len == 0 || valid_layout, "memory layout not compatible");
 
         Self::new(new_shape, new_strides)

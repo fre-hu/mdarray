@@ -1,12 +1,12 @@
 use std::borrow::{Borrow, BorrowMut};
-use std::fmt::{Debug, Formatter, Result};
+use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice;
 
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{Map, Zip};
+use crate::expr::adapters::{Map, Zip};
 use crate::expression::Expression;
 use crate::index::{self, Axis, DimIndex, Inner, Outer, Permutation, SpanIndex, ViewIndex};
 use crate::iter::Iter;
@@ -208,7 +208,7 @@ macro_rules! impl_expr {
         }
 
         impl<T: Debug, S: Shape, L: Layout> Debug for $name<'_, T, S, L> {
-            fn fmt(&self, f: &mut Formatter) -> Result {
+            fn fmt(&self, f: &mut Formatter) -> fmt::Result {
                 (**self).fmt(f)
             }
         }
@@ -505,10 +505,9 @@ macro_rules! impl_from_array_ref {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
         impl<'a, T, $(const $xyz: usize),+> From<&'a $array> for Expr<'a, T, Rank<$n>> {
             fn from(value: &'a $array) -> Self {
-                let mapping = DenseMapping::new([$($xyz),+].into_shape());
+                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
 
                 _ = mapping.shape().checked_len().expect("invalid length");
-
 
                 unsafe { Self::new_unchecked(value.as_ptr().cast(), mapping) }
             }
@@ -516,7 +515,7 @@ macro_rules! impl_from_array_ref {
 
         impl<'a, T, $(const $xyz: usize),+> From<&'a mut $array> for ExprMut<'a, T, Rank<$n>> {
             fn from(value: &'a mut $array) -> Self {
-                let mapping = DenseMapping::new([$($xyz),+].into_shape());
+                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
 
                 _ = mapping.shape().checked_len().expect("invalid length");
 
@@ -562,3 +561,38 @@ unsafe impl<'a, T: Sync, S: Shape, L: Layout> Sync for Expr<'a, T, S, L> {}
 
 unsafe impl<'a, T: Send, S: Shape, L: Layout> Send for ExprMut<'a, T, S, L> {}
 unsafe impl<'a, T: Sync, S: Shape, L: Layout> Sync for ExprMut<'a, T, S, L> {}
+
+macro_rules! impl_try_from_array_ref {
+    ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        impl<'a, T, $(const $xyz: usize),+> TryFrom<Expr<'a, T, Rank<$n>>> for &'a $array {
+            type Error = Expr<'a, T, Rank<$n>>;
+
+            fn try_from(value: Expr<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
+                if value.dims() == [$($xyz),+] {
+                    Ok(unsafe { &*value.as_ptr().cast() })
+                } else {
+                    Err(value)
+                }
+            }
+        }
+
+        impl<'a, T, $(const $xyz: usize),+> TryFrom<ExprMut<'a, T, Rank<$n>>> for &'a mut $array {
+            type Error = ExprMut<'a, T, Rank<$n>>;
+
+            fn try_from(mut value: ExprMut<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
+                if value.dims() == [$($xyz),+] {
+                    Ok(unsafe { &mut *value.as_mut_ptr().cast() })
+                } else {
+                    Err(value)
+                }
+            }
+        }
+    };
+}
+
+impl_try_from_array_ref!(1, (X), [T; X]);
+impl_try_from_array_ref!(2, (X, Y), [[T; X]; Y]);
+impl_try_from_array_ref!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
+impl_try_from_array_ref!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_try_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_try_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
