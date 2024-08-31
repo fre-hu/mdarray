@@ -54,7 +54,7 @@ pub trait Axis {
     }
 }
 
-/// Inner axis type, counter from the innermost dimension.
+/// Inner axis type, counted from the innermost dimension.
 pub struct Inner<const N: usize>;
 
 /// Outer axis type, for the outermost dimension.

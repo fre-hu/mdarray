@@ -207,6 +207,6 @@ pub use grid::{DGrid, Grid};
 pub use iter::Iter;
 pub use layout::{Dense, Flat, General, Layout, Strided, Uniform, UnitStrided};
 pub use ops::{step, StepRange};
-pub use shape::{IntoShape, Rank, Shape};
+pub use shape::{ConstShape, IntoShape, Rank, Shape};
 pub use span::{DSpan, Span};
-pub use traits::{Apply, IntoCloned, IntoExpression};
+pub use traits::{Apply, FromExpression, IntoCloned, IntoExpression};
