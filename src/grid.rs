@@ -672,9 +672,25 @@ impl<T, A: Allocator> From<vec_t!(T, A)> for Grid<T, Dyn, A> {
 
 macro_rules! impl_from_array {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        #[allow(unused_parens)]
+        impl<T: Clone, $(const $xyz: usize),+> From<&Array<T, ($(Const<$xyz>),+)>>
+            for Grid<T, Rank<$n>>
+        {
+            fn from(value: &Array<T, ($(Const<$xyz>),+)>) -> Self {
+                Self::from(&value.0)
+            }
+        }
+
         impl<T: Clone, $(const $xyz: usize),+> From<&$array> for Grid<T, Rank<$n>> {
             fn from(value: &$array) -> Self {
                 Self::from_expr(Expr::from(value).cloned())
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> From<Array<T, ($(Const<$xyz>),+)>> for Grid<T, Rank<$n>> {
+            fn from(value: Array<T, ($(Const<$xyz>),+)>) -> Self {
+                Grid::from(value.0)
             }
         }
 
@@ -830,6 +846,17 @@ impl<T, S: Shape, A: Allocator> IntoIterator for Grid<T, S, A> {
 
 macro_rules! impl_try_from_array {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        #[allow(unused_parens)]
+        impl<T: Clone, $(const $xyz: usize),+> TryFrom<Grid<T, Rank<$n>>>
+            for Array<T, ($(Const<$xyz>),+)>
+        {
+            type Error = Grid<T, Rank<$n>>;
+
+            fn try_from(value: Grid<T, Rank<$n>>) -> Result<Self, Self::Error> {
+                Ok(Array(TryFrom::try_from(value)?))
+            }
+        }
+
         impl<T: Clone, $(const $xyz: usize),+> TryFrom<Grid<T, Rank<$n>>> for $array {
             type Error = Grid<T, Rank<$n>>;
 

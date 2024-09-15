@@ -3,7 +3,6 @@
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
-#![warn(missing_docs)]
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
@@ -290,10 +289,34 @@ fn test_base() {
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
     let mut d = DGrid::<usize, 2>::from([[1, 2], [3, 4], [5, 6]]);
-    let e = d.drain(1..2).eval();
+    let mut e = d.drain(1..2).eval();
 
-    assert_eq!(d, Expr::from(&[[1, 2], [5, 6]]));
+    assert_eq!(d, DGrid::<_, 2>::from(&array![[1, 2], [5, 6]]));
+    assert_eq!(e, Grid::from(&[[3, 4]]));
+
+    assert_eq!(d, DGrid::<_, 2>::from(array![[1, 2], [5, 6]]));
+    assert_eq!(e, Grid::from([[3, 4]]));
+
+    let f1: Array<_, (Const<2>, Const<2>)> = TryFrom::try_from(grid![[1, 2], [5, 6]]).unwrap();
+    let f2: [[_; 2]; 1] = TryFrom::try_from(grid![[3, 4]]).unwrap();
+
+    assert!(f1 == array![[1, 2], [5, 6]] && f2 == [[3, 4]]);
+
+    assert_eq!(d, Expr::<_, Rank<2>>::from(&array![[1, 2], [5, 6]]));
     assert_eq!(e, Expr::from(&[[3, 4]]));
+
+    assert_eq!(d, ExprMut::<_, Rank<2>>::from(&mut array![[1, 2], [5, 6]]));
+    assert_eq!(e, ExprMut::from(&mut [[3, 4]]));
+
+    let g1: &Array<_, (Const<2>, Const<2>)> = TryFrom::try_from(d.expr()).unwrap();
+    let g2: &[[_; 2]; 1] = TryFrom::try_from(e.expr()).unwrap();
+
+    assert!(*g1 == array![[1, 2], [5, 6]] && *g2 == [[3, 4]]);
+
+    let g3: &mut Array<_, (Const<2>, Const<2>)> = TryFrom::try_from(d.expr_mut()).unwrap();
+    let g4: &mut [[_; 2]; 1] = TryFrom::try_from(e.expr_mut()).unwrap();
+
+    assert!(*g3 == array![[1, 2], [5, 6]] && *g4 == [[3, 4]]);
 
     assert_eq!(grid![123].into_scalar(), Grid::from_elem((), 123)[[]]);
 
@@ -318,6 +341,18 @@ fn test_base() {
     assert_eq!(array![1, 2, 3].into_shape((Const::<3>, Const::<1>)), expr![[1, 2, 3]]);
     assert_eq!(array![1, 2, 3].into_shape((Const::<1>, Const::<3>)), expr![[1], [2], [3]]);
     assert_eq!(array![[1, 2, 3], [4, 5, 6]], expr![[1, 2, 3], [4, 5, 6]]);
+
+    let mut h1 = array![[1, 2, 3], [4, 5, 6]];
+    let h2: &mut [[_; 3]; 2] = h1.as_mut();
+    let h3: &mut Array<_, (_, _)> = h2.as_mut();
+
+    assert!(*h3 == array![[1, 2, 3], [4, 5, 6]]);
+
+    let h4 = array![[1, 2, 3], [4, 5, 6]];
+    let h5: &[[_; 3]; 2] = h4.as_ref();
+    let h6: &Array<_, (_, _)> = h5.as_ref();
+
+    assert!(*h6 == array![[1, 2, 3], [4, 5, 6]]);
 
     #[cfg(feature = "nightly")]
     let u = DGrid::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));

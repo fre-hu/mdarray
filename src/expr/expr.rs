@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice;
 
+use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::adapters::{Map, Zip};
 use crate::expression::Expression;
@@ -503,6 +504,15 @@ impl<T, S: Shape, L: Layout> DerefMut for ExprMut<'_, T, S, L> {
 
 macro_rules! impl_from_array_ref {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        #[allow(unused_parens)]
+        impl<'a, T, $(const $xyz: usize),+> From<&'a Array<T, ($(Const<$xyz>),+)>>
+            for Expr<'a, T, Rank<$n>>
+        {
+            fn from(value: &'a Array<T, ($(Const<$xyz>),+)>) -> Self {
+                Self::from(&value.0)
+            }
+        }
+
         impl<'a, T, $(const $xyz: usize),+> From<&'a $array> for Expr<'a, T, Rank<$n>> {
             fn from(value: &'a $array) -> Self {
                 let mapping = DenseMapping::new(($(Dyn($xyz)),+));
@@ -510,6 +520,15 @@ macro_rules! impl_from_array_ref {
                 _ = mapping.shape().checked_len().expect("invalid length");
 
                 unsafe { Self::new_unchecked(value.as_ptr().cast(), mapping) }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<'a, T, $(const $xyz: usize),+> From<&'a mut Array<T, ($(Const<$xyz>),+)>>
+            for ExprMut<'a, T, Rank<$n>>
+        {
+            fn from(value: &'a mut Array<T, ($(Const<$xyz>),+)>) -> Self {
+                Self::from(&mut value.0)
             }
         }
 
@@ -564,6 +583,17 @@ unsafe impl<'a, T: Sync, S: Shape, L: Layout> Sync for ExprMut<'a, T, S, L> {}
 
 macro_rules! impl_try_from_array_ref {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
+        #[allow(unused_parens)]
+        impl<'a, T, $(const $xyz: usize),+> TryFrom<Expr<'a, T, Rank<$n>>>
+            for &'a Array<T, ($(Const<$xyz>),+)>
+        {
+            type Error = Expr<'a, T, Rank<$n>>;
+
+            fn try_from(value: Expr<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
+                Ok(<&'a $array>::try_from(value)?.as_ref())
+            }
+        }
+
         impl<'a, T, $(const $xyz: usize),+> TryFrom<Expr<'a, T, Rank<$n>>> for &'a $array {
             type Error = Expr<'a, T, Rank<$n>>;
 
@@ -573,6 +603,17 @@ macro_rules! impl_try_from_array_ref {
                 } else {
                     Err(value)
                 }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<'a, T, $(const $xyz: usize),+> TryFrom<ExprMut<'a, T, Rank<$n>>>
+            for &'a mut Array<T, ($(Const<$xyz>),+)>
+        {
+            type Error = ExprMut<'a, T, Rank<$n>>;
+
+            fn try_from(value: ExprMut<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
+                Ok(<&'a mut $array>::try_from(value)?.as_mut())
             }
         }
 

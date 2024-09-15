@@ -137,6 +137,45 @@ where
     }
 }
 
+macro_rules! impl_as_mut_ref {
+    (($($xyz:tt),+), $array:tt) => {
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsMut<Array<T, ($(Const<$xyz>),+)>> for $array {
+            fn as_mut(&mut self) -> &mut Array<T, ($(Const<$xyz>),+)> {
+                unsafe { &mut *(self as *mut Self as *mut Array<T, ($(Const<$xyz>),+)>) }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsMut<$array> for Array<T, ($(Const<$xyz>),+)> {
+            fn as_mut(&mut self) -> &mut $array {
+                unsafe { &mut *(self as *mut Self as *mut $array) }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsRef<Array<T, ($(Const<$xyz>),+)>> for $array {
+            fn as_ref(&self) -> &Array<T, ($(Const<$xyz>),+)> {
+                unsafe { &*(self as *const Self as *const Array<T, ($(Const<$xyz>),+)>) }
+            }
+        }
+
+        #[allow(unused_parens)]
+        impl<T, $(const $xyz: usize),+> AsRef<$array> for Array<T, ($(Const<$xyz>),+)> {
+            fn as_ref(&self) -> &$array {
+                unsafe { &*(self as *const Self as *const $array) }
+            }
+        }
+    };
+}
+
+impl_as_mut_ref!((X), [T; X]);
+impl_as_mut_ref!((X, Y), [[T; X]; Y]);
+impl_as_mut_ref!((X, Y, Z), [[[T; X]; Y]; Z]);
+impl_as_mut_ref!((X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
+impl_as_mut_ref!((X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
+impl_as_mut_ref!((X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+
 impl<T, S: ConstShape> Borrow<Span<T, S>> for Array<T, S> {
     fn borrow(&self) -> &Span<T, S> {
         self
@@ -159,13 +198,13 @@ impl<T, S: ConstShape> Deref for Array<T, S> {
     type Target = Span<T, S>;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*(self as *const Array<T, S> as *const Span<T, S>) }
+        unsafe { &*(self as *const Self as *const Span<T, S>) }
     }
 }
 
 impl<T, S: ConstShape> DerefMut for Array<T, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *(self as *mut Array<T, S> as *mut Span<T, S>) }
+        unsafe { &mut *(self as *mut Self as *mut Span<T, S>) }
     }
 }
 
