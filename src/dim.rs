@@ -4,17 +4,10 @@ use std::ops::{
     Bound, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use crate::grid::Grid;
-use crate::shape::Shape;
-use crate::traits::FromExpression;
-
 /// Array dimension trait.
 pub trait Dim: Copy + Debug + Default + Send + Sync {
     /// Merge dimensions, where constant size is preferred over dynamic.
     type Merge<D: Dim>: Dim;
-
-    /// The resulting type after conversion from an expression.
-    type FromExpr<T, S: Shape>: FromExpression<T, S::Prepend<Self>>;
 
     /// Dimension size if known statically, or `None` if dynamic.
     const SIZE: Option<usize>;
@@ -84,7 +77,6 @@ impl<const N: usize> Debug for Const<N> {
 
 impl<const N: usize> Dim for Const<N> {
     type Merge<D: Dim> = Self;
-    type FromExpr<T, S: Shape> = <S::FromExpr<T> as FromExpression<T, S>>::WithConst<N>;
 
     const SIZE: Option<usize> = Some(N);
 
@@ -101,7 +93,6 @@ impl<const N: usize> Dim for Const<N> {
 
 impl Dim for Dyn {
     type Merge<D: Dim> = D;
-    type FromExpr<T, S: Shape> = Grid<T, S::Prepend<Self>>;
 
     const SIZE: Option<usize> = None;
 

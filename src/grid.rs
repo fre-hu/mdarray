@@ -158,7 +158,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     where
         T: Clone,
     {
-        expr::from_elem(shape, elem).eval_in(alloc)
+        Self::from_expr_in(expr::from_elem(shape, elem), alloc)
     }
 
     /// Creates an array with the results from the given function with the specified allocator.
@@ -167,7 +167,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     where
         F: FnMut(S::Dims) -> T,
     {
-        expr::from_fn(shape, f).eval_in(alloc)
+        Self::from_expr_in(expr::from_fn(shape, f), alloc)
     }
 
     /// Creates an array from raw components of another array with the specified allocator.
@@ -366,6 +366,29 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
         unsafe { Self::from_parts(Vec::with_capacity_in(capacity, alloc), DenseMapping::default()) }
+    }
+
+    #[cfg(not(feature = "nightly"))]
+    fn from_expr<E: Expression<Item = T, Shape = S>>(expr: E) -> Self {
+        let shape = expr.shape();
+        let mut vec = Vec::with_capacity(shape.len());
+
+        expr.clone_into_vec(&mut vec);
+
+        unsafe { Grid::from_parts(vec, DenseMapping::new(shape)) }
+    }
+
+    #[cfg(feature = "nightly")]
+    pub(crate) fn from_expr_in<E>(expr: E, alloc: A) -> Self
+    where
+        E: Expression<Item = T, Shape = S>,
+    {
+        let shape = expr.shape();
+        let mut vec = Vec::with_capacity_in(shape.len(), alloc);
+
+        expr.clone_into_vec(&mut vec);
+
+        unsafe { Grid::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
@@ -638,7 +661,7 @@ impl<T: Clone> From<&[T]> for Grid<T, Dyn> {
 
 impl<T, S: ConstShape> From<Array<T, S>> for Grid<T, S> {
     fn from(value: Array<T, S>) -> Self {
-        Self::from_expr(value)
+        Self::from_expr(value.into_expr())
     }
 }
 
@@ -726,23 +749,14 @@ impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
 impl<T, S: Shape> FromExpression<T, S> for Grid<T, S> {
-    type WithConst<const N: usize> = Grid<T, S::Prepend<Const<N>>>;
-
     #[cfg(not(feature = "nightly"))]
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        let expr = expr.into_expr();
-        let shape = expr.shape();
-
-        let mut vec = Vec::with_capacity(shape.len());
-
-        expr.clone_into_vec(&mut vec);
-
-        unsafe { Grid::from_parts(vec, DenseMapping::new(shape)) }
+        Self::from_expr(expr.into_expr())
     }
 
     #[cfg(feature = "nightly")]
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        expr.into_expr().eval_in(Global)
+        Self::from_expr_in(expr.into_expr(), Global)
     }
 }
 

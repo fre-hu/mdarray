@@ -262,8 +262,6 @@ impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
 impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
 
 impl<T, S: ConstShape> FromExpression<T, S> for Array<T, S> {
-    type WithConst<const N: usize> = S::WithConst<T, N, Self>;
-
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
         from_expr(expr.into_expr())
     }

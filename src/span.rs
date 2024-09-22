@@ -487,7 +487,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     where
         T: Clone,
     {
-        self.expr().cloned().eval_in(alloc)
+        Grid::from_expr_in(self.expr().cloned(), alloc)
     }
 
     /// Copies the array span into a new vector.

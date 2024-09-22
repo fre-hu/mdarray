@@ -104,9 +104,11 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression};
+/// use mdarray::{expr, Expression, FromExpression, Grid};
 ///
-/// assert_eq!(expr::from_elem([2, 3], 1).eval(), expr![[1; 2]; 3]);
+/// let g = Grid::from_expr(expr::from_elem([2, 3], 1));
+///
+/// assert_eq!(g, expr![[1; 2]; 3]);
 /// ```
 pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<I::IntoShape, T> {
     FromElem::new(shape.into_shape(), elem)
@@ -117,9 +119,11 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<I::IntoS
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression};
+/// use mdarray::{expr, Expression, FromExpression, Grid};
 ///
-/// assert_eq!(expr::from_fn([2, 3], |[i, j]| 2 * j + i).eval(), expr![[0, 1], [2, 3], [4, 5]]);
+/// let g = Grid::from_expr(expr::from_fn([2, 3], |[i, j]| 2 * j + i));
+///
+/// assert_eq!(g, expr![[0, 1], [2, 3], [4, 5]]);
 /// ```
 pub fn from_fn<T, I: IntoShape, F>(shape: I, f: F) -> FromFn<I::IntoShape, F>
 where

@@ -289,7 +289,7 @@ fn test_base() {
     assert_eq!(Grid::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
     let mut d = DGrid::<usize, 2>::from([[1, 2], [3, 4], [5, 6]]);
-    let mut e = d.drain(1..2).eval();
+    let mut e = d.drain(1..2).eval::<Grid<_, _>>();
 
     assert_eq!(d, DGrid::<_, 2>::from(&array![[1, 2], [5, 6]]));
     assert_eq!(e, Grid::from(&[[3, 4]]));
@@ -367,8 +367,8 @@ fn test_expr() {
 
     assert_eq!(a.dims(), [3, 2]);
 
-    assert_eq!((&a + &expr![1, 2, 3]).eval()[..], [2, 4, 6, 5, 7, 9]);
-    assert_eq!((&expr![1, 2, 3] + &a).eval()[..], [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&a + &expr![1, 2, 3]).eval::<Grid<_, _>>()[..], [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&expr![1, 2, 3] + &a).eval::<Grid<_, _>>()[..], [2, 4, 6, 5, 7, 9]);
 
     assert_eq!(format!("{:?}", a.axis_expr::<0>()), "AxisExpr(0, [[1, 2, 3], [4, 5, 6]])");
     assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut(1, [[1, 2, 3], [4, 5, 6]])");
@@ -398,7 +398,7 @@ fn test_expr() {
     assert_eq!(format!("{:?}", a.view(1, ..).iter()), "Iter([2, 5])");
     assert_eq!(format!("{:?}", a.view_mut(2, ..).iter_mut()), "Iter([3, 6])");
 
-    let b = a.expr().copied().map(|x| x + 3).eval();
+    let b = a.expr().copied().map(|x| x + 3).eval::<Grid<_, _>>();
 
     assert_eq!(b, expr![[4, 5, 6], [7, 8, 9]]);
 
@@ -420,17 +420,19 @@ fn test_expr() {
     let d = expr![[(1, 5), (2, 6)], [(3, 5), (4, 6)]];
     let e = [[([0, 0], 1), ([1, 0], 1)], [([0, 1], 1), ([1, 1], 1)], [([0, 2], 1), ([1, 2], 1)]];
 
-    assert_eq!(expr::zip(&expr![[1, 2], [3, 4]], &expr![5, 6]).map(|(x, y)| (*x, *y)).eval(), d);
-    assert_eq!(grid![[1; 2]; 3].into_expr().enumerate().eval(), Grid::from(e));
+    let f = expr![[1, 2], [3, 4]];
 
-    assert_eq!(a.cols().eval(), expr![expr![1, 2, 3], expr![4, 5, 6]]);
-    assert_eq!(a.cols_mut().eval(), expr![expr![1, 2, 3], expr![4, 5, 6]]);
+    assert_eq!(expr::zip(&f, &expr![5, 6]).map(|(x, y)| (*x, *y)).eval::<Grid<_, _>>(), d);
+    assert_eq!(grid![[1; 2]; 3].into_expr().enumerate().eval::<Grid<_, _>>(), Grid::from(e));
 
-    assert_eq!(a.lanes::<0>().eval(), expr![expr![1, 2, 3], expr![4, 5, 6]]);
-    assert_eq!(a.lanes_mut::<1>().eval(), expr![expr![1, 4], expr![2, 5], expr![3, 6]]);
+    assert_eq!(a.cols().eval::<Grid<_, _>>(), expr![expr![1, 2, 3], expr![4, 5, 6]]);
+    assert_eq!(a.cols_mut().eval::<Grid<_, _>>(), expr![expr![1, 2, 3], expr![4, 5, 6]]);
 
-    assert_eq!(a.rows().eval(), expr![expr![1, 4], expr![2, 5], expr![3, 6]]);
-    assert_eq!(a.rows_mut().eval(), expr![expr![1, 4], expr![2, 5], expr![3, 6]]);
+    assert_eq!(a.lanes::<1>().eval::<Grid<_, _>>(), expr![expr![1, 4], expr![2, 5], expr![3, 6]]);
+    assert_eq!(a.lanes_mut::<0>().eval::<Grid<_, _>>(), expr![expr![1, 2, 3], expr![4, 5, 6]]);
+
+    assert_eq!(a.rows().eval::<Grid<_, _>>(), expr![expr![1, 4], expr![2, 5], expr![3, 6]]);
+    assert_eq!(a.rows_mut().eval::<Grid<_, _>>(), expr![expr![1, 4], expr![2, 5], expr![3, 6]]);
 }
 
 #[test]
@@ -597,7 +599,7 @@ fn test_ops() {
     let c = expr::fill_with(|| 1usize) + expr::from_elem([2, 3], 4);
     let c = c + expr::from_fn([2, 3], |x| x[0] + x[1]);
 
-    assert_eq!(c.eval(), Grid::from([[5, 6], [6, 7], [7, 8]]));
+    assert_eq!(c.eval::<Grid<_, _>>(), Grid::from([[5, 6], [6, 7], [7, 8]]));
 }
 
 #[cfg(feature = "serde")]

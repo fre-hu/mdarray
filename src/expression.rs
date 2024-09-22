@@ -6,8 +6,6 @@ use crate::alloc::Allocator;
 use crate::expr::{Cloned, Copied, Enumerate, Map, Zip};
 use crate::grid::Grid;
 use crate::iter::Iter;
-#[cfg(feature = "nightly")]
-use crate::mapping::DenseMapping;
 use crate::shape::Shape;
 use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
 
@@ -64,25 +62,11 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression into a new array.
-    fn eval(self) -> <Self::Shape as Shape>::FromExpr<Self::Item>
+    fn eval<A: FromExpression<Self::Item, Self::Shape>>(self) -> A
     where
         Self: Sized,
     {
         FromExpression::from_expr(self)
-    }
-
-    /// Evaluates the expression into a new array with the specified allocator.
-    #[cfg(feature = "nightly")]
-    fn eval_in<A: Allocator>(self, alloc: A) -> Grid<Self::Item, Self::Shape, A>
-    where
-        Self: Sized,
-    {
-        let shape = self.shape();
-        let mut vec = Vec::with_capacity_in(shape.len(), alloc);
-
-        self.clone_into_vec(&mut vec);
-
-        unsafe { Grid::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     /// Evaluates the expression with broadcasting and appends to the given array
