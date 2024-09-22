@@ -13,9 +13,9 @@ use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut, Lanes, LanesMut, Map, Zip};
 use crate::expression::Expression;
 use crate::grid::Grid;
-use crate::index::{Axis, DimIndex, Inner, Outer, Permutation, SpanIndex, ViewIndex};
+use crate::index::{Axis, DimIndex, Nth, Permutation, SpanIndex, ViewIndex};
 use crate::iter::Iter;
-use crate::layout::{Dense, Flat, Layout};
+use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_span::RawSpan;
 use crate::shape::{IntoShape, Rank, Shape};
@@ -71,68 +71,32 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
 
     /// Returns an expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the outermost dimension, both the unit inner stride and the
-    /// uniform stride properties are maintained, and the resulting array views have
-    /// the same layout.
-    ///
-    /// When iterating over the innermost dimension, the uniform stride property is
-    /// maintained but not unit inner stride, and the resulting array views have
-    /// flat or strided layout.
-    ///
-    /// When iterating over the other dimensions, the unit inner stride propery is
-    /// maintained but not uniform stride, and the resulting array views have general
-    /// or strided layout.
+    /// When iterating over the outermost dimension, the resulting array views have the same
+    /// layout as the input. Otherwise, the resulting array views have strided layout.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn axis_expr<const N: usize>(&self) -> AxisExpr<T, S, L, Inner<N>>
+    pub fn axis_expr<const N: usize>(&self) -> AxisExpr<T, S, L, Nth<N>>
     where
-        Inner<N>: Axis,
+        Nth<N>: Axis,
     {
         AxisExpr::new(self)
     }
 
     /// Returns a mutable expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the outermost dimension, both the unit inner stride and the
-    /// uniform stride properties are maintained, and the resulting array views have
-    /// the same layout.
-    ///
-    /// When iterating over the innermost dimension, the uniform stride property is
-    /// maintained but not unit inner stride, and the resulting array views have
-    /// flat or strided layout.
-    ///
-    /// When iterating over the other dimensions, the unit inner stride propery is
-    /// maintained but not uniform stride, and the resulting array views have general
-    /// or strided layout.
+    /// When iterating over the outermost dimension, the resulting array views have the same
+    /// layout as the input. Otherwise, the resulting array views have strided layout.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn axis_expr_mut<const N: usize>(&mut self) -> AxisExprMut<T, S, L, Inner<N>>
+    pub fn axis_expr_mut<const N: usize>(&mut self) -> AxisExprMut<T, S, L, Nth<N>>
     where
-        Inner<N>: Axis,
+        Nth<N>: Axis,
     {
         AxisExprMut::new(self)
-    }
-
-    /// Returns an expression that gives column views iterating over the other dimensions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 1.
-    pub fn cols(&self) -> Lanes<T, S, L, Inner<0>> {
-        Lanes::new(self)
-    }
-
-    /// Returns a mutable expression that gives column views iterating over the other dimensions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 1.
-    pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Inner<0>> {
-        LanesMut::new(self)
     }
 
     /// Returns `true` if the array span contains an element with the given value.
@@ -185,7 +149,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
-    pub fn flatten(&self) -> Expr<T, Dyn, L::Uniform> {
+    pub fn flatten(&self) -> Expr<T, (Dyn,), L> {
         self.expr().into_flattened()
     }
 
@@ -194,7 +158,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
-    pub fn flatten_mut(&mut self) -> ExprMut<T, Dyn, L::Uniform> {
+    pub fn flatten_mut(&mut self) -> ExprMut<T, (Dyn,), L> {
         self.expr_mut().into_flattened()
     }
 
@@ -226,11 +190,6 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.mapping().is_empty()
     }
 
-    /// Returns `true` if the array strides are consistent with uniformly strided memory layout.
-    pub fn is_uniformly_strided(&self) -> bool {
-        self.mapping().is_uniformly_strided()
-    }
-
     /// Returns an iterator over the array span.
     pub fn iter(&self) -> Iter<Expr<'_, T, S, L>> {
         self.expr().into_iter()
@@ -244,15 +203,15 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     /// Returns an expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the innermost dimension is specified, the resulting array views have dense or
-    /// flat layout. For other dimensions, the resulting array views have flat layout.
+    /// If the innermost dimension is specified, the resulting array views have the same layout
+    /// as the input. For other dimensions, the resulting array views have strided layout.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn lanes<const N: usize>(&self) -> Lanes<T, S, L, Inner<N>>
+    pub fn lanes<const N: usize>(&self) -> Lanes<T, S, L, Nth<N>>
     where
-        Inner<N>: Axis,
+        Nth<N>: Axis,
     {
         Lanes::new(self)
     }
@@ -260,15 +219,15 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     /// Returns a mutable expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the innermost dimension is specified, the resulting array views have dense or
-    /// flat layout. For other dimensions, the resulting array views have flat layout.
+    /// If the innermost dimension is specified, the resulting array views have the same layout
+    /// as the input. For other dimensions, the resulting array views have strided layout.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn lanes_mut<const N: usize>(&mut self) -> LanesMut<T, S, L, Inner<N>>
+    pub fn lanes_mut<const N: usize>(&mut self) -> LanesMut<T, S, L, Nth<N>>
     where
-        Inner<N>: Axis,
+        Nth<N>: Axis,
     {
         LanesMut::new(self)
     }
@@ -289,25 +248,25 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
 
     /// Returns an expression that gives array views iterating over the outermost dimension.
     ///
-    /// Iterating over the outermost dimension maintains both the unit inner stride and the
-    /// uniform stride properties, and the resulting array views have the same layout.
+    /// Iterating over the outermost dimension results in array views with the same layout
+    /// as the input.
     ///
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_expr(&self) -> AxisExpr<T, S, L, Outer> {
+    pub fn outer_expr(&self) -> AxisExpr<T, S, L, Nth<0>> {
         AxisExpr::new(self)
     }
 
     /// Returns a mutable expression that gives array views iterating over the outermost dimension.
     ///
-    /// Iterating over the outermost dimension maintains both the unit inner stride and the
-    /// uniform stride properties, and the resulting array views have the same layout.
+    /// Iterating over the outermost dimension results in array views with the same layout
+    /// as the input.
     ///
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_expr_mut(&mut self) -> AxisExprMut<T, S, L, Outer> {
+    pub fn outer_expr_mut(&mut self) -> AxisExprMut<T, S, L, Nth<0>> {
         AxisExprMut::new(self)
     }
 
@@ -334,46 +293,32 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.expr_mut().into_mapping()
     }
 
-    /// Returns a reshaped array view of the array span, with similar layout.
+    /// Returns a reordered array view of the array span.
+    pub fn reorder(&self) -> Expr<T, S::Reverse, S::Layout<L>> {
+        self.expr().into_reordered()
+    }
+
+    /// Returns a mutable reordered array view of the array span.
+    pub fn reorder_mut(&mut self) -> ExprMut<T, S::Reverse, S::Layout<L>> {
+        self.expr_mut().into_reordered()
+    }
+
+    /// Returns a reshaped array view of the array span.
     ///
     /// # Panics
     ///
-    /// Panics if the array length is changed, or the memory layout is not compatible.
-    pub fn reshape<I: IntoShape>(
-        &self,
-        shape: I,
-    ) -> Expr<T, I::IntoShape, <I::IntoShape as Shape>::Layout<L::Uniform, L>> {
+    /// Panics if the array length is changed, or if the memory layout is not compatible.
+    pub fn reshape<I: IntoShape>(&self, shape: I) -> Expr<T, I::IntoShape, L> {
         self.expr().into_shape(shape)
     }
 
-    /// Returns a mutable reshaped array view of the array span, with similar layout.
+    /// Returns a mutable reshaped array view of the array span.
     ///
     /// # Panics
     ///
-    /// Panics if the array length is changed, or the memory layout is not compatible.
-    pub fn reshape_mut<I: IntoShape>(
-        &mut self,
-        shape: I,
-    ) -> ExprMut<T, I::IntoShape, <I::IntoShape as Shape>::Layout<L::Uniform, L>> {
+    /// Panics if the array length is changed, or if the memory layout is not compatible.
+    pub fn reshape_mut<I: IntoShape>(&mut self, shape: I) -> ExprMut<T, I::IntoShape, L> {
         self.expr_mut().into_shape(shape)
-    }
-
-    /// Returns an expression that gives row views iterating over the other dimensions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 2.
-    pub fn rows(&self) -> Lanes<T, S, L, Inner<1>> {
-        Lanes::new(self)
-    }
-
-    /// Returns a mutable expression that gives row views iterating over the other dimensions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 2.
-    pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Inner<1>> {
-        LanesMut::new(self)
     }
 
     /// Returns the array shape.
@@ -390,8 +335,10 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     pub fn split_at(
         &self,
         mid: usize,
-    ) -> (Expr<T, <Outer as Axis>::Replace<Dyn, S>, L>, Expr<T, <Outer as Axis>::Replace<Dyn, S>, L>)
-    {
+    ) -> (
+        Expr<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+        Expr<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+    ) {
         self.expr().into_split_at(mid)
     }
 
@@ -405,8 +352,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ExprMut<T, <Outer as Axis>::Replace<Dyn, S>, L>,
-        ExprMut<T, <Outer as Axis>::Replace<Dyn, S>, L>,
+        ExprMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+        ExprMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
     ) {
         self.expr_mut().into_split_at(mid)
     }
@@ -421,11 +368,11 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &self,
         mid: usize,
     ) -> (
-        Expr<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
-        Expr<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
+        Expr<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        Expr<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
     )
     where
-        Inner<N>: Axis,
+        Nth<N>: Axis,
     {
         self.expr().into_split_axis_at(mid)
     }
@@ -440,11 +387,11 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ExprMut<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
-        ExprMut<T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
+        ExprMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        ExprMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
     )
     where
-        Inner<N>: Axis,
+        Nth<N>: Axis,
     {
         self.expr_mut().into_split_axis_at(mid)
     }
@@ -526,7 +473,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn col(&self, index: usize) -> Expr<T, X, L::Uniform> {
+    pub fn col(&self, index: usize) -> Expr<T, (X,), Strided> {
         self.view(.., index)
     }
 
@@ -535,8 +482,26 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn col_mut(&mut self, index: usize) -> ExprMut<T, X, L::Uniform> {
+    pub fn col_mut(&mut self, index: usize) -> ExprMut<T, (X,), Strided> {
         self.view_mut(.., index)
+    }
+
+    /// Returns an expression that gives column views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 1.
+    pub fn cols(&self) -> Lanes<T, (X, Y), L, Nth<0>> {
+        Lanes::new(self)
+    }
+
+    /// Returns a mutable expression that gives column views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 1.
+    pub fn cols_mut(&mut self) -> LanesMut<T, (X, Y), L, Nth<0>> {
+        LanesMut::new(self)
     }
 
     /// Returns an array view for the given diagonal of the array span,
@@ -545,7 +510,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag(&self, index: isize) -> Expr<T, Dyn, Flat> {
+    pub fn diag(&self, index: isize) -> Expr<T, (Dyn,), Strided> {
         self.expr().into_diag(index)
     }
 
@@ -555,7 +520,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag_mut(&mut self, index: isize) -> ExprMut<T, Dyn, Flat> {
+    pub fn diag_mut(&mut self, index: isize) -> ExprMut<T, (Dyn,), Strided> {
         self.expr_mut().into_diag(index)
     }
 
@@ -564,7 +529,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn row(&self, index: usize) -> Expr<T, Y, Flat> {
+    pub fn row(&self, index: usize) -> Expr<T, (Y,), L> {
         self.view(index, ..)
     }
 
@@ -573,21 +538,38 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn row_mut(&mut self, index: usize) -> ExprMut<T, Y, Flat> {
+    pub fn row_mut(&mut self, index: usize) -> ExprMut<T, (Y,), L> {
         self.view_mut(index, ..)
+    }
+
+    /// Returns an expression that gives row views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 2.
+    pub fn rows(&self) -> Lanes<T, (X, Y), L, Nth<1>> {
+        Lanes::new(self)
+    }
+
+    /// Returns a mutable expression that gives row views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not at least 2.
+    pub fn rows_mut(&mut self) -> LanesMut<T, (X, Y), L, Nth<1>> {
+        LanesMut::new(self)
     }
 }
 
 macro_rules! impl_permute {
     (($($xyz:tt),+), ($($abc:tt),*)) => {
-        #[allow(unused_parens)]
-        impl<T, $($xyz: Dim,)+ L: Layout> Span<T, ($($xyz),+), L> {
+        impl<T, $($xyz: Dim,)+ L: Layout> Span<T, ($($xyz,)+), L> {
             /// Returns an array view with the dimensions permuted.
             pub fn permute<$(const $abc: usize),+>(
                 &self
             ) -> Expr<
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz),+)>,
+                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
                 <($(Const<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
@@ -601,7 +583,7 @@ macro_rules! impl_permute {
                 &mut self
             ) -> ExprMut<
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz),+)>,
+                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
                 <($(Const<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
@@ -622,8 +604,7 @@ impl_permute!((X, Y, Z, W, U, V), (A, B, C, D, E, F));
 
 macro_rules! impl_view {
     (($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
-        #[allow(unused_parens)]
-        impl<T, $($xyz: Dim,)+ L: Layout> Span<T, ($($xyz),+), L> {
+        impl<T, $($xyz: Dim,)+ L: Layout> Span<T, ($($xyz,)+), L> {
             /// Copies the specified subarray into a new array.
             ///
             /// # Panics
@@ -632,7 +613,7 @@ macro_rules! impl_view {
             pub fn grid<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
-            ) -> Grid<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz),+)>>
+            ) -> Grid<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
             where
                 T: Clone,
             {
@@ -649,8 +630,8 @@ macro_rules! impl_view {
                 $($idx: $abc),+
             ) -> Expr<
                 T,
-                <($($abc,)+) as ViewIndex>::Shape<($($xyz),+)>,
-                <($($abc,)+) as ViewIndex>::Layout<($($xyz),+), L>,
+                <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
+                <($($abc,)+) as ViewIndex>::Layout<L>,
             > {
                 self.expr().into_view($($idx),+)
             }
@@ -665,8 +646,8 @@ macro_rules! impl_view {
                 $($idx: $abc),+,
             ) -> ExprMut<
                 T,
-                <($($abc,)+) as ViewIndex>::Shape<($($xyz),+)>,
-                <($($abc,)+) as ViewIndex>::Layout<($($xyz),+), L>,
+                <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
+                <($($abc,)+) as ViewIndex>::Layout<L>,
             > {
                 self.expr_mut().into_view($($idx),+)
             }
@@ -744,14 +725,7 @@ impl<T: Debug, S: Shape, L: Layout> Debug for Span<T, S, L> {
         if S::RANK == 0 {
             self[S::Dims::default()].fmt(f)
         } else {
-            let mut list = f.debug_list();
-
-            // Empty arrays should give an empty list.
-            if !self.is_empty() {
-                _ = list.entries(self.outer_expr());
-            }
-
-            list.finish()
+            f.debug_list().entries(self.outer_expr()).finish()
         }
     }
 }
@@ -837,12 +811,10 @@ impl<T: Clone, S: Shape> ToOwned for Span<T, S> {
 }
 
 fn contains<T: PartialEq, S: Shape, L: Layout>(this: &Span<T, S, L>, value: &T) -> bool {
-    if L::IS_UNIFORM {
-        if L::IS_UNIT_STRIDED {
-            this.remap()[..].contains(value)
-        } else {
-            this.iter().any(|x| x == value)
-        }
+    if L::IS_DENSE {
+        this.remap()[..].contains(value)
+    } else if S::RANK < 2 {
+        this.iter().any(|x| x == value)
     } else {
         this.outer_expr().into_iter().any(|x| x.contains(value))
     }

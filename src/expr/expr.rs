@@ -9,10 +9,10 @@ use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::adapters::{Map, Zip};
 use crate::expression::Expression;
-use crate::index::{self, Axis, DimIndex, Inner, Outer, Permutation, SpanIndex, ViewIndex};
+use crate::index::{self, Axis, DimIndex, Nth, Permutation, SpanIndex, ViewIndex};
 use crate::iter::Iter;
-use crate::layout::{Dense, Flat, Layout};
-use crate::mapping::{DenseMapping, FlatMapping, Mapping, StridedMapping};
+use crate::layout::{Dense, Layout, Strided};
+use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_span::RawSpan;
 use crate::shape::{IntoShape, Rank, Shape};
 use crate::span::Span;
@@ -38,7 +38,7 @@ macro_rules! impl_expr {
             /// # Panics
             ///
             /// Panics if the array layout is not uniformly strided.
-            pub fn into_flattened(self) -> $name<'a, T, Dyn, L::Uniform> {
+            pub fn into_flattened(self) -> $name<'a, T, (Dyn,), L> {
                 let len = self.len();
 
                 self.into_shape([len])
@@ -55,15 +55,22 @@ macro_rules! impl_expr {
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
 
-            /// Converts the array view into a reshaped array view with similar layout.
+            /// Converts the array view into a reordered array view.
+            pub fn into_reordered($($mut)? self) -> $name<'a, T, S::Reverse, S::Layout<L>> {
+                let mapping = Mapping::reorder(self.mapping());
+
+                unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
+            }
+
+            /// Converts the array view into a reshaped array view.
             ///
             /// # Panics
             ///
-            /// Panics if the array length is changed, or the memory layout is not compatible.
+            /// Panics if the array length is changed, or if the memory layout is not compatible.
             pub fn into_shape<I: IntoShape>(
                 $($mut)? self,
                 shape: I
-            ) -> $name<'a, T, I::IntoShape, <I::IntoShape as Shape>::Layout<L::Uniform, L>> {
+            ) -> $name<'a, T, I::IntoShape, L> {
                 let mapping = Mapping::reshape(self.mapping(), shape.into_shape());
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
@@ -79,10 +86,12 @@ macro_rules! impl_expr {
                 self,
                 mid: usize,
             ) -> (
-                $name<'a, T, <Outer as Axis>::Replace<Dyn, S>, L>,
-                $name<'a, T, <Outer as Axis>::Replace<Dyn, S>, L>,
+                $name<'a, T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+                $name<'a, T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
             ) {
-                self.into_split_dim_at::<Outer>(mid)
+                let (left, right) = self.into_split_dim_at::<Nth<0>>(mid);
+
+                (left.into_mapping(), right.into_mapping())
             }
 
             /// Divides the array view into two at an index along the specified dimension.
@@ -95,13 +104,13 @@ macro_rules! impl_expr {
                 self,
                 mid: usize,
             ) -> (
-                $name<'a, T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
-                $name<'a, T, <Inner<N> as Axis>::Replace<Dyn, S>, <Inner<N> as Axis>::Resize<S, L>>,
+                $name<'a, T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+                $name<'a, T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
             )
             where
-                Inner<N>: Axis,
+                Nth<N>: Axis,
             {
-                self.into_split_dim_at::<Inner<N>>(mid)
+                self.into_split_dim_at::<Nth<N>>(mid)
             }
 
             /// Creates an array view from a raw pointer and layout.
@@ -117,8 +126,8 @@ macro_rules! impl_expr {
                 $($mut)? self,
                 mid: usize
             ) -> (
-                $name<'a, T, A::Replace<Dyn, S>, A::Resize<S, L>>,
-                $name<'a, T, A::Replace<Dyn, S>, A::Resize<S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
             ) {
                 let index = A::index(S::RANK);
                 let size = self.dim(index);
@@ -150,7 +159,7 @@ macro_rules! impl_expr {
             /// # Panics
             ///
             /// Panics if the absolute index is larger than the number of columns or rows.
-            pub fn into_diag($($mut)? self, index: isize) -> $name<'a, T, Dyn, Flat> {
+            pub fn into_diag($($mut)? self, index: isize) -> $name<'a, T, (Dyn,), Strided> {
                 let (offset, len) = if index >= 0 {
                     assert!(index as usize <= self.dim(1), "invalid diagonal");
 
@@ -162,7 +171,7 @@ macro_rules! impl_expr {
                 };
 
                 let count = if len > 0 { offset } else { 0 }; // Offset pointer if non-empty.
-                let mapping = FlatMapping::new(Dyn(len), self.stride(0) + self.stride(1));
+                let mapping = StridedMapping::new((Dyn(len),), [self.stride(0) + self.stride(1)]);
 
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
             }
@@ -227,14 +236,14 @@ macro_rules! impl_expr {
 
             const IS_REPEATABLE: bool = $repeatable;
             const SPLIT_MASK: usize =
-                if L::IS_UNIFORM { (1 << S::RANK) >> 1 } else { (1 << S::RANK) - 1 };
+                if L::IS_DENSE { (1 << S::RANK) >> 1 } else { (1 << S::RANK) - 1 };
 
             fn shape(&self) -> S {
                 (**self).shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
-                let count = if S::RANK > 0 { self.stride(0) * index as isize } else { 0 };
+                let count = if S::RANK > 0 { self.stride(S::RANK - 1) * index as isize } else { 0 };
 
                 &$($mut)? *self.$as_ptr().offset(count)
             }
@@ -262,9 +271,9 @@ macro_rules! impl_expr {
             }
         }
 
-        impl<'a, T> From<&'a $($mut)? [T]> for $name<'a, T, Dyn> {
+        impl<'a, T> From<&'a $($mut)? [T]> for $name<'a, T, (Dyn,)> {
             fn from(value: &'a $($mut)? [T]) -> Self {
-                let mapping = DenseMapping::new(Dyn(value.len()));
+                let mapping = DenseMapping::new((Dyn(value.len()),));
 
                 unsafe { Self::new_unchecked(value.$as_ptr(), mapping) }
             }
@@ -324,16 +333,15 @@ impl_expr!(ExprMut, as_mut_ptr, from_raw_parts_mut, mut, {mut}, false);
 
 macro_rules! impl_into_permuted {
     ($n:tt, ($($xyz:tt),+), ($($abc:tt),+)) => {
-        #[allow(unused_parens)]
-        impl<'a, T, $($xyz: Dim,)+ L: Layout> Expr<'a, T, ($($xyz),+), L> {
+        impl<'a, T, $($xyz: Dim,)+ L: Layout> Expr<'a, T, ($($xyz,)+), L> {
             /// Converts the array view into a new array view with the dimensions permuted.
             pub fn into_permuted<$(const $abc: usize),+>(
                 self
             ) -> Expr<
                 'a,
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz),+)>,
-                <($(Const<$abc>,)+) as Permutation>::Layout<L>
+                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
+                <($(Const<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
                 ($(Const<$abc>,)+): Permutation
@@ -342,29 +350,23 @@ macro_rules! impl_into_permuted {
                 let strides = [$(self.stride($abc)),+];
 
                 let shape = Shape::from_dims(TryFrom::try_from(&dims[..]).expect("invalid rank"));
+                let strides = TryFrom::try_from(&strides[..]).expect("invalid rank");
 
-                let mapping = if $n > 1 {
-                    let strides = TryFrom::try_from(&strides[..]).expect("invalid rank");
-
-                    Mapping::remap(StridedMapping::new(shape, strides))
-                } else {
-                    Mapping::remap(FlatMapping::new(shape, strides[0]))
-                };
+                let mapping = Mapping::remap(StridedMapping::new(shape, strides));
 
                 unsafe { Expr::new_unchecked(self.as_ptr(), mapping) }
             }
         }
 
-        #[allow(unused_parens)]
-        impl<'a, T, $($xyz: Dim,)+ L: Layout> ExprMut<'a, T, ($($xyz),+), L> {
+        impl<'a, T, $($xyz: Dim,)+ L: Layout> ExprMut<'a, T, ($($xyz,)+), L> {
             /// Converts the array view into a new array view with the dimensions permuted.
             pub fn into_permuted<$(const $abc: usize),+>(
                 mut self
             ) -> ExprMut<
                 'a,
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz),+)>,
-                <($(Const<$abc>,)+) as Permutation>::Layout<L>
+                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
+                <($(Const<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
                 ($(Const<$abc>,)+): Permutation
@@ -373,14 +375,9 @@ macro_rules! impl_into_permuted {
                 let strides = [$(self.stride($abc)),+];
 
                 let shape = Shape::from_dims(TryFrom::try_from(&dims[..]).expect("invalid rank"));
+                let strides = TryFrom::try_from(&strides[..]).expect("invalid rank");
 
-                let mapping = if $n > 1 {
-                    let strides = TryFrom::try_from(&strides[..]).expect("invalid rank");
-
-                    Mapping::remap(StridedMapping::new(shape, strides))
-                } else {
-                    Mapping::remap(FlatMapping::new(shape, strides[0]))
-                };
+                let mapping = Mapping::remap(StridedMapping::new(shape, strides));
 
                 unsafe { ExprMut::new_unchecked(self.as_mut_ptr(), mapping) }
             }
@@ -397,8 +394,7 @@ impl_into_permuted!(6, (X, Y, Z, W, U, V), (A, B, C, D, E, F));
 
 macro_rules! impl_into_view {
     ($n:tt, ($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
-        #[allow(unused_parens)]
-        impl<'a, T, $($xyz: Dim,)+ L: Layout> Expr<'a, T, ($($xyz),+), L> {
+        impl<'a, T, $($xyz: Dim,)+ L: Layout> Expr<'a, T, ($($xyz,)+), L> {
             /// Converts the array view into a new array view for the specified subarray.
             ///
             /// # Panics
@@ -410,8 +406,8 @@ macro_rules! impl_into_view {
             ) -> Expr<
                 'a,
                 T,
-                <($($abc,)+) as ViewIndex>::Shape<($($xyz),+)>,
-                <($($abc,)+) as ViewIndex>::Layout<($($xyz),+), L>,
+                <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
+                <($($abc,)+) as ViewIndex>::Layout<L>,
             > {
                 let (offset, mapping) = ($($idx,)+).view_index(self.mapping());
 
@@ -422,8 +418,7 @@ macro_rules! impl_into_view {
             }
         }
 
-        #[allow(unused_parens)]
-        impl<'a, T, $($xyz: Dim,)+ L: Layout> ExprMut<'a, T, ($($xyz),+), L> {
+        impl<'a, T, $($xyz: Dim,)+ L: Layout> ExprMut<'a, T, ($($xyz,)+), L> {
             /// Converts the array view into a new array view for the specified subarray.
             ///
             /// # Panics
@@ -435,8 +430,8 @@ macro_rules! impl_into_view {
             ) -> ExprMut<
                 'a,
                 T,
-                <($($abc,)+) as ViewIndex>::Shape<($($xyz),+)>,
-                <($($abc,)+) as ViewIndex>::Layout<($($xyz),+), L>,
+                <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
+                <($($abc,)+) as ViewIndex>::Layout<L>,
             > {
                 let (offset, mapping) = ($($idx,)+).view_index(self.mapping());
 
@@ -504,18 +499,17 @@ impl<T, S: Shape, L: Layout> DerefMut for ExprMut<'_, T, S, L> {
 
 macro_rules! impl_from_array_ref {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
-        impl<'a, T, $(const $xyz: usize),+> From<&'a Array<T, ($(Const<$xyz>),+)>>
+        impl<'a, T, $(const $xyz: usize),+> From<&'a Array<T, ($(Const<$xyz>,)+)>>
             for Expr<'a, T, Rank<$n>>
         {
-            fn from(value: &'a Array<T, ($(Const<$xyz>),+)>) -> Self {
+            fn from(value: &'a Array<T, ($(Const<$xyz>,)+)>) -> Self {
                 Self::from(&value.0)
             }
         }
 
         impl<'a, T, $(const $xyz: usize),+> From<&'a $array> for Expr<'a, T, Rank<$n>> {
             fn from(value: &'a $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
+                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
 
                 _ = mapping.shape().checked_len().expect("invalid length");
 
@@ -523,18 +517,17 @@ macro_rules! impl_from_array_ref {
             }
         }
 
-        #[allow(unused_parens)]
-        impl<'a, T, $(const $xyz: usize),+> From<&'a mut Array<T, ($(Const<$xyz>),+)>>
+        impl<'a, T, $(const $xyz: usize),+> From<&'a mut Array<T, ($(Const<$xyz>,)+)>>
             for ExprMut<'a, T, Rank<$n>>
         {
-            fn from(value: &'a mut Array<T, ($(Const<$xyz>),+)>) -> Self {
+            fn from(value: &'a mut Array<T, ($(Const<$xyz>,)+)>) -> Self {
                 Self::from(&mut value.0)
             }
         }
 
         impl<'a, T, $(const $xyz: usize),+> From<&'a mut $array> for ExprMut<'a, T, Rank<$n>> {
             fn from(value: &'a mut $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
+                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
 
                 _ = mapping.shape().checked_len().expect("invalid length");
 
@@ -545,11 +538,11 @@ macro_rules! impl_from_array_ref {
 }
 
 impl_from_array_ref!(1, (X), [T; X]);
-impl_from_array_ref!(2, (X, Y), [[T; X]; Y]);
-impl_from_array_ref!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
-impl_from_array_ref!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_from_array_ref!(2, (X, Y), [[T; Y]; X]);
+impl_from_array_ref!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
+impl_from_array_ref!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
 impl<T, S: Shape, L: Layout, I: SpanIndex<T, S, L>> IndexMut<I> for ExprMut<'_, T, S, L> {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
@@ -583,9 +576,8 @@ unsafe impl<'a, T: Sync, S: Shape, L: Layout> Sync for ExprMut<'a, T, S, L> {}
 
 macro_rules! impl_try_from_array_ref {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
         impl<'a, T, $(const $xyz: usize),+> TryFrom<Expr<'a, T, Rank<$n>>>
-            for &'a Array<T, ($(Const<$xyz>),+)>
+            for &'a Array<T, ($(Const<$xyz>,)+)>
         {
             type Error = Expr<'a, T, Rank<$n>>;
 
@@ -606,9 +598,8 @@ macro_rules! impl_try_from_array_ref {
             }
         }
 
-        #[allow(unused_parens)]
         impl<'a, T, $(const $xyz: usize),+> TryFrom<ExprMut<'a, T, Rank<$n>>>
-            for &'a mut Array<T, ($(Const<$xyz>),+)>
+            for &'a mut Array<T, ($(Const<$xyz>,)+)>
         {
             type Error = ExprMut<'a, T, Rank<$n>>;
 
@@ -632,8 +623,8 @@ macro_rules! impl_try_from_array_ref {
 }
 
 impl_try_from_array_ref!(1, (X), [T; X]);
-impl_try_from_array_ref!(2, (X, Y), [[T; X]; Y]);
-impl_try_from_array_ref!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
-impl_try_from_array_ref!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_try_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_try_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_try_from_array_ref!(2, (X, Y), [[T; Y]; X]);
+impl_try_from_array_ref!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
+impl_try_from_array_ref!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_try_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_try_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);

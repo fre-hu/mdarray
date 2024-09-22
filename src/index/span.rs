@@ -4,7 +4,7 @@ use std::ops::{
 
 use crate::dim::Dims;
 use crate::index;
-use crate::layout::{Dense, Layout, Uniform};
+use crate::layout::{Dense, Layout};
 use crate::mapping::Mapping;
 use crate::shape::Shape;
 use crate::span::Span;
@@ -63,23 +63,15 @@ impl<T, D: Dims, S: Shape<Dims = D>, L: Layout> SpanIndex<T, S, L> for D {
     }
 }
 
-impl<T, S: Shape, L: Uniform> SpanIndex<T, S, L> for usize {
+impl<T, S: Shape, L: Layout> SpanIndex<T, S, L> for usize {
     type Output = T;
 
     unsafe fn get_unchecked(self, span: &Span<T, S, L>) -> &T {
-        debug_assert!(self < span.len(), "index out of bounds");
-
-        let offset = if S::RANK > 0 { span.stride(0) * self as isize } else { 0 };
-
-        &*span.as_ptr().offset(offset)
+        &*span.as_ptr().offset(span.mapping().linear_offset(self))
     }
 
     unsafe fn get_unchecked_mut(self, span: &mut Span<T, S, L>) -> &mut T {
-        debug_assert!(self < span.len(), "index out of bounds");
-
-        let offset = if S::RANK > 0 { span.stride(0) * self as isize } else { 0 };
-
-        &mut *span.as_mut_ptr().offset(offset)
+        &mut *span.as_mut_ptr().offset(span.mapping().linear_offset(self))
     }
 
     fn index(self, span: &Span<T, S, L>) -> &T {

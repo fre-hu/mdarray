@@ -16,7 +16,7 @@ use crate::buffer::{Buffer, Drain};
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{self, Expr, ExprMut, IntoExpr, Map, Zip};
 use crate::expression::Expression;
-use crate::index::{Axis, Outer, SpanIndex};
+use crate::index::{Axis, Nth, SpanIndex};
 use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
 use crate::mapping::{DenseMapping, Mapping};
@@ -96,12 +96,12 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     /// is not dynamically-sized.
     pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<T, S, A>> {
         assert!(S::RANK > 0, "invalid rank");
-        assert!(<Outer as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
+        assert!(<Nth<0> as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
 
         #[cfg(not(feature = "nightly"))]
-        let range = crate::index::range(range, ..self.dim(S::RANK - 1));
+        let range = crate::index::range(range, ..self.dim(0));
         #[cfg(feature = "nightly")]
-        let range = slice::range(range, ..self.dim(S::RANK - 1));
+        let range = slice::range(range, ..self.dim(0));
 
         IntoExpr::new(Drain::new(self, range.start, range.end))
     }
@@ -121,23 +121,23 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     pub fn expand<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
         assert!(S::RANK > 0, "invalid rank");
         assert!(I::Shape::RANK + 1 == S::RANK || I::Shape::RANK == S::RANK, "invalid rank");
-        assert!(<Outer as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
+        assert!(<Nth<0> as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
 
         let expr = expr.into_expr();
         let len = expr.len();
 
         if len > 0 {
-            let inner_dims = &expr.dims()[..S::RANK - 1];
+            let inner_dims = &expr.dims()[1 + I::Shape::RANK - S::RANK..];
             let mut dims = self.dims();
 
             if self.is_empty() {
-                dims[..S::RANK - 1].copy_from_slice(inner_dims);
-                dims[S::RANK - 1] = 0;
+                dims[0] = 0;
+                dims[1..].copy_from_slice(inner_dims);
             } else {
-                assert!(inner_dims == &dims[..S::RANK - 1], "inner dimensions mismatch");
+                assert!(inner_dims == &dims[1..], "inner dimensions mismatch");
             }
 
-            dims[S::RANK - 1] += if I::Shape::RANK < S::RANK { 1 } else { expr.dim(S::RANK - 1) };
+            dims[0] += if I::Shape::RANK < S::RANK { 1 } else { expr.dim(0) };
 
             let shape = Shape::from_dims(dims);
 
@@ -186,7 +186,7 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     }
 
     /// Converts the array into a one-dimensional array.
-    pub fn into_flattened(self) -> Grid<T, Dyn, A> {
+    pub fn into_flattened(self) -> Grid<T, (Dyn,), A> {
         self.into_vec().into()
     }
 
@@ -326,10 +326,10 @@ impl<T, S: Shape, A: Allocator> Grid<T, S, A> {
     /// is not dynamically-sized.
     pub fn truncate(&mut self, size: usize) {
         assert!(S::RANK > 0, "invalid rank");
-        assert!(<Outer as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
+        assert!(<Nth<0> as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
 
-        if size < self.dim(S::RANK - 1) {
-            let new_mapping = DenseMapping::resize_dim(self.mapping(), S::RANK - 1, size);
+        if size < self.dim(0) {
+            let new_mapping = DenseMapping::resize_dim(self.mapping(), 0, size);
 
             unsafe {
                 self.grid.with_mut_vec(|vec| vec.truncate(new_mapping.len()));
@@ -634,13 +634,13 @@ impl<T, S: Shape, A: Allocator> DerefMut for Grid<T, S, A> {
     }
 }
 
-impl<'a, T: Copy, A: Allocator> Extend<&'a T> for Grid<T, Dyn, A> {
+impl<'a, T: Copy, A: Allocator> Extend<&'a T> for Grid<T, (Dyn,), A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().copied());
     }
 }
 
-impl<T, A: Allocator> Extend<T> for Grid<T, Dyn, A> {
+impl<T, A: Allocator> Extend<T> for Grid<T, (Dyn,), A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         unsafe {
             let len = self.grid.with_mut_vec(|vec| {
@@ -648,12 +648,12 @@ impl<T, A: Allocator> Extend<T> for Grid<T, Dyn, A> {
                 vec.len()
             });
 
-            self.set_mapping(DenseMapping::new(Dyn(len)));
+            self.set_mapping(DenseMapping::new((Dyn(len),)));
         }
     }
 }
 
-impl<T: Clone> From<&[T]> for Grid<T, Dyn> {
+impl<T: Clone> From<&[T]> for Grid<T, (Dyn,)> {
     fn from(value: &[T]) -> Self {
         Self::from(value.to_vec())
     }
@@ -685,9 +685,9 @@ impl<B: Buffer> From<IntoExpr<B>> for Grid<B::Item, B::Shape> {
     }
 }
 
-impl<T, A: Allocator> From<vec_t!(T, A)> for Grid<T, Dyn, A> {
+impl<T, A: Allocator> From<vec_t!(T, A)> for Grid<T, (Dyn,), A> {
     fn from(value: vec_t!(T, A)) -> Self {
-        let mapping = DenseMapping::new(Dyn(value.len()));
+        let mapping = DenseMapping::new((Dyn(value.len()),));
 
         unsafe { Self::from_parts(value, mapping) }
     }
@@ -695,11 +695,10 @@ impl<T, A: Allocator> From<vec_t!(T, A)> for Grid<T, Dyn, A> {
 
 macro_rules! impl_from_array {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
-        impl<T: Clone, $(const $xyz: usize),+> From<&Array<T, ($(Const<$xyz>),+)>>
+        impl<T: Clone, $(const $xyz: usize),+> From<&Array<T, ($(Const<$xyz>,)+)>>
             for Grid<T, Rank<$n>>
         {
-            fn from(value: &Array<T, ($(Const<$xyz>),+)>) -> Self {
+            fn from(value: &Array<T, ($(Const<$xyz>,)+)>) -> Self {
                 Self::from(&value.0)
             }
         }
@@ -710,9 +709,8 @@ macro_rules! impl_from_array {
             }
         }
 
-        #[allow(unused_parens)]
-        impl<T, $(const $xyz: usize),+> From<Array<T, ($(Const<$xyz>),+)>> for Grid<T, Rank<$n>> {
-            fn from(value: Array<T, ($(Const<$xyz>),+)>) -> Self {
+        impl<T, $(const $xyz: usize),+> From<Array<T, ($(Const<$xyz>,)+)>> for Grid<T, Rank<$n>> {
+            fn from(value: Array<T, ($(Const<$xyz>,)+)>) -> Self {
                 Grid::from(value.0)
             }
         }
@@ -720,7 +718,7 @@ macro_rules! impl_from_array {
         impl<T, $(const $xyz: usize),+> From<$array> for Grid<T, Rank<$n>> {
             #[cfg(not(feature = "nightly"))]
             fn from(value: $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
+                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
                 let capacity = mapping.shape().checked_len().expect("invalid length");
 
                 let ptr = Box::into_raw(Box::new(value));
@@ -730,7 +728,7 @@ macro_rules! impl_from_array {
 
             #[cfg(feature = "nightly")]
             fn from(value: $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz)),+));
+                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
                 let capacity = mapping.shape().checked_len().expect("invalid length");
 
                 let (ptr, alloc) = Box::into_raw_with_allocator(Box::new(value));
@@ -742,11 +740,11 @@ macro_rules! impl_from_array {
 }
 
 impl_from_array!(1, (X), [T; X]);
-impl_from_array!(2, (X, Y), [[T; X]; Y]);
-impl_from_array!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
-impl_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_from_array!(2, (X, Y), [[T; Y]; X]);
+impl_from_array!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
+impl_from_array!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
 impl<T, S: Shape> FromExpression<T, S> for Grid<T, S> {
     #[cfg(not(feature = "nightly"))]
@@ -760,7 +758,7 @@ impl<T, S: Shape> FromExpression<T, S> for Grid<T, S> {
     }
 }
 
-impl<T> FromIterator<T> for Grid<T, Dyn> {
+impl<T> FromIterator<T> for Grid<T, (Dyn,)> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
     }
@@ -860,9 +858,8 @@ impl<T, S: Shape, A: Allocator> IntoIterator for Grid<T, S, A> {
 
 macro_rules! impl_try_from_array {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
         impl<T: Clone, $(const $xyz: usize),+> TryFrom<Grid<T, Rank<$n>>>
-            for Array<T, ($(Const<$xyz>),+)>
+            for Array<T, ($(Const<$xyz>,)+)>
         {
             type Error = Grid<T, Rank<$n>>;
 
@@ -892,8 +889,8 @@ macro_rules! impl_try_from_array {
 }
 
 impl_try_from_array!(1, (X), [T; X]);
-impl_try_from_array!(2, (X, Y), [[T; X]; Y]);
-impl_try_from_array!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
-impl_try_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_try_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_try_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_try_from_array!(2, (X, Y), [[T; Y]; X]);
+impl_try_from_array!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
+impl_try_from_array!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_try_from_array!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_try_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);

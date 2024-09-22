@@ -14,7 +14,7 @@ use crate::buffer::Buffer;
 use crate::dim::Dim;
 use crate::expr::{Expr, ExprMut, IntoExpr};
 use crate::grid::Grid;
-use crate::index::{Axis, Outer};
+use crate::index::{Axis, Nth};
 use crate::layout::Layout;
 use crate::shape::{ConstShape, Shape};
 use crate::span::Span;
@@ -47,13 +47,13 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
                 size += 1;
             }
         } else {
-            while let Some(value) = seq.next_element::<Grid<T, <Outer as Axis>::Other<S>>>()? {
+            while let Some(value) = seq.next_element::<Grid<T, <Nth<0> as Axis>::Other<S>>>()? {
                 if size == 0 {
                     vec.reserve(value.len() * size_hint);
-                    dims[..S::RANK - 1].copy_from_slice(&value.dims()[..]);
+                    dims[1..].copy_from_slice(&value.dims()[..]);
                 } else {
                     let found = &value.dims()[..];
-                    let expect = &dims[..S::RANK - 1];
+                    let expect = &dims[1..];
 
                     if found != expect {
                         let msg = format!("invalid dimensions {:?}, expected {:?}", found, expect);
@@ -67,10 +67,10 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
             }
         }
 
-        if <Outer as Axis>::Dim::<S>::SIZE.is_none() {
-            dims[S::RANK - 1] = size;
-        } else if size != dims[S::RANK - 1] {
-            let msg = format!("invalid dimension {:?}, expected {:?}", size, dims[S::RANK - 1]);
+        if <Nth<0> as Axis>::Dim::<S>::SIZE.is_none() {
+            dims[0] = size;
+        } else if size != dims[0] {
+            let msg = format!("invalid dimension {:?}, expected {:?}", size, dims[0]);
 
             return Err(A::Error::custom(msg));
         }
@@ -140,7 +140,7 @@ impl<T: Serialize, S: Shape, L: Layout> Serialize for Span<T, S, L> {
         if S::RANK == 0 {
             self[S::Dims::default()].serialize(serializer)
         } else {
-            let mut seq = serializer.serialize_seq(Some(self.dim(S::RANK - 1)))?;
+            let mut seq = serializer.serialize_seq(Some(self.dim(0)))?;
 
             for x in self.outer_expr() {
                 seq.serialize_element(&x)?;

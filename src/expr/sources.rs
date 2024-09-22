@@ -38,7 +38,7 @@ pub struct FillWith<F> {
 
 /// Expression with a defined shape that repeats an element by cloning.
 #[derive(Clone, Copy)]
-pub struct FromElem<S, T> {
+pub struct FromElem<T, S> {
     shape: S,
     elem: T,
 }
@@ -108,9 +108,9 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 ///
 /// let g = Grid::from_expr(expr::from_elem([2, 3], 1));
 ///
-/// assert_eq!(g, expr![[1; 2]; 3]);
+/// assert_eq!(g, expr![[1; 3]; 2]);
 /// ```
-pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<I::IntoShape, T> {
+pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::IntoShape> {
     FromElem::new(shape.into_shape(), elem)
 }
 
@@ -121,9 +121,9 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<I::IntoS
 /// ```
 /// use mdarray::{expr, Expression, FromExpression, Grid};
 ///
-/// let g = Grid::from_expr(expr::from_fn([2, 3], |[i, j]| 2 * j + i));
+/// let g = Grid::from_expr(expr::from_fn([2, 3], |[i, j]| 3 * i + j + 1));
 ///
-/// assert_eq!(g, expr![[0, 1], [2, 3], [4, 5]]);
+/// assert_eq!(g, expr![[1, 2, 3], [4, 5, 6]]);
 /// ```
 pub fn from_fn<T, I: IntoShape, F>(shape: I, f: F) -> FromFn<I::IntoShape, F>
 where
@@ -157,7 +157,7 @@ macro_rules! impl_axis_expr {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
-            type Shape = A::Dim<S>;
+            type Shape = (A::Dim<S>,);
 
             const IS_REPEATABLE: bool = $repeatable;
             const SPLIT_MASK: usize = 1;
@@ -188,7 +188,7 @@ macro_rules! impl_axis_expr {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
-            type Item = $expr<'a, T, A::Other<S>, A::Remove<S, L>>;
+            type Item = $expr<'a, T, A::Other<S>, A::Split<S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {
@@ -283,7 +283,7 @@ impl<T, F: FnMut() -> T> IntoIterator for FillWith<F> {
     }
 }
 
-impl<S: Shape, T> FromElem<S, T> {
+impl<T, S: Shape> FromElem<T, S> {
     pub(crate) fn new(shape: S, elem: T) -> Self {
         _ = shape.checked_len().expect("invalid length");
 
@@ -291,13 +291,13 @@ impl<S: Shape, T> FromElem<S, T> {
     }
 }
 
-impl<S: Shape, T: Debug> Debug for FromElem<S, T> {
+impl<T: Debug, S: Shape> Debug for FromElem<T, S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_tuple("FromElem").field(&self.shape).field(&self.elem).finish()
     }
 }
 
-impl<S: Shape, T: Clone> Expression for FromElem<S, T> {
+impl<T: Clone, S: Shape> Expression for FromElem<T, S> {
     type Shape = S;
 
     const IS_REPEATABLE: bool = true;
@@ -315,7 +315,7 @@ impl<S: Shape, T: Clone> Expression for FromElem<S, T> {
     unsafe fn step_dim(&mut self, _: usize) {}
 }
 
-impl<S: Shape, T: Clone> IntoIterator for FromElem<S, T> {
+impl<T: Clone, S: Shape> IntoIterator for FromElem<T, S> {
     type Item = T;
     type IntoIter = Iter<Self>;
 
@@ -332,13 +332,13 @@ impl<S: Shape, F> FromFn<S, F> {
     }
 }
 
-impl<S: Shape, T: Debug, F: FnMut(S::Dims) -> T> Debug for FromFn<S, F> {
+impl<T: Debug, S: Shape, F: FnMut(S::Dims) -> T> Debug for FromFn<S, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_tuple("FromFn").field(&self.shape).finish()
     }
 }
 
-impl<S: Shape, T, F: FnMut(S::Dims) -> T> Expression for FromFn<S, F> {
+impl<T, S: Shape, F: FnMut(S::Dims) -> T> Expression for FromFn<S, F> {
     type Shape = S;
 
     const IS_REPEATABLE: bool = true;
@@ -350,7 +350,7 @@ impl<S: Shape, T, F: FnMut(S::Dims) -> T> Expression for FromFn<S, F> {
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
         if S::RANK > 0 {
-            self.index[0] = index;
+            self.index[S::RANK - 1] = index;
         }
 
         (self.f)(self.index)
@@ -365,7 +365,7 @@ impl<S: Shape, T, F: FnMut(S::Dims) -> T> Expression for FromFn<S, F> {
     }
 }
 
-impl<S: Shape, T, F: FnMut(S::Dims) -> T> IntoIterator for FromFn<S, F> {
+impl<T, S: Shape, F: FnMut(S::Dims) -> T> IntoIterator for FromFn<S, F> {
     type Item = T;
     type IntoIter = Iter<Self>;
 
@@ -398,7 +398,7 @@ macro_rules! impl_lanes {
             }
         }
 
-         impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
+        impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
             type Shape = A::Other<S>;
 
             const IS_REPEATABLE: bool = $repeatable;
@@ -409,9 +409,13 @@ macro_rules! impl_lanes {
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-                let stride = if S::RANK > 1 { A::remove(self.span.mapping()).stride(0) } else { 0 };
-                let offset = self.offset + stride * index as isize;
+                let stride = if S::RANK > 1 {
+                    A::remove(self.span.mapping()).stride(S::RANK - 2)
+                } else {
+                    0
+                };
 
+                let offset = self.offset + stride * index as isize;
                 let mapping = A::keep(self.span.mapping());
 
                 // If the view is empty, we must not offset the pointer.
@@ -430,7 +434,7 @@ macro_rules! impl_lanes {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
-            type Item = $expr<'a, T, A::Dim<S>, A::Keep<S, L>>;
+            type Item = $expr<'a, T, (A::Dim<S>,), A::Keep<S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {

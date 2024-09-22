@@ -8,9 +8,9 @@
 /// ```
 /// use mdarray::{array, Array};
 ///
-/// let a = array![[1, 2], [3, 4]];
+/// let a = array![[1, 2, 3], [4, 5, 6]];
 ///
-/// assert_eq!(a, Array::from([[1, 2], [3, 4]]));
+/// assert_eq!(a, Array::from([[1, 2, 3], [4, 5, 6]]));
 /// ```
 ///
 /// - Create an array from a given element and shape:
@@ -18,9 +18,9 @@
 /// ```
 /// use mdarray::{array, Const, Array};
 ///
-/// let a = array![[1; 2]; 3];
+/// let a = array![[1; 3]; 2];
 ///
-/// assert_eq!(a, Array::from([[1; 2]; 3]));
+/// assert_eq!(a, Array::from([[1; 3]; 2]));
 /// ```
 ///
 /// In the second form, the argument must be an array repeat expression with constant shape.
@@ -74,9 +74,9 @@ macro_rules! array {
 /// ```
 /// use mdarray::{expr, expr::Expr};
 ///
-/// let a = expr![[1, 2], [3, 4]];
+/// let a = expr![[1, 2, 3], [4, 5, 6]];
 ///
-/// assert_eq!(a, Expr::from(&[[1, 2], [3, 4]]));
+/// assert_eq!(a, Expr::from(&[[1, 2, 3], [4, 5, 6]]));
 /// ```
 ///
 /// - Create an array view from a given element and shape:
@@ -84,9 +84,9 @@ macro_rules! array {
 /// ```
 /// use mdarray::{expr, expr::Expr};
 ///
-/// let a = expr![[1; 2]; 3];
+/// let a = expr![[1; 3]; 2];
 ///
-/// assert_eq!(a, Expr::from(&[[1; 2]; 3]));
+/// assert_eq!(a, Expr::from(&[[1; 3]; 2]));
 /// ```
 ///
 /// In the second form, the argument must be an array repeat expression with constant shape.
@@ -140,9 +140,9 @@ macro_rules! expr {
 /// ```
 /// use mdarray::{grid, Grid};
 ///
-/// let a = grid![[1, 2], [3, 4]];
+/// let a = grid![[1, 2, 3], [4, 5, 6]];
 ///
-/// assert_eq!(a, Grid::from([[1, 2], [3, 4]]));
+/// assert_eq!(a, Grid::from([[1, 2, 3], [4, 5, 6]]));
 /// ```
 ///
 /// - Create an array from a given element and shape by cloning the element:
@@ -150,7 +150,7 @@ macro_rules! expr {
 /// ```
 /// use mdarray::{grid, Grid};
 ///
-/// let a = grid![[1; 2]; 3];
+/// let a = grid![[1; 3]; 2];
 ///
 /// assert_eq!(a, Grid::from_elem([2, 3], 1));
 /// ```
@@ -177,19 +177,19 @@ macro_rules! grid {
         $crate::DGrid::<_, 1>::from([$($x),*])
     );
     ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
-        $crate::DGrid::<_, 6>::from_elem([$i, $j, $k, $l, $m, $n], $elem)
+        $crate::DGrid::<_, 6>::from_elem([$n, $m, $l, $k, $j, $i], $elem)
     );
     ([[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr) => (
-        $crate::DGrid::<_, 5>::from_elem([$i, $j, $k, $l, $m], $elem)
+        $crate::DGrid::<_, 5>::from_elem([$m, $l, $k, $j, $i], $elem)
     );
     ([[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr) => (
-        $crate::DGrid::<_, 4>::from_elem([$i, $j, $k, $l], $elem)
+        $crate::DGrid::<_, 4>::from_elem([$l, $k, $j, $i], $elem)
     );
     ([[$elem:expr; $i:expr]; $j:expr]; $k:expr) => (
-        $crate::DGrid::<_, 3>::from_elem([$i, $j, $k], $elem)
+        $crate::DGrid::<_, 3>::from_elem([$k, $j, $i], $elem)
     );
     ([$elem:expr; $i:expr]; $j:expr) => (
-        $crate::DGrid::<_, 2>::from_elem([$i, $j], $elem)
+        $crate::DGrid::<_, 2>::from_elem([$j, $i], $elem)
     );
     ($elem:expr; $i:expr) => (
         $crate::DGrid::<_, 1>::from_elem([$i], $elem)

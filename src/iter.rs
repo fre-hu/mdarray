@@ -23,18 +23,22 @@ impl<E: Expression> Iter<E> {
         let mut outer_limit = <<E::Shape as Shape>::Tail as Shape>::Dims::default();
 
         if !expr.is_empty() {
-            let mut accum = if E::Shape::RANK > 0 { expr.dim(E::Shape::RANK - 1) } else { 1 };
+            inner_limit = 1;
 
-            for i in (1..E::Shape::RANK).rev() {
-                if (E::SPLIT_MASK >> (i - 1)) & 1 > 0 {
-                    outer_limit[i - 1] = accum;
-                    accum = 1;
+            if E::Shape::RANK > 0 {
+                for i in (1..E::Shape::RANK).rev() {
+                    let index = E::Shape::RANK - 1 - i;
+
+                    inner_limit *= expr.dim(index);
+
+                    if (E::SPLIT_MASK >> (i - 1)) & 1 > 0 {
+                        outer_limit[index] = inner_limit;
+                        inner_limit = 1;
+                    }
                 }
 
-                accum *= expr.dim(i - 1);
+                inner_limit *= expr.dim(E::Shape::RANK - 1);
             }
-
-            inner_limit = accum;
         }
 
         Self { expr, inner_index, inner_limit, outer_index, outer_limit }
@@ -42,15 +46,17 @@ impl<E: Expression> Iter<E> {
 
     unsafe fn step_outer(&mut self) -> bool {
         for i in 1..E::Shape::RANK {
+            let index = E::Shape::RANK - 1 - i;
+
             if (E::SPLIT_MASK >> (i - 1)) & 1 > 0 {
-                if self.outer_index[i - 1] + 1 < self.outer_limit[i - 1] {
-                    self.expr.step_dim(i);
-                    self.outer_index[i - 1] += 1;
+                if self.outer_index[index] + 1 < self.outer_limit[index] {
+                    self.expr.step_dim(index);
+                    self.outer_index[index] += 1;
 
                     return true;
                 } else {
-                    self.expr.reset_dim(i, self.outer_index[i - 1]);
-                    self.outer_index[i - 1] = 0;
+                    self.expr.reset_dim(index, self.outer_index[index]);
+                    self.outer_index[index] = 0;
                 }
             }
         }
@@ -109,8 +115,10 @@ impl<E: Expression> Iterator for Iter<E> {
         let mut len = 1;
 
         for i in (1..E::Shape::RANK).rev() {
+            let index = E::Shape::RANK - 1 - i;
+
             if (E::SPLIT_MASK >> (i - 1)) & 1 > 0 {
-                len = len * self.outer_limit[i - 1] - self.outer_index[i - 1];
+                len = len * self.outer_limit[index] - self.outer_index[index];
             }
         }
 

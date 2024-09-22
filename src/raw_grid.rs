@@ -6,7 +6,7 @@ use std::{cmp, ptr};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::index::{Axis, Outer};
+use crate::index::{Axis, Nth};
 use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_span::RawSpan;
@@ -121,7 +121,7 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
                 self.with_mut_vec(|vec| {
                     if new_len == 0 {
                         vec.clear();
-                    } else if new_shape.dims()[..S::RANK - 1] == old_shape.dims()[..S::RANK - 1] {
+                    } else if new_shape.dims()[1..] == old_shape.dims()[1..] {
                         vec.resize_with(new_len, f);
                     } else {
                         #[cfg(not(feature = "nightly"))]
@@ -169,12 +169,8 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != mapping.len() {
-                        if self.vec.len() > mapping.len() {
-                            ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
-                        } else {
-                            self.grid.span.set_mapping(DenseMapping::default());
-                            ptr::drop_in_place(self.vec.as_mut_slice());
-                        }
+                        self.grid.span.set_mapping(DenseMapping::default());
+                        ptr::drop_in_place(self.vec.as_mut_slice());
                     }
                 }
             }
@@ -213,12 +209,8 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != mapping.len() {
-                        if self.vec.len() > mapping.len() {
-                            ptr::drop_in_place(&mut self.vec.as_mut_slice()[mapping.len()..]);
-                        } else {
-                            self.grid.span.set_mapping(DenseMapping::default());
-                            ptr::drop_in_place(self.vec.as_mut_slice());
-                        }
+                        self.grid.span.set_mapping(DenseMapping::default());
+                        ptr::drop_in_place(self.vec.as_mut_slice());
                     }
                 }
             }
@@ -333,11 +325,11 @@ unsafe fn copy_dim<T, S: Shape, A: Allocator>(
     new_shape: S,
     f: &mut impl FnMut() -> T,
 ) {
-    let old_stride: usize = old_shape.dims()[..S::RANK - 1].iter().product();
-    let new_stride: usize = new_shape.dims()[..S::RANK - 1].iter().product();
+    let old_stride: usize = old_shape.dims()[1..].iter().product();
+    let new_stride: usize = new_shape.dims()[1..].iter().product();
 
-    let old_size = old_shape.dim(S::RANK - 1);
-    let new_size = new_shape.dim(S::RANK - 1);
+    let old_size = old_shape.dim(0);
+    let new_size = new_shape.dim(0);
 
     let min_size = cmp::min(old_size, new_size);
 
@@ -358,20 +350,14 @@ unsafe fn copy_dim<T, S: Shape, A: Allocator>(
 
         let g = const {
             if S::RANK > 1 {
-                copy_dim::<T, <Outer as Axis>::Other<S>, A>
+                copy_dim::<T, <Nth<0> as Axis>::Other<S>, A>
             } else {
-                dummy::<T, <Outer as Axis>::Other<S>, A>
+                dummy::<T, <Nth<0> as Axis>::Other<S>, A>
             }
         };
 
         for _ in 0..min_size {
-            g(
-                old_vec,
-                new_vec,
-                old_shape.remove_dim(S::RANK - 1),
-                new_shape.remove_dim(S::RANK - 1),
-                f,
-            );
+            g(old_vec, new_vec, old_shape.remove_dim(0), new_shape.remove_dim(0), f);
         }
     } else {
         debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::layout::{Dense, Flat, General, Layout, Strided};
+use crate::layout::{Dense, Layout, Strided};
 use crate::shape::Shape;
 
 /// Array layout mapping trait, including shape and strides.
@@ -13,9 +13,6 @@ pub trait Mapping: Copy + Debug + Default + Send + Sync {
 
     /// Returns `true` if the array strides are consistent with contiguous memory layout.
     fn is_contiguous(self) -> bool;
-
-    /// Returns `true` if the array strides are consistent with uniformly strided memory layout.
-    fn is_uniformly_strided(self) -> bool;
 
     /// Returns the array shape.
     fn shape(self) -> Self::Shape;
@@ -64,7 +61,10 @@ pub trait Mapping: Copy + Debug + Default + Send + Sync {
     }
 
     #[doc(hidden)]
-    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self;
+    fn linear_offset(self, index: usize) -> isize;
+
+    #[doc(hidden)]
+    fn prepend_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self;
 
     #[doc(hidden)]
     fn remap<M: Mapping<Shape = Self::Shape>>(mapping: M) -> Self;
@@ -73,7 +73,10 @@ pub trait Mapping: Copy + Debug + Default + Send + Sync {
     fn remove_dim<M: Mapping>(mapping: M, index: usize) -> Self;
 
     #[doc(hidden)]
-    fn reshape<M: Mapping>(mapping: M, new_shape: Self::Shape) -> Self;
+    fn reorder<M: Mapping<Shape = <Self::Shape as Shape>::Reverse>>(mapping: M) -> Self;
+
+    #[doc(hidden)]
+    fn reshape<M: Mapping<Layout = Self::Layout>>(mapping: M, new_shape: Self::Shape) -> Self;
 
     #[doc(hidden)]
     fn resize_dim<M: Mapping>(mapping: M, index: usize, new_size: usize) -> Self;
@@ -101,20 +104,6 @@ pub struct DenseMapping<S: Shape> {
     shape: S,
 }
 
-/// Flat layout mapping type.
-#[derive(Clone, Copy, Debug)]
-pub struct FlatMapping<S: Shape> {
-    shape: S,
-    inner_stride: isize,
-}
-
-/// General layout mapping type.
-#[derive(Clone, Copy, Debug)]
-pub struct GeneralMapping<S: Shape> {
-    shape: S,
-    outer_strides: <S::Tail as Shape>::Strides,
-}
-
 /// Strided layout mapping type.
 #[derive(Clone, Copy, Debug)]
 pub struct StridedMapping<S: Shape> {
@@ -137,10 +126,6 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         true
     }
 
-    fn is_uniformly_strided(self) -> bool {
-        true
-    }
-
     fn shape(self) -> S {
         self.shape
     }
@@ -149,7 +134,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         let mut strides = S::Strides::default();
         let mut stride = 1;
 
-        for i in 0..S::RANK {
+        for i in (0..S::RANK).rev() {
             strides[i] = stride as isize;
             stride *= self.dim(i);
         }
@@ -157,240 +142,68 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         strides
     }
 
-    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self {
-        assert!(M::Layout::IS_UNIFORM && M::Layout::IS_UNIT_STRIDED, "invalid layout");
-        assert!(stride == mapping.len() as isize, "invalid stride");
+    fn linear_offset(self, index: usize) -> isize {
+        debug_assert!(index < self.len(), "index out of bounds");
 
-        Self::new(mapping.shape().add_dim(size))
+        index as isize
     }
 
-    fn remap<M: Mapping<Shape = Self::Shape>>(mapping: M) -> Self {
+    fn prepend_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self {
+        assert!(M::Layout::IS_DENSE, "invalid layout");
+        assert!(stride == mapping.len() as isize, "invalid stride");
+
+        Self::new(mapping.shape().prepend_dim(size))
+    }
+
+    fn remap<M: Mapping<Shape = S>>(mapping: M) -> Self {
         assert!(mapping.is_contiguous(), "mapping not contiguous");
 
         Self::new(mapping.shape())
     }
 
     fn remove_dim<M: Mapping>(mapping: M, index: usize) -> Self {
-        assert!(M::Shape::RANK < 2 || M::Layout::IS_UNIT_STRIDED, "invalid layout");
-        assert!(M::Shape::RANK < 3 || M::Layout::IS_UNIFORM, "invalid layout");
-        assert!(index + 1 == M::Shape::RANK, "invalid dimension");
+        assert!(M::Layout::IS_DENSE, "invalid layout");
+        assert!(index == 0, "invalid dimension");
 
         Self::new(mapping.shape().remove_dim(index))
     }
 
-    fn reshape<M: Mapping>(mapping: M, new_shape: Self::Shape) -> Self {
-        assert!(mapping.is_contiguous(), "mapping not contiguous");
+    fn reorder<M: Mapping<Shape = S::Reverse>>(mapping: M) -> Self {
+        assert!(S::RANK < 2 && M::Layout::IS_DENSE, "invalid layout");
+
+        Self::new(mapping.shape().reverse())
+    }
+
+    fn reshape<M: Mapping<Layout = Dense>>(mapping: M, new_shape: S) -> Self {
         assert!(new_shape.checked_len() == Some(mapping.len()), "length must not change");
 
         Self::new(new_shape)
     }
 
     fn resize_dim<M: Mapping>(mapping: M, index: usize, new_size: usize) -> Self {
-        assert!(M::Layout::IS_UNIFORM && M::Layout::IS_UNIT_STRIDED, "invalid layout");
-        assert!(index + 1 == M::Shape::RANK, "invalid dimension");
+        assert!(M::Layout::IS_DENSE, "invalid layout");
+        assert!(index == 0, "invalid dimension");
 
         Self::new(mapping.shape().resize_dim(index, new_size))
-    }
-}
-
-impl<S: Shape> FlatMapping<S> {
-    /// Creates a new, flat layout mapping with the specified shape and inner stride.
-    pub fn new(shape: S, inner_stride: isize) -> Self {
-        assert!(S::RANK > 0, "invalid rank");
-
-        Self { shape, inner_stride }
-    }
-}
-
-impl<S: Shape> Default for FlatMapping<S> {
-    fn default() -> Self {
-        Self::new(S::default(), 1)
-    }
-}
-
-impl<S: Shape> Mapping for FlatMapping<S> {
-    type Shape = S;
-    type Layout = Flat;
-
-    fn is_contiguous(self) -> bool {
-        self.inner_stride == 1
-    }
-
-    fn is_uniformly_strided(self) -> bool {
-        true
-    }
-
-    fn shape(self) -> S {
-        self.shape
-    }
-
-    fn strides(self) -> S::Strides {
-        let mut strides = S::Strides::default();
-        let mut stride = self.inner_stride;
-
-        for i in 0..S::RANK {
-            strides[i] = stride;
-            stride *= self.dim(i) as isize;
-        }
-
-        strides
-    }
-
-    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self {
-        assert!(M::Layout::IS_UNIFORM, "invalid layout");
-
-        let inner_stride = if M::Shape::RANK > 0 { mapping.stride(0) } else { stride };
-
-        assert!(stride == inner_stride * mapping.len() as isize, "invalid stride");
-
-        Self::new(mapping.shape().add_dim(size), inner_stride)
-    }
-
-    fn remap<M: Mapping<Shape = Self::Shape>>(mapping: M) -> Self {
-        assert!(M::Shape::RANK > 0, "invalid rank");
-        assert!(mapping.is_uniformly_strided(), "mapping not uniformly strided");
-
-        Self::new(mapping.shape(), mapping.stride(0))
-    }
-
-    fn remove_dim<M: Mapping>(mapping: M, index: usize) -> Self {
-        assert!(M::Shape::RANK > 1, "invalid rank");
-        assert!(M::Shape::RANK < 3 || M::Layout::IS_UNIFORM, "invalid layout");
-        assert!(index == 0 || index + 1 == M::Shape::RANK, "invalid dimension");
-
-        let inner_stride = if index > 0 { mapping.stride(0) } else { mapping.stride(1) };
-
-        Self::new(mapping.shape().remove_dim(index), inner_stride)
-    }
-
-    fn reshape<M: Mapping>(mapping: M, new_shape: Self::Shape) -> Self {
-        assert!(mapping.is_uniformly_strided(), "mapping not uniformly strided");
-        assert!(new_shape.checked_len() == Some(mapping.len()), "length must not change");
-
-        Self::new(new_shape, if M::Shape::RANK > 0 { mapping.stride(0) } else { 1 })
-    }
-
-    fn resize_dim<M: Mapping>(mapping: M, index: usize, new_size: usize) -> Self {
-        assert!(M::Layout::IS_UNIFORM, "invalid layout");
-        assert!(index + 1 == M::Shape::RANK, "invalid dimension");
-
-        Self::new(mapping.shape().resize_dim(index, new_size), mapping.stride(0))
-    }
-}
-
-impl<S: Shape> GeneralMapping<S> {
-    /// Creates a new, general layout mapping with the specified shape and outer strides.
-    pub fn new(shape: S, outer_strides: <S::Tail as Shape>::Strides) -> Self {
-        assert!(S::RANK > 1, "invalid rank");
-
-        Self { shape, outer_strides }
-    }
-}
-
-impl<S: Shape> Default for GeneralMapping<S> {
-    fn default() -> Self {
-        Self::new(S::default(), Default::default())
-    }
-}
-
-impl<S: Shape> Mapping for GeneralMapping<S> {
-    type Shape = S;
-    type Layout = General;
-
-    fn is_contiguous(self) -> bool {
-        let mut stride = self.dim(0);
-
-        for i in 1..S::RANK {
-            if self.outer_strides[i - 1] != stride as isize {
-                return false;
-            }
-
-            stride *= self.dim(i);
-        }
-
-        true
-    }
-
-    fn is_uniformly_strided(self) -> bool {
-        self.is_contiguous()
-    }
-
-    fn shape(self) -> S {
-        self.shape
-    }
-
-    fn stride(self, dim: usize) -> isize {
-        assert!(dim < S::RANK, "invalid dimension");
-
-        if dim > 0 {
-            self.outer_strides[dim - 1]
-        } else {
-            1
-        }
-    }
-
-    fn strides(self) -> S::Strides {
-        let mut strides = S::Strides::default();
-
-        strides[0] = 1;
-        strides[1..].copy_from_slice(&self.outer_strides[..]);
-
-        strides
-    }
-
-    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self {
-        assert!(M::Layout::IS_UNIT_STRIDED, "invalid layout");
-
-        Self::remap(StridedMapping::add_dim(mapping, size, stride))
-    }
-
-    fn remap<M: Mapping<Shape = Self::Shape>>(mapping: M) -> Self {
-        assert!(M::Shape::RANK > 1, "invalid rank");
-        assert!(mapping.stride(0) == 1, "inner stride not unitary");
-
-        let outer_strides = TryFrom::try_from(&mapping.strides()[1..]).expect("invalid rank");
-
-        Self::new(mapping.shape(), outer_strides)
-    }
-
-    fn remove_dim<M: Mapping>(mapping: M, index: usize) -> Self {
-        assert!(M::Layout::IS_UNIT_STRIDED, "invalid layout");
-        assert!(index > 0, "invalid dimension");
-
-        Self::remap(StridedMapping::remove_dim(mapping, index))
-    }
-
-    fn reshape<M: Mapping>(mapping: M, new_shape: Self::Shape) -> Self {
-        assert!(M::Layout::IS_UNIT_STRIDED, "invalid layout");
-
-        Self::remap(StridedMapping::reshape(mapping, new_shape))
-    }
-
-    fn resize_dim<M: Mapping>(mapping: M, index: usize, new_size: usize) -> Self {
-        assert!(M::Layout::IS_UNIT_STRIDED, "invalid layout");
-
-        Self::remap(StridedMapping::resize_dim(mapping, index, new_size))
     }
 }
 
 impl<S: Shape> StridedMapping<S> {
     /// Creates a new, strided layout mapping with the specified shape and strides.
     pub fn new(shape: S, strides: S::Strides) -> Self {
-        assert!(S::RANK > 1, "invalid rank");
-
         Self { shape, strides }
     }
 }
 
 impl<S: Shape> Default for StridedMapping<S> {
     fn default() -> Self {
-        assert!(S::RANK > 1, "invalid rank");
-
         let mut strides = S::Strides::default();
 
-        strides[0] = 1;
+        if S::RANK > 0 {
+            strides[S::RANK - 1] = 1;
+        }
 
-        Self { shape: S::default(), strides }
+        Self::new(S::default(), strides)
     }
 }
 
@@ -399,18 +212,14 @@ impl<S: Shape> Mapping for StridedMapping<S> {
     type Layout = Strided;
 
     fn is_contiguous(self) -> bool {
-        self.strides[0] == 1 && self.is_uniformly_strided()
-    }
+        let mut stride = 1;
 
-    fn is_uniformly_strided(self) -> bool {
-        let mut stride = self.strides[0];
-
-        for i in 1..S::RANK {
-            stride *= self.dim(i - 1) as isize;
-
+        for i in (0..S::RANK).rev() {
             if self.strides[i] != stride {
                 return false;
             }
+
+            stride *= self.dim(i) as isize;
         }
 
         true
@@ -424,18 +233,32 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         self.strides
     }
 
-    fn add_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self {
+    fn linear_offset(self, index: usize) -> isize {
+        debug_assert!(index < self.len(), "index out of bounds");
+
+        let mut dividend = index;
+        let mut offset = 0;
+
+        for i in (0..S::RANK).rev() {
+            offset += self.strides[i] * (dividend % self.dim(i)) as isize;
+            dividend /= self.dim(i);
+        }
+
+        offset
+    }
+
+    fn prepend_dim<M: Mapping>(mapping: M, size: usize, stride: isize) -> Self {
         assert!(S::RANK == M::Shape::RANK + 1, "invalid rank");
 
         let mut strides = S::Strides::default();
 
-        strides[..M::Shape::RANK].copy_from_slice(&mapping.strides()[..]);
-        strides[M::Shape::RANK] = stride;
+        strides[0] = stride;
+        strides[1..].copy_from_slice(&mapping.strides()[..]);
 
-        Self::new(mapping.shape().add_dim(size), strides)
+        Self::new(mapping.shape().prepend_dim(size), strides)
     }
 
-    fn remap<M: Mapping<Shape = Self::Shape>>(mapping: M) -> Self {
+    fn remap<M: Mapping<Shape = S>>(mapping: M) -> Self {
         Self::new(mapping.shape(), mapping.strides())
     }
 
@@ -451,7 +274,16 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self::new(mapping.shape().remove_dim(index), strides)
     }
 
-    fn reshape<M: Mapping>(mapping: M, new_shape: Self::Shape) -> Self {
+    fn reorder<M: Mapping<Shape = S::Reverse>>(mapping: M) -> Self {
+        let mut strides = S::Strides::default();
+
+        strides[..].copy_from_slice(&mapping.strides()[..]);
+        strides[..].reverse();
+
+        Self::new(mapping.shape().reverse(), strides)
+    }
+
+    fn reshape<M: Mapping<Layout = Strided>>(mapping: M, new_shape: S) -> Self {
         assert!(new_shape.checked_len() == Some(mapping.len()), "length must not change");
 
         let old_dims = mapping.dims();
@@ -468,9 +300,9 @@ impl<S: Shape> Mapping for StridedMapping<S> {
 
         let mut valid_layout = true;
 
-        let mut k = 0;
+        let mut j = S::RANK;
 
-        for i in 0..M::Shape::RANK {
+        for i in (0..M::Shape::RANK).rev() {
             // Set strides for the next region or extend the current region.
             if old_len == new_len {
                 old_stride = old_strides[i];
@@ -483,30 +315,28 @@ impl<S: Shape> Mapping for StridedMapping<S> {
             old_stride *= old_dims[i] as isize;
 
             // Add dimensions within the current region.
-            while k < S::RANK {
-                let len = new_len * new_dims[k];
-
-                if len > old_len {
+            while j > 0 {
+                if new_len * new_dims[j - 1] > old_len {
                     break;
                 }
 
-                new_strides[k] = new_stride;
+                j -= 1;
 
-                new_len = len;
-                new_stride *= new_dims[k] as isize;
+                new_strides[j] = new_stride;
 
-                k += 1;
+                new_len *= new_dims[j];
+                new_stride *= new_dims[j] as isize;
             }
         }
 
         // Add remaining dimensions.
-        while k < S::RANK {
-            new_strides[k] = new_stride;
+        while j > 0 {
+            j -= 1;
 
-            new_len *= new_dims[k];
-            new_stride *= new_dims[k] as isize;
+            new_strides[j] = new_stride;
 
-            k += 1;
+            new_len *= new_dims[j];
+            new_stride *= new_dims[j] as isize;
         }
 
         assert!(new_len == 0 || valid_layout, "memory layout not compatible");

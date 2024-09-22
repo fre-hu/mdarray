@@ -8,7 +8,7 @@ use crate::alloc::{Allocator, Global};
 use crate::array::Array;
 use crate::expr::ExprMut;
 use crate::grid::Grid;
-use crate::index::{Axis, Outer};
+use crate::index::{Axis, Nth};
 use crate::mapping::Mapping;
 use crate::shape::{ConstShape, Shape};
 use crate::span::Span;
@@ -38,18 +38,18 @@ pub struct Drain<'a, T, S: Shape, A: Allocator = Global> {
 
 impl<'a, T, S: Shape, A: Allocator> Drain<'a, T, S, A> {
     pub(crate) fn new(grid: &'a mut Grid<T, S, A>, start: usize, end: usize) -> Self {
-        assert!(start <= end && end <= grid.dim(S::RANK - 1), "invalid range");
+        assert!(start <= end && end <= grid.dim(0), "invalid range");
 
-        let new_size = grid.dim(S::RANK - 1) - (end - start);
-        let tail = <Outer as Axis>::resize(grid.mapping(), new_size - start).len();
+        let new_size = grid.dim(0) - (end - start);
+        let tail = <Nth<0> as Axis>::resize(grid.mapping(), new_size - start).len();
 
         // Shrink the array, to be safe in case Drain is leaked.
         unsafe {
-            grid.set_mapping(Mapping::resize_dim(grid.mapping(), S::RANK - 1, start));
+            grid.set_mapping(Mapping::resize_dim(grid.mapping(), 0, start));
         }
 
         let ptr = unsafe { grid.as_mut_ptr().add(grid.len()) as *mut ManuallyDrop<T> };
-        let mapping = Mapping::resize_dim(grid.mapping(), S::RANK - 1, end - start);
+        let mapping = Mapping::resize_dim(grid.mapping(), 0, end - start);
 
         let view = unsafe { ExprMut::new_unchecked(ptr, mapping) };
 
@@ -72,7 +72,7 @@ impl<T, S: Shape, A: Allocator> Buffer for Drain<'_, T, S, A> {
 
 impl<T, S: Shape, A: Allocator> Drop for Drain<'_, T, S, A> {
     fn drop(&mut self) {
-        let mapping = Mapping::resize_dim(self.grid.mapping(), S::RANK - 1, self.new_size);
+        let mapping = Mapping::resize_dim(self.grid.mapping(), 0, self.new_size);
 
         unsafe {
             ptr::copy(self.view.as_ptr().add(self.view.len()), self.view.as_mut_ptr(), self.tail);

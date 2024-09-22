@@ -43,31 +43,18 @@
 //! is parameterized by the shape and the layout. It contains the dynamic size
 //! and stride per dimension when needed.
 //!
-//! The layout is `Dense` if elements are stored contiguously without gaps.
-//! The layout is `General` if each dimension can have arbitrary stride except
-//! for the innermost one, which has unit stride. It is compatible with the
-//! BLAS/LAPACK general matrix storage.
+//! The layout is `Dense` if elements are stored contiguously without gaps, and
+//! it is `Strided` if all dimensions can have arbitrary strides.
 //!
-//! The layout is `Flat` if the innermost dimension can have arbitrary stride
-//! and the other dimensions must follow in order, allowing for linear indexing.
-//! The layout is `Strided` if all dimensions can have arbitrary strides.
-//!
-//! The array elements are stored in column-major or Fortran order, where the
-//! first dimension is the innermost one.
+//! The array elements are stored in row-major or C order, where the last
+//! dimension is the innermost one.
 //!
 //! ## Indexing and views
 //!
 //! Scalar indexing is done using the normal square-bracket index operator and
-//! an array of `usize` per dimension as index.
-//!
-//! If the array layout supports linear indexing (i.e. the layout is `Dense` or
-//! `Flat`), a scalar `usize` can also be used as index. If the layout is `Dense`,
-//! a range can be used to select a slice.
-//!
-//! If linear or slice indexing is possible but the array layout is not known,
-//! `remap`, `remap_mut` and `into_mapping` can be used to change layout.
-//! Alternatively, `flatten`, `flatten_mut` and `into_flattened` can be used
-//! to change to a one-dimensional array.
+//! an array of `usize` per dimension as index. A scalar `usize` can be used for
+//! linear indexing. If the layout is `Dense`, a range can also be used to select
+//! a slice.
 //!
 //! An array view can be created with the `view` and `view_mut` methods, which
 //! take indices per dimension as arguments. Each index can be either a range
@@ -77,6 +64,9 @@
 //! For two-dimensional arrays, a view of one column or row can be created with
 //! the `col`, `col_mut`, `row` and `row_mut` methods, and a view of the diagonal
 //! with `diag` and `diag_mut`.
+//!
+//! If the array layout is not known, `remap`, `remap_mut` and `into_mapping` can
+//! be used to change layout.
 //!
 //! ## Iteration
 //!
@@ -125,31 +115,31 @@
 //! ## Example
 //!
 //! This example implements matrix multiplication and addition `C = A * B + C`.
-//! The matrices use column-major ordering, and the inner loop runs over one column
-//! in `A` and `C`. By using iterator-like expressions the array bounds checking
-//! is avoided, and the compiler is able to vectorize the inner loop.
+//! The matrices use row-major ordering, and the inner loop runs over one row in
+//! `B` and `C`. By using iterator-like expressions the array bounds checking is
+//! avoided, and the compiler is able to vectorize the inner loop.
 //!
 //! ```
 //! use mdarray::{expr, grid, DSpan, Expression};
 //!
 //! fn matmul(a: &DSpan<f64, 2>, b: &DSpan<f64, 2>, c: &mut DSpan<f64, 2>) {
-//!     for (mut cj, bj) in c.cols_mut().zip(b.cols()) {
-//!         for (ak, bkj) in a.cols().zip(bj) {
-//!             for (cij, aik) in cj.expr_mut().zip(ak) {
+//!     for (mut ci, ai) in c.rows_mut().zip(a.rows()) {
+//!         for (aik, bk) in ai.expr().zip(b.rows()) {
+//!             for (cij, bkj) in ci.expr_mut().zip(bk) {
 //!                 *cij = aik.mul_add(*bkj, *cij);
 //!             }
 //!         }
 //!     }
 //! }
 //!
-//! let a = expr![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+//! let a = expr![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]];
 //! let b = expr![[0.0, 1.0], [1.0, 1.0]];
 //!
-//! let mut c = grid![[0.0; 3]; 2];
+//! let mut c = grid![[0.0; 2]; 3];
 //!
 //! matmul(&a, &b, &mut c);
 //!
-//! assert_eq!(c, expr![[4.0, 5.0, 6.0], [5.0, 7.0, 9.0]]);
+//! assert_eq!(c, expr![[4.0, 5.0], [5.0, 7.0], [6.0, 9.0]]);
 //! ```
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
@@ -205,7 +195,7 @@ pub use dim::{Const, Dim, Dims, Dyn, Strides};
 pub use expression::Expression;
 pub use grid::{DGrid, Grid};
 pub use iter::Iter;
-pub use layout::{Dense, Flat, General, Layout, Strided, Uniform, UnitStrided};
+pub use layout::{Dense, Layout, Strided};
 pub use ops::{step, StepRange};
 pub use shape::{ConstShape, IntoShape, Rank, Shape};
 pub use span::{DSpan, Span};

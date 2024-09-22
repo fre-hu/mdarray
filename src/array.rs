@@ -20,7 +20,7 @@ use crate::traits::{Apply, FromExpression, IntoExpression};
 /// Multidimensional array with constant-sized dimensions and inline allocation.
 #[derive(Clone, Copy, Default)]
 #[repr(transparent)]
-pub struct Array<T, S: ConstShape>(pub S::Array<T>);
+pub struct Array<T, S: ConstShape>(pub S::Inner<T>);
 
 impl<T, S: ConstShape> Array<T, S> {
     /// Creates an array from the given element.
@@ -28,12 +28,12 @@ impl<T, S: ConstShape> Array<T, S> {
     where
         T: Clone,
     {
-        from_expr(expr::from_elem(shape, elem))
+        Self::from_expr(expr::from_elem(shape, elem))
     }
 
     /// Creates an array with the results from the given function.
     pub fn from_fn<I: IntoShape<IntoShape = S>, F: FnMut(S::Dims) -> T>(shape: I, f: F) -> Self {
-        from_expr(expr::from_fn(shape, f))
+        Self::from_expr(expr::from_fn(shape, f))
     }
 
     /// Converts an array with a single element into the contained value.
@@ -66,6 +66,39 @@ impl<T, S: ConstShape> Array<T, S> {
     /// Returns an array with the same shape, and the given closure applied to each element.
     pub fn map<U, F: FnMut(T) -> U>(self, f: F) -> Array<U, S> {
         self.apply(f)
+    }
+
+    fn from_expr<E: Expression<Item = T>>(expr: E) -> Self {
+        struct DropGuard<'a, T, S: ConstShape> {
+            array: &'a mut MaybeUninit<Array<T, S>>,
+            index: usize,
+        }
+
+        impl<'a, T, S: ConstShape> Drop for DropGuard<'a, T, S> {
+            fn drop(&mut self) {
+                let ptr = self.array.as_mut_ptr() as *mut T;
+
+                unsafe {
+                    ptr::slice_from_raw_parts_mut(ptr, self.index).drop_in_place();
+                }
+            }
+        }
+
+        assert!(expr.dims()[..] == S::default().dims()[..], "invalid shape");
+
+        let mut array = MaybeUninit::uninit();
+        let mut guard = DropGuard { array: &mut array, index: 0 };
+
+        let ptr = guard.array.as_mut_ptr() as *mut E::Item;
+
+        expr.for_each(|x| unsafe {
+            ptr.add(guard.index).write(x);
+            guard.index += 1;
+        });
+
+        mem::forget(guard);
+
+        unsafe { array.assume_init() }
     }
 }
 
@@ -108,14 +141,14 @@ impl<T, U, S: ConstShape> Apply<U> for Array<T, S> {
     type ZippedWith<I: IntoExpression, F: FnMut((T, I::Item)) -> U> = Array<U, S>;
 
     fn apply<F: FnMut(T) -> U>(self, f: F) -> Array<U, S> {
-        from_expr(self.into_expr().map(f))
+        Array::from_expr(self.into_expr().map(f))
     }
 
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Array<U, S>
     where
         F: FnMut((T, I::Item)) -> U,
     {
-        from_expr(self.into_expr().zip(expr).map(f))
+        Array::from_expr(self.into_expr().zip(expr).map(f))
     }
 }
 
@@ -139,29 +172,25 @@ where
 
 macro_rules! impl_as_mut_ref {
     (($($xyz:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
-        impl<T, $(const $xyz: usize),+> AsMut<Array<T, ($(Const<$xyz>),+)>> for $array {
-            fn as_mut(&mut self) -> &mut Array<T, ($(Const<$xyz>),+)> {
-                unsafe { &mut *(self as *mut Self as *mut Array<T, ($(Const<$xyz>),+)>) }
+        impl<T, $(const $xyz: usize),+> AsMut<Array<T, ($(Const<$xyz>,)+)>> for $array {
+            fn as_mut(&mut self) -> &mut Array<T, ($(Const<$xyz>,)+)> {
+                unsafe { &mut *(self as *mut Self as *mut Array<T, ($(Const<$xyz>,)+)>) }
             }
         }
 
-        #[allow(unused_parens)]
-        impl<T, $(const $xyz: usize),+> AsMut<$array> for Array<T, ($(Const<$xyz>),+)> {
+        impl<T, $(const $xyz: usize),+> AsMut<$array> for Array<T, ($(Const<$xyz>,)+)> {
             fn as_mut(&mut self) -> &mut $array {
                 unsafe { &mut *(self as *mut Self as *mut $array) }
             }
         }
 
-        #[allow(unused_parens)]
-        impl<T, $(const $xyz: usize),+> AsRef<Array<T, ($(Const<$xyz>),+)>> for $array {
-            fn as_ref(&self) -> &Array<T, ($(Const<$xyz>),+)> {
-                unsafe { &*(self as *const Self as *const Array<T, ($(Const<$xyz>),+)>) }
+        impl<T, $(const $xyz: usize),+> AsRef<Array<T, ($(Const<$xyz>,)+)>> for $array {
+            fn as_ref(&self) -> &Array<T, ($(Const<$xyz>,)+)> {
+                unsafe { &*(self as *const Self as *const Array<T, ($(Const<$xyz>,)+)>) }
             }
         }
 
-        #[allow(unused_parens)]
-        impl<T, $(const $xyz: usize),+> AsRef<$array> for Array<T, ($(Const<$xyz>),+)> {
+        impl<T, $(const $xyz: usize),+> AsRef<$array> for Array<T, ($(Const<$xyz>,)+)> {
             fn as_ref(&self) -> &$array {
                 unsafe { &*(self as *const Self as *const $array) }
             }
@@ -170,11 +199,11 @@ macro_rules! impl_as_mut_ref {
 }
 
 impl_as_mut_ref!((X), [T; X]);
-impl_as_mut_ref!((X, Y), [[T; X]; Y]);
-impl_as_mut_ref!((X, Y, Z), [[[T; X]; Y]; Z]);
-impl_as_mut_ref!((X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_as_mut_ref!((X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_as_mut_ref!((X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_as_mut_ref!((X, Y), [[T; Y]; X]);
+impl_as_mut_ref!((X, Y, Z), [[[T; Z]; Y]; X]);
+impl_as_mut_ref!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_as_mut_ref!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_as_mut_ref!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
 impl<T, S: ConstShape> Borrow<Span<T, S>> for Array<T, S> {
     fn borrow(&self) -> &Span<T, S> {
@@ -210,7 +239,7 @@ impl<T, S: ConstShape> DerefMut for Array<T, S> {
 
 impl<T, S: ConstShape> From<Grid<T, S>> for Array<T, S> {
     fn from(value: Grid<T, S>) -> Self {
-        Self::from_expr(value)
+        Self::from_expr(value.into_expr())
     }
 }
 
@@ -230,23 +259,20 @@ impl<B: Buffer<Shape: ConstShape>> From<IntoExpr<B>> for Array<B::Item, B::Shape
 }
 
 macro_rules! impl_from_array {
-    ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        #[allow(unused_parens)]
-        impl<T: Clone $(,const $xyz: usize)+> From<&$array> for Array<T, ($(Const<$xyz>),+)> {
+    (($($xyz:tt),+), $array:tt) => {
+        impl<T: Clone $(,const $xyz: usize)+> From<&$array> for Array<T, ($(Const<$xyz>,)+)> {
             fn from(array: &$array) -> Self {
                 Self(array.clone())
             }
         }
 
-        #[allow(unused_parens)]
-        impl<T $(,const $xyz: usize)+> From<Array<T, ($(Const<$xyz>),+)>> for $array {
-            fn from(array: Array<T, ($(Const<$xyz>),*)>) -> Self {
+        impl<T $(,const $xyz: usize)+> From<Array<T, ($(Const<$xyz>,)+)>> for $array {
+            fn from(array: Array<T, ($(Const<$xyz>,)+)>) -> Self {
                 array.0
             }
         }
 
-        #[allow(unused_parens)]
-        impl<T $(,const $xyz: usize)+> From<$array> for Array<T, ($(Const<$xyz>),+)> {
+        impl<T $(,const $xyz: usize)+> From<$array> for Array<T, ($(Const<$xyz>,)+)> {
             fn from(array: $array) -> Self {
                 Self(array)
             }
@@ -254,16 +280,16 @@ macro_rules! impl_from_array {
     };
 }
 
-impl_from_array!(1, (X), [T; X]);
-impl_from_array!(2, (X, Y), [[T; X]; Y]);
-impl_from_array!(3, (X, Y, Z), [[[T; X]; Y]; Z]);
-impl_from_array!(4, (X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_from_array!((X), [T; X]);
+impl_from_array!((X, Y), [[T; Y]; X]);
+impl_from_array!((X, Y, Z), [[[T; Z]; Y]; X]);
+impl_from_array!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_from_array!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_from_array!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
 impl<T, S: ConstShape> FromExpression<T, S> for Array<T, S> {
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        from_expr(expr.into_expr())
+        Self::from_expr(expr.into_expr())
     }
 }
 
@@ -341,37 +367,4 @@ impl<T, S: ConstShape> IntoIterator for Array<T, S> {
     fn into_iter(self) -> Self::IntoIter {
         self.into_expr().into_iter()
     }
-}
-
-fn from_expr<T, S: ConstShape, E: Expression<Item = T>>(expr: E) -> Array<T, S> {
-    struct DropGuard<'a, T, S: ConstShape> {
-        array: &'a mut MaybeUninit<Array<T, S>>,
-        index: usize,
-    }
-
-    impl<'a, T, S: ConstShape> Drop for DropGuard<'a, T, S> {
-        fn drop(&mut self) {
-            let ptr = self.array.as_mut_ptr() as *mut T;
-
-            unsafe {
-                ptr::slice_from_raw_parts_mut(ptr, self.index).drop_in_place();
-            }
-        }
-    }
-
-    assert!(expr.dims()[..] == S::default().dims()[..], "invalid shape");
-
-    let mut array = MaybeUninit::uninit();
-    let mut guard = DropGuard { array: &mut array, index: 0 };
-
-    let ptr = guard.array.as_mut_ptr() as *mut T;
-
-    expr.for_each(|x| unsafe {
-        ptr.add(guard.index).write(x);
-        guard.index += 1;
-    });
-
-    mem::forget(guard);
-
-    unsafe { array.assume_init() }
 }

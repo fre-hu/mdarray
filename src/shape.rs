@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use crate::dim::{Const, Dim, Dims, Dyn, Strides};
-use crate::layout::{Dense, Layout};
+use crate::layout::{Layout, Strided};
 
 /// Array shape trait.
 pub trait Shape: Copy + Debug + Default + Send + Sync {
@@ -12,17 +12,19 @@ pub trait Shape: Copy + Debug + Default + Send + Sync {
     type Tail: Shape;
 
     /// Shape with the reverse ordering of dimensions.
-    type Reverse: Shape;
+    type Reverse: Shape<Reverse = Self>;
+
+    /// Append the dimension to the shape.
+    type Append<D: Dim>: Shape<Reverse = <Self::Reverse as Shape>::Prepend<D>>;
 
     /// Prepend the dimension to the shape.
-    type Prepend<D: Dim>: Shape;
+    type Prepend<D: Dim>: Shape<Reverse = <Self::Reverse as Shape>::Append<D>>;
 
     /// Merge each dimension pair, where constant size is preferred over dynamic.
-    /// The result has dynamic rank if at least one of the inputs has dynamic rank.
     type Merge<S: Shape>: Shape;
 
-    /// Select layout `Dense`, `L`, or `M` for rank 0, 1, or >1 respectively.
-    type Layout<L: Layout, M: Layout>: Layout;
+    /// Select layout `L` or `Strided` for rank 0-1 or >1 respectively.
+    type Layout<L: Layout>: Layout;
 
     /// Array dimensions type.
     type Dims: Dims;
@@ -70,20 +72,20 @@ pub trait Shape: Copy + Debug + Default + Send + Sync {
     }
 
     #[doc(hidden)]
-    fn add_dim<S: Shape>(self, size: usize) -> S {
+    fn checked_len(self) -> Option<usize> {
+        self.dims()[..].iter().try_fold(1usize, |acc, &x| acc.checked_mul(x))
+    }
+
+    #[doc(hidden)]
+    fn prepend_dim<S: Shape>(self, size: usize) -> S {
         assert!(S::RANK == Self::RANK + 1, "invalid rank");
 
         let mut dims = S::Dims::default();
 
-        dims[..Self::RANK].copy_from_slice(&self.dims()[..]);
-        dims[Self::RANK] = size;
+        dims[0] = size;
+        dims[1..].copy_from_slice(&self.dims()[..]);
 
         S::from_dims(dims)
-    }
-
-    #[doc(hidden)]
-    fn checked_len(self) -> Option<usize> {
-        self.dims()[..].iter().rev().try_fold(1usize, |acc, &x| acc.checked_mul(x))
     }
 
     #[doc(hidden)]
@@ -111,12 +113,22 @@ pub trait Shape: Copy + Debug + Default + Send + Sync {
 
         S::from_dims(dims)
     }
+
+    #[doc(hidden)]
+    fn reverse(self) -> Self::Reverse {
+        let mut dims = <Self::Reverse as Shape>::Dims::default();
+
+        dims[..].copy_from_slice(&self.dims()[..]);
+        dims[..].reverse();
+
+        Shape::from_dims(dims)
+    }
 }
 
 /// Trait for array shape where all dimensions are constant-sized.
 pub trait ConstShape: Shape {
-    /// Corresponding primitive array.
-    type Array<T>;
+    #[doc(hidden)]
+    type Inner<T>;
 }
 
 /// Conversion trait into an array shape.
@@ -136,10 +148,11 @@ impl Shape for () {
     type Tail = ();
     type Reverse = ();
 
-    type Prepend<D: Dim> = D;
-    type Merge<S: Shape> = S;
+    type Append<D: Dim> = (D,);
+    type Prepend<D: Dim> = (D,);
 
-    type Layout<L: Layout, M: Layout> = Dense;
+    type Merge<S: Shape> = S;
+    type Layout<L: Layout> = L;
 
     type Dims = [usize; 0];
     type Strides = [isize; 0];
@@ -153,15 +166,16 @@ impl Shape for () {
     fn from_dims(_: [usize; 0]) -> Self {}
 }
 
-impl<X: Dim> Shape for X {
+impl<X: Dim> Shape for (X,) {
     type Head = X;
     type Tail = ();
-    type Reverse = X;
+    type Reverse = (X,);
 
+    type Append<D: Dim> = (X, D);
     type Prepend<D: Dim> = (D, X);
-    type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
 
-    type Layout<L: Layout, M: Layout> = L;
+    type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
+    type Layout<L: Layout> = L;
 
     type Dims = [usize; 1];
     type Strides = [isize; 1];
@@ -169,27 +183,27 @@ impl<X: Dim> Shape for X {
     const RANK: usize = 1;
 
     fn dims(self) -> [usize; 1] {
-        [self.size()]
+        [self.0.size()]
     }
 
     fn from_dims(dims: [usize; 1]) -> Self {
-        X::from_size(dims[0])
+        (X::from_size(dims[0]),)
     }
 }
 
 macro_rules! impl_shape {
-    ($n:tt, ($($jk:tt),+), ($($yz:tt),+), $reverse:tt, $prepend:tt) => {
-        #[allow(unused_parens)]
-        impl<X: Dim $(,$yz: Dim)+> Shape for (X $(,$yz)+) {
+    ($n:tt, ($($jk:tt),*), ($($yz:tt),*), $append:tt, $prepend:tt) => {
+        impl<X: Dim, $($yz: Dim,)+> Shape for (X, $($yz,)+) {
             type Head = X;
-            type Tail = ($($yz),+);
-            type Reverse = $reverse;
+            type Tail = ($($yz,)+);
+            type Reverse = <<Self::Tail as Shape>::Reverse as Shape>::Append<X>;
 
+            type Append<D: Dim> = $append;
             type Prepend<D: Dim> = $prepend;
+
             type Merge<S: Shape> =
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
-
-            type Layout<L: Layout, M: Layout> = M;
+            type Layout<L: Layout> = Strided;
 
             type Dims = [usize; $n];
             type Strides = [isize; $n];
@@ -207,28 +221,27 @@ macro_rules! impl_shape {
     };
 }
 
-impl_shape!(2, (1), (Y), (Y, X), (D, X, Y));
-impl_shape!(3, (1, 2), (Y, Z), (Z, Y, X), (D, X, Y, Z));
-impl_shape!(4, (1, 2, 3), (Y, Z, W), (W, Z, Y, X), (D, X, Y, Z, W));
-impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (U, W, Z, Y, X), (D, X, Y, Z, W, U));
-impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), (V, U, W, Z, Y, X), (D, X, Y, Z, W, U));
+impl_shape!(2, (1), (Y), (X, Y, D), (D, X, Y));
+impl_shape!(3, (1, 2), (Y, Z), (X, Y, Z, D), (D, X, Y, Z));
+impl_shape!(4, (1, 2, 3), (Y, Z, W), (X, Y, Z, W, D), (D, X, Y, Z, W));
+impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (X, Y, Z, W, U, D), (D, X, Y, Z, W, U));
+impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), (Y, Z, W, U, V, D), (D, X, Y, Z, W, U));
 
 macro_rules! impl_const_shape {
-    (($($xyz:tt),*), $array:ty) => {
-        #[allow(unused_parens)]
-        impl<$(const $xyz: usize),*> ConstShape for ($(Const<$xyz>),*) {
-            type Array<T> = $array;
+    (($($xyz:tt),*), $inner:ty) => {
+        impl<$(const $xyz: usize),*> ConstShape for ($(Const<$xyz>,)*) {
+            type Inner<T> = $inner;
         }
     };
 }
 
 impl_const_shape!((), T);
 impl_const_shape!((X), [T; X]);
-impl_const_shape!((X, Y), [[T; X]; Y]);
-impl_const_shape!((X, Y, Z), [[[T; X]; Y]; Z]);
-impl_const_shape!((X, Y, Z, W), [[[[T; X]; Y]; Z]; W]);
-impl_const_shape!((X, Y, Z, W, U), [[[[[T; X]; Y]; Z]; W]; U]);
-impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; X]; Y]; Z]; W]; U]; V]);
+impl_const_shape!((X, Y), [[T; Y]; X]);
+impl_const_shape!((X, Y, Z), [[[T; Z]; Y]; X]);
+impl_const_shape!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_const_shape!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
 impl<S: Shape> IntoShape for S {
     type IntoShape = S;
@@ -251,7 +264,7 @@ macro_rules! impl_into_shape {
 }
 
 impl_into_shape!(0, ());
-impl_into_shape!(1, Dyn);
+impl_into_shape!(1, (Dyn,));
 impl_into_shape!(2, (Dyn, Dyn));
 impl_into_shape!(3, (Dyn, Dyn, Dyn));
 impl_into_shape!(4, (Dyn, Dyn, Dyn, Dyn));

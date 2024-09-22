@@ -75,9 +75,9 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 /// ```
 /// use mdarray::{expr, grid, Expression, FromExpression, Grid};
 ///
-/// let g = Grid::from_expr(expr::enumerate(grid![1, 2, 3]));
+/// let g = Grid::from_expr(expr::enumerate(expr![1, 2, 3]));
 ///
-/// assert_eq!(g, expr![([0], 1), ([1], 2), ([2], 3)]);
+/// assert_eq!(g, expr![([0], &1), ([1], &2), ([2], &3)]);
 /// ```
 pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr, <I::Shape as Shape>::Dims> {
     expr.into_expr().enumerate()
@@ -220,7 +220,7 @@ impl<E: Expression> Expression for Enumerate<E, <E::Shape as Shape>::Dims> {
 
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
         if E::Shape::RANK > 0 {
-            self.index[0] = index;
+            self.index[E::Shape::RANK - 1] = index;
         }
 
         (self.index, self.expr.get_unchecked(index))
@@ -296,15 +296,21 @@ impl<A: Expression, B: Expression> Zip<A, B> {
         assert!(B::IS_REPEATABLE || B::Shape::RANK >= A::Shape::RANK, "expression not repeatable");
 
         let min_rank = A::Shape::RANK.min(B::Shape::RANK);
+        let inner_match =
+            a.dims()[A::Shape::RANK - min_rank..] == b.dims()[B::Shape::RANK - min_rank..];
 
-        assert!(a.dims()[..min_rank] == b.dims()[..min_rank], "inner dimensions mismatch");
+        assert!(inner_match, "inner dimensions mismatch");
 
         Self { a, b }
     }
 }
 
-impl<A: Expression, B: Expression> Expression for Zip<A, B> {
-    type Shape = <A::Shape as Shape>::Merge<B::Shape>;
+impl<S: Shape, T: Shape, A, B> Expression for Zip<A, B>
+where
+    A: Expression<Shape = S>,
+    B: Expression<Shape = T>,
+{
+    type Shape = <<S::Reverse as Shape>::Merge<T::Reverse> as Shape>::Reverse;
 
     const IS_REPEATABLE: bool = A::IS_REPEATABLE && B::IS_REPEATABLE;
     const SPLIT_MASK: usize = A::SPLIT_MASK | B::SPLIT_MASK;
@@ -326,22 +332,26 @@ impl<A: Expression, B: Expression> Expression for Zip<A, B> {
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-        if index < A::Shape::RANK {
-            self.a.reset_dim(index, count);
+        let delta = A::Shape::RANK.max(B::Shape::RANK) - index;
+
+        if delta <= A::Shape::RANK {
+            self.a.reset_dim(A::Shape::RANK - delta, count);
         }
 
-        if index < B::Shape::RANK {
-            self.b.reset_dim(index, count);
+        if delta <= B::Shape::RANK {
+            self.b.reset_dim(B::Shape::RANK - delta, count);
         }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        if index < A::Shape::RANK {
-            self.a.step_dim(index);
+        let delta = A::Shape::RANK.max(B::Shape::RANK) - index;
+
+        if delta <= A::Shape::RANK {
+            self.a.step_dim(A::Shape::RANK - delta);
         }
 
-        if index < B::Shape::RANK {
-            self.b.step_dim(index);
+        if delta <= B::Shape::RANK {
+            self.b.step_dim(B::Shape::RANK - delta);
         }
     }
 }

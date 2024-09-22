@@ -126,7 +126,7 @@ where
             where
                 U: PartialEq<V>,
             {
-                if L::IS_UNIT_STRIDED && M::IS_UNIT_STRIDED {
+                if L::IS_DENSE && M::IS_DENSE {
                     this.remap()[..].eq(&other.remap()[..])
                 } else {
                     this.iter().eq(other)
@@ -144,7 +144,7 @@ where
             }
 
             let f = const {
-                if L::IS_UNIFORM && M::IS_UNIFORM {
+                if S::RANK < 2 || (L::IS_DENSE && M::IS_DENSE) {
                     compare_inner
                 } else {
                     compare_outer
@@ -306,7 +306,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<S: Shape, T: Clone, U, I: Apply<U>> $trt<I> for FromElem<S, T>
+        impl<S: Shape, T: Clone, U, I: Apply<U>> $trt<I> for FromElem<T, S>
         where
             T: $trt<I::Item, Output = U>,
         {
@@ -336,7 +336,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T: Default, S: Shape, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, S, A>
+        impl<T: Default, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Grid<T, S, A>
         where
             T: $trt<I::Item, Output = T>,
         {
@@ -410,7 +410,7 @@ macro_rules! impl_op_assign {
             }
         }
 
-        impl<T, S: Shape, I: IntoExpression, A: Allocator> $trt<I> for Grid<T, S, A>
+        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Grid<T, S, A>
         where
             T: $trt<I::Item>,
         {
@@ -598,7 +598,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<S: Shape, T: Clone, U> $trt for FromElem<S, T>
+        impl<S: Shape, T: Clone, U> $trt for FromElem<T, S>
         where
             T: $trt<Output = U>,
         {

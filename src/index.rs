@@ -3,10 +3,10 @@ mod permutation;
 mod span;
 mod view;
 
-pub use axis::{Axis, Inner, Outer};
+pub use axis::{Axis, Nth};
 pub use permutation::Permutation;
 pub use span::SpanIndex;
-pub use view::{DimIndex, Params, ViewIndex};
+pub use view::{DimIndex, ViewIndex};
 
 #[cfg(not(feature = "nightly"))]
 pub(crate) fn range<R>(range: R, bounds: std::ops::RangeTo<usize>) -> std::ops::Range<usize>
