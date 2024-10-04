@@ -12,19 +12,20 @@ use crate::alloc::Allocator;
 use crate::array::Array;
 use crate::buffer::Buffer;
 use crate::dim::Dim;
-use crate::expr::{Expr, ExprMut, IntoExpr};
-use crate::grid::Grid;
+use crate::expr::IntoExpr;
 use crate::index::{Axis, Nth};
 use crate::layout::Layout;
 use crate::shape::{ConstShape, Shape};
-use crate::span::Span;
+use crate::slice::Slice;
+use crate::tensor::Tensor;
+use crate::view::{View, ViewMut};
 
-struct GridVisitor<T, S: Shape> {
+struct TensorVisitor<T, S: Shape> {
     phantom: PhantomData<(T, S)>,
 }
 
-impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
-    type Value = Grid<T, S>;
+impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
+    type Value = Tensor<T, S>;
 
     fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
         write!(formatter, "an array of rank {}", S::RANK)
@@ -47,7 +48,7 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
                 size += 1;
             }
         } else {
-            while let Some(value) = seq.next_element::<Grid<T, <Nth<0> as Axis>::Other<S>>>()? {
+            while let Some(value) = seq.next_element::<Tensor<T, <Nth<0> as Axis>::Other<S>>>()? {
                 if size == 0 {
                     vec.reserve(value.len() * size_hint);
                     dims[1..].copy_from_slice(&value.dims()[..]);
@@ -75,14 +76,14 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for GridVisitor<T, S> {
             return Err(A::Error::custom(msg));
         }
 
-        Ok(Grid::from(vec).into_shape(S::from_dims(dims)))
+        Ok(Tensor::from(vec).into_shape(S::from_dims(dims)))
     }
 }
 
 impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
         if S::RANK > 0 {
-            Ok(<Grid<T, S> as Deserialize>::deserialize(deserializer)?.into())
+            Ok(<Tensor<T, S> as Deserialize>::deserialize(deserializer)?.into())
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
@@ -91,39 +92,21 @@ impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
     }
 }
 
-impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Grid<T, S> {
+impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Tensor<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
         if S::RANK > 0 {
-            let visitor = GridVisitor { phantom: PhantomData };
+            let visitor = TensorVisitor { phantom: PhantomData };
 
             deserializer.deserialize_seq(visitor)
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
-            Ok(Grid::from([value]).into_shape(S::default()))
+            Ok(Tensor::from([value]).into_shape(S::default()))
         }
     }
 }
 
 impl<T: Serialize, S: ConstShape> Serialize for Array<T, S> {
-    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
-        (**self).serialize(serializer)
-    }
-}
-
-impl<T: Serialize, S: Shape, L: Layout> Serialize for Expr<'_, T, S, L> {
-    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
-        (**self).serialize(serializer)
-    }
-}
-
-impl<T: Serialize, S: Shape, L: Layout> Serialize for ExprMut<'_, T, S, L> {
-    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
-        (**self).serialize(serializer)
-    }
-}
-
-impl<T: Serialize, S: Shape, A: Allocator> Serialize for Grid<T, S, A> {
     fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }
@@ -135,7 +118,7 @@ impl<B: Buffer<Item: Serialize>> Serialize for IntoExpr<B> {
     }
 }
 
-impl<T: Serialize, S: Shape, L: Layout> Serialize for Span<T, S, L> {
+impl<T: Serialize, S: Shape, L: Layout> Serialize for Slice<T, S, L> {
     fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         if S::RANK == 0 {
             self[S::Dims::default()].serialize(serializer)
@@ -148,5 +131,23 @@ impl<T: Serialize, S: Shape, L: Layout> Serialize for Span<T, S, L> {
 
             seq.end()
         }
+    }
+}
+
+impl<T: Serialize, S: Shape, A: Allocator> Serialize for Tensor<T, S, A> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
+        (**self).serialize(serializer)
+    }
+}
+
+impl<T: Serialize, S: Shape, L: Layout> Serialize for View<'_, T, S, L> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
+        (**self).serialize(serializer)
+    }
+}
+
+impl<T: Serialize, S: Shape, L: Layout> Serialize for ViewMut<'_, T, S, L> {
+    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
+        (**self).serialize(serializer)
     }
 }

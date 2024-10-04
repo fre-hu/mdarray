@@ -9,9 +9,9 @@ use crate::alloc::Allocator;
 use crate::index::{Axis, Nth};
 use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
-use crate::raw_span::RawSpan;
+use crate::raw_slice::RawSlice;
 use crate::shape::Shape;
-use crate::span::Span;
+use crate::slice::Slice;
 
 #[cfg(not(feature = "nightly"))]
 macro_rules! vec_t {
@@ -27,8 +27,8 @@ macro_rules! vec_t {
     };
 }
 
-pub(crate) struct RawGrid<T, S: Shape, A: Allocator> {
-    span: RawSpan<T, S, Dense>,
+pub(crate) struct RawTensor<T, S: Shape, A: Allocator> {
+    slice: RawSlice<T, S, Dense>,
     capacity: usize,
     #[cfg(not(feature = "nightly"))]
     phantom: PhantomData<A>,
@@ -45,18 +45,18 @@ struct DropGuard<'a, T, A: Allocator> {
     phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
-impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
+impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
     #[cfg(feature = "nightly")]
     pub(crate) fn allocator(&self) -> &A {
         &self.alloc
     }
 
-    pub(crate) fn as_mut_span(&mut self) -> &mut Span<T, S> {
-        self.span.as_mut_span()
+    pub(crate) fn as_mut_slice(&mut self) -> &mut Slice<T, S> {
+        self.slice.as_mut_slice()
     }
 
-    pub(crate) fn as_span(&self) -> &Span<T, S> {
-        self.span.as_span()
+    pub(crate) fn as_slice(&self) -> &Slice<T, S> {
+        self.slice.as_slice()
     }
 
     pub(crate) fn capacity(&self) -> usize {
@@ -70,7 +70,7 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
         let mut vec = ManuallyDrop::new(vec);
 
         Self {
-            span: RawSpan::new_unchecked(vec.as_mut_ptr(), mapping),
+            slice: RawSlice::new_unchecked(vec.as_mut_ptr(), mapping),
             capacity: vec.capacity(),
             phantom: PhantomData,
         }
@@ -83,7 +83,7 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
 
         Self {
-            span: RawSpan::new_unchecked(ptr, mapping),
+            slice: RawSlice::new_unchecked(ptr, mapping),
             capacity,
             alloc: ManuallyDrop::new(alloc),
         }
@@ -94,19 +94,19 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
 
         #[cfg(not(feature = "nightly"))]
         let vec = unsafe {
-            Vec::from_raw_parts(me.span.as_mut_ptr(), me.span.mapping().len(), me.capacity)
+            Vec::from_raw_parts(me.slice.as_mut_ptr(), me.slice.mapping().len(), me.capacity)
         };
         #[cfg(feature = "nightly")]
         let vec = unsafe {
             Vec::from_raw_parts_in(
-                me.span.as_mut_ptr(),
-                me.span.mapping().len(),
+                me.slice.as_mut_ptr(),
+                me.slice.mapping().len(),
                 me.capacity,
                 ptr::read(&*me.alloc),
             )
         };
 
-        (vec, me.span.mapping())
+        (vec, me.slice.mapping())
     }
 
     pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, new_shape: S, mut f: F)
@@ -115,7 +115,7 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
     {
         if S::RANK > 0 {
             let new_len = new_shape.checked_len().expect("invalid length");
-            let old_shape = self.span.mapping().shape();
+            let old_shape = self.slice.mapping().shape();
 
             unsafe {
                 self.with_mut_vec(|vec| {
@@ -149,27 +149,27 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
     pub(crate) unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<S>) {
         debug_assert!(new_mapping.len() <= self.capacity, "length exceeds capacity");
 
-        self.span.set_mapping(new_mapping);
+        self.slice.set_mapping(new_mapping);
     }
 
     #[cfg(not(feature = "nightly"))]
     pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T>) -> U>(&mut self, f: F) -> U {
         struct DropGuard<'a, T, S: Shape, A: Allocator> {
-            grid: &'a mut RawGrid<T, S, A>,
+            tensor: &'a mut RawTensor<T, S, A>,
             vec: ManuallyDrop<Vec<T>>,
         }
 
         impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
             fn drop(&mut self) {
                 unsafe {
-                    self.grid.span.set_ptr(self.vec.as_mut_ptr());
-                    self.grid.capacity = self.vec.capacity();
+                    self.tensor.slice.set_ptr(self.vec.as_mut_ptr());
+                    self.tensor.capacity = self.vec.capacity();
 
-                    let mapping = self.grid.span.mapping();
+                    let mapping = self.tensor.slice.mapping();
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != mapping.len() {
-                        self.grid.span.set_mapping(DenseMapping::default());
+                        self.tensor.slice.set_mapping(DenseMapping::default());
                         ptr::drop_in_place(self.vec.as_mut_slice());
                     }
                 }
@@ -177,14 +177,14 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
         }
 
         let vec =
-            Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.mapping().len(), self.capacity);
+            Vec::from_raw_parts(self.slice.as_mut_ptr(), self.slice.mapping().len(), self.capacity);
 
-        let mut guard = DropGuard { grid: self, vec: ManuallyDrop::new(vec) };
+        let mut guard = DropGuard { tensor: self, vec: ManuallyDrop::new(vec) };
 
         let result = f(&mut guard.vec);
 
-        guard.grid.span.set_ptr(guard.vec.as_mut_ptr());
-        guard.grid.capacity = guard.vec.capacity();
+        guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
+        guard.tensor.capacity = guard.vec.capacity();
 
         mem::forget(guard);
 
@@ -194,22 +194,22 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
     #[cfg(feature = "nightly")]
     pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T, A>) -> U>(&mut self, f: F) -> U {
         struct DropGuard<'a, T, S: Shape, A: Allocator> {
-            grid: &'a mut RawGrid<T, S, A>,
+            tensor: &'a mut RawTensor<T, S, A>,
             vec: ManuallyDrop<Vec<T, A>>,
         }
 
         impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
             fn drop(&mut self) {
                 unsafe {
-                    self.grid.span.set_ptr(self.vec.as_mut_ptr());
-                    self.grid.capacity = self.vec.capacity();
-                    self.grid.alloc = ManuallyDrop::new(ptr::read(self.vec.allocator()));
+                    self.tensor.slice.set_ptr(self.vec.as_mut_ptr());
+                    self.tensor.capacity = self.vec.capacity();
+                    self.tensor.alloc = ManuallyDrop::new(ptr::read(self.vec.allocator()));
 
-                    let mapping = self.grid.span.mapping();
+                    let mapping = self.tensor.slice.mapping();
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != mapping.len() {
-                        self.grid.span.set_mapping(DenseMapping::default());
+                        self.tensor.slice.set_mapping(DenseMapping::default());
                         ptr::drop_in_place(self.vec.as_mut_slice());
                     }
                 }
@@ -218,20 +218,20 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
 
         let vec = unsafe {
             Vec::from_raw_parts_in(
-                self.span.as_mut_ptr(),
-                self.span.mapping().len(),
+                self.slice.as_mut_ptr(),
+                self.slice.mapping().len(),
                 self.capacity,
                 ptr::read(&*self.alloc),
             )
         };
 
-        let mut guard = DropGuard { grid: self, vec: ManuallyDrop::new(vec) };
+        let mut guard = DropGuard { tensor: self, vec: ManuallyDrop::new(vec) };
 
         let result = f(&mut guard.vec);
 
-        guard.grid.span.set_ptr(guard.vec.as_mut_ptr());
-        guard.grid.capacity = guard.vec.capacity();
-        guard.grid.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
+        guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
+        guard.tensor.capacity = guard.vec.capacity();
+        guard.tensor.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
 
         mem::forget(guard);
 
@@ -242,16 +242,16 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
         #[cfg(not(feature = "nightly"))]
         let vec = unsafe {
             Vec::from_raw_parts(
-                self.span.as_ptr() as *mut T,
-                self.span.mapping().len(),
+                self.slice.as_ptr() as *mut T,
+                self.slice.mapping().len(),
                 self.capacity,
             )
         };
         #[cfg(feature = "nightly")]
         let vec = unsafe {
             Vec::from_raw_parts_in(
-                self.span.as_ptr() as *mut T,
-                self.span.mapping().len(),
+                self.slice.as_ptr() as *mut T,
+                self.slice.mapping().len(),
                 self.capacity,
                 ptr::read(&*self.alloc),
             )
@@ -261,24 +261,24 @@ impl<T, S: Shape, A: Allocator> RawGrid<T, S, A> {
     }
 }
 
-impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for RawGrid<T, S, A> {
+impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for RawTensor<T, S, A> {
     fn clone(&self) -> Self {
-        unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.span.mapping()) }
+        unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.slice.mapping()) }
     }
 
     fn clone_from(&mut self, source: &Self) {
         unsafe {
             self.with_mut_vec(|dst| source.with_vec(|src| dst.clone_from(src)));
-            self.set_mapping(source.span.mapping());
+            self.set_mapping(source.slice.mapping());
         }
     }
 }
 
-impl<T, S: Shape, A: Allocator> Drop for RawGrid<T, S, A> {
+impl<T, S: Shape, A: Allocator> Drop for RawTensor<T, S, A> {
     #[cfg(not(feature = "nightly"))]
     fn drop(&mut self) {
         _ = unsafe {
-            Vec::from_raw_parts(self.span.as_mut_ptr(), self.span.mapping().len(), self.capacity)
+            Vec::from_raw_parts(self.slice.as_mut_ptr(), self.slice.mapping().len(), self.capacity)
         };
     }
 
@@ -286,8 +286,8 @@ impl<T, S: Shape, A: Allocator> Drop for RawGrid<T, S, A> {
     fn drop(&mut self) {
         _ = unsafe {
             Vec::from_raw_parts_in(
-                self.span.as_mut_ptr(),
-                self.span.mapping().len(),
+                self.slice.as_mut_ptr(),
+                self.slice.mapping().len(),
                 self.capacity,
                 ptr::read(&*self.alloc),
             )
@@ -295,8 +295,8 @@ impl<T, S: Shape, A: Allocator> Drop for RawGrid<T, S, A> {
     }
 }
 
-unsafe impl<T: Send, S: Shape, A: Allocator + Send> Send for RawGrid<T, S, A> {}
-unsafe impl<T: Sync, S: Shape, A: Allocator + Sync> Sync for RawGrid<T, S, A> {}
+unsafe impl<T: Send, S: Shape, A: Allocator + Send> Send for RawTensor<T, S, A> {}
+unsafe impl<T: Sync, S: Shape, A: Allocator + Sync> Sync for RawTensor<T, S, A> {}
 
 impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     fn new(vec: &'a mut vec_t!(T, A)) -> Self {

@@ -20,24 +20,24 @@
 //!
 //! ## Array types
 //!
-//! The basic array type is `Grid` for a dense array that owns the storage,
+//! The basic array type is `Tensor` for a dense array that owns the storage,
 //! similar to the Rust `Vec` type. It is parameterized by the element type,
 //! the shape (i.e. the size of each dimension) and optionally an allocator.
 //!
 //! `Array` is a dense array which stores elements inline, similar to the Rust
 //! `array` type. The shape must consist of dimensions with constant size.
 //!
-//! `Expr` and `ExprMut` are array types that refer to a parent array. They are
+//! `View` and `ViewMut` are array types that refer to a parent array. They are
 //! used for example when creating array views without duplicating elements.
 //!
-//! `Span` is a generic array reference, similar to the Rust `slice` type.
+//! `Slice` is a generic array reference, similar to the Rust `slice` type.
 //! It consists of a pointer to an internal structure that holds the storage
-//! and the layout mapping. All arrays can be dereferenced to an array span.
+//! and the layout mapping. All arrays can be dereferenced to an array slice.
 //!
 //! The following type aliases are provided:
 //!
-//! - `DGrid<T, const N: usize, ...>` for a dense array with a given rank.
-//! - `DSpan<T, const N: usize, ...>` for an array span with a given rank.
+//! - `DTensor<T, const N: usize, ...>` for a dense array with a given rank.
+//! - `DSlice<T, const N: usize, ...>` for an array slice with a given rank.
 //!
 //! The layout mapping describes how elements are stored in memory. The mapping
 //! is parameterized by the shape and the layout. It contains the dynamic size
@@ -75,8 +75,8 @@
 //!
 //! Expressions are similar to iterators, but support multidimensional iteration
 //! and have consistency checking of shapes. An expression is created with the
-//! `expr`, `expr_mut` and `into_expr` methods. Note that the array types `Expr`
-//! and `ExprMut` are also expressions.
+//! `expr`, `expr_mut` and `into_expr` methods. Note that the array types `View`
+//! and `ViewMut` are also expressions.
 //!
 //! There are methods for for evaluating expressions or converting into other
 //! expressions, such as `eval`, `for_each` and `map`. Two expressions can be
@@ -109,8 +109,8 @@
 //! a mutable reference to an array where the result is stored.
 //!
 //! Scalar parameters must passed using the `fill` function that wraps a value in
-//! an `Expression<Fill<T>>` expression. If a type does not implement the `Copy`
-//! trait, the parameter must be passed by reference.
+//! an `Fill<T>` expression. If a type does not implement the `Copy` trait, the
+//! parameter must be passed by reference.
 //!
 //! ## Example
 //!
@@ -120,9 +120,9 @@
 //! avoided, and the compiler is able to vectorize the inner loop.
 //!
 //! ```
-//! use mdarray::{expr, grid, DSpan, Expression};
+//! use mdarray::{tensor, view, DSlice, Expression};
 //!
-//! fn matmul(a: &DSpan<f64, 2>, b: &DSpan<f64, 2>, c: &mut DSpan<f64, 2>) {
+//! fn matmul(a: &DSlice<f64, 2>, b: &DSlice<f64, 2>, c: &mut DSlice<f64, 2>) {
 //!     for (mut ci, ai) in c.rows_mut().zip(a.rows()) {
 //!         for (aik, bk) in ai.expr().zip(b.rows()) {
 //!             for (cij, bkj) in ci.expr_mut().zip(bk) {
@@ -132,14 +132,14 @@
 //!     }
 //! }
 //!
-//! let a = expr![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]];
-//! let b = expr![[0.0, 1.0], [1.0, 1.0]];
+//! let a = view![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]];
+//! let b = view![[0.0, 1.0], [1.0, 1.0]];
 //!
-//! let mut c = grid![[0.0; 2]; 3];
+//! let mut c = tensor![[0.0; 2]; 3];
 //!
 //! matmul(&a, &b, &mut c);
 //!
-//! assert_eq!(c, expr![[4.0, 5.0], [5.0, 7.0], [6.0, 9.0]]);
+//! assert_eq!(c, view![[4.0, 5.0], [5.0, 7.0], [6.0, 9.0]]);
 //! ```
 
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
@@ -157,7 +157,7 @@ pub mod buffer;
 /// Expression module, for multidimensional iteration.
 pub mod expr;
 
-/// Module for array span and view indexing, and for array axis subarray types.
+/// Module for array slice and view indexing, and for array axis subarray types.
 pub mod index;
 
 /// Array layout mapping module.
@@ -166,16 +166,17 @@ pub mod mapping;
 mod array;
 mod dim;
 mod expression;
-mod grid;
 mod iter;
 mod layout;
 mod macros;
 mod ops;
-mod raw_grid;
-mod raw_span;
+mod raw_slice;
+mod raw_tensor;
 mod shape;
-mod span;
+mod slice;
+mod tensor;
 mod traits;
+mod view;
 
 #[cfg(feature = "serde")]
 mod serde;
@@ -193,10 +194,11 @@ mod alloc {
 pub use array::Array;
 pub use dim::{Const, Dim, Dims, Dyn, Strides};
 pub use expression::Expression;
-pub use grid::{DGrid, Grid};
 pub use iter::Iter;
 pub use layout::{Dense, Layout, Strided};
 pub use ops::{step, StepRange};
 pub use shape::{ConstShape, IntoShape, Rank, Shape};
-pub use span::{DSpan, Span};
+pub use slice::{DSlice, Slice};
+pub use tensor::{DTensor, Tensor};
 pub use traits::{Apply, FromExpression, IntoCloned, IntoExpression};
+pub use view::{View, ViewMut};

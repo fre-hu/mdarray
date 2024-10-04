@@ -4,9 +4,9 @@ use std::alloc::Allocator;
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
 use crate::expr::{Cloned, Copied, Enumerate, Map, Zip};
-use crate::grid::Grid;
 use crate::iter::Iter;
 use crate::shape::Shape;
+use crate::tensor::Tensor;
 use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
 
 /// Expression trait, for multidimensional iteration.
@@ -83,13 +83,13 @@ pub trait Expression: IntoIterator {
     /// is not valid, or if the outermost dimension is not dynamically-sized.
     fn eval_into<S: Shape, A: Allocator>(
         self,
-        grid: &mut Grid<Self::Item, S, A>,
-    ) -> &mut Grid<Self::Item, S, A>
+        tensor: &mut Tensor<Self::Item, S, A>,
+    ) -> &mut Tensor<Self::Item, S, A>
     where
         Self: Sized,
     {
-        grid.expand(self);
-        grid
+        tensor.expand(self);
+        tensor
     }
 
     /// Folds all elements into an accumulator by applying an operation, and returns the result.

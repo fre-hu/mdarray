@@ -1,11 +1,11 @@
 mod axis;
 mod permutation;
-mod span;
+mod slice;
 mod view;
 
 pub use axis::{Axis, Nth};
 pub use permutation::Permutation;
-pub use span::SpanIndex;
+pub use slice::SliceIndex;
 pub use view::{DimIndex, ViewIndex};
 
 #[cfg(not(feature = "nightly"))]

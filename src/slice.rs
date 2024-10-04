@@ -10,22 +10,23 @@ use std::mem;
 use std::ops::{Index, IndexMut};
 
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{AxisExpr, AxisExprMut, Expr, ExprMut, Lanes, LanesMut, Map, Zip};
+use crate::expr::{AxisExpr, AxisExprMut, Lanes, LanesMut, Map, Zip};
 use crate::expression::Expression;
-use crate::grid::Grid;
-use crate::index::{Axis, DimIndex, Nth, Permutation, SpanIndex, ViewIndex};
+use crate::index::{Axis, DimIndex, Nth, Permutation, SliceIndex, ViewIndex};
 use crate::iter::Iter;
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
-use crate::raw_span::RawSpan;
+use crate::raw_slice::RawSlice;
 use crate::shape::{IntoShape, Rank, Shape};
+use crate::tensor::Tensor;
 #[cfg(not(feature = "nightly"))]
 use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
 #[cfg(feature = "nightly")]
 use crate::traits::{Apply, IntoCloned, IntoExpression};
+use crate::view::{View, ViewMut};
 
-/// Multidimensional array span.
-pub struct Span<T, S: Shape, L: Layout = Dense> {
+/// Multidimensional array slice.
+pub struct Slice<T, S: Shape, L: Layout = Dense> {
     phantom: PhantomData<(T, S, L)>,
     #[cfg(not(feature = "nightly"))]
     _pinned: PhantomPinned,
@@ -33,19 +34,19 @@ pub struct Span<T, S: Shape, L: Layout = Dense> {
     _opaque: Opaque,
 }
 
-/// Multidimensional array span with dynamically-sized dimensions.
-pub type DSpan<T, const N: usize, L = Dense> = Span<T, Rank<N>, L>;
+/// Multidimensional array slice with dynamically-sized dimensions.
+pub type DSlice<T, const N: usize, L = Dense> = Slice<T, Rank<N>, L>;
 
 #[cfg(feature = "nightly")]
 extern "C" {
     type Opaque;
 }
 
-impl<T, S: Shape, L: Layout> Span<T, S, L> {
+impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable pointer to the array buffer.
     pub fn as_mut_ptr(&mut self) -> *mut T {
         if mem::size_of::<S>() > 0 {
-            RawSpan::from_mut_span(self).as_mut_ptr()
+            RawSlice::from_mut_slice(self).as_mut_ptr()
         } else {
             self as *mut Self as *mut T
         }
@@ -54,17 +55,17 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     /// Returns a raw pointer to the array buffer.
     pub fn as_ptr(&self) -> *const T {
         if mem::size_of::<S>() > 0 {
-            RawSpan::from_span(self).as_ptr()
+            RawSlice::from_slice(self).as_ptr()
         } else {
             self as *const Self as *const T
         }
     }
 
-    /// Assigns an expression to the array span with broadcasting, cloning elements if needed.
+    /// Assigns an expression to the array slice with broadcasting, cloning elements if needed.
     ///
     /// # Panics
     ///
-    /// Panics if the expression cannot be broadcast to the shape of the array span.
+    /// Panics if the expression cannot be broadcast to the shape of the array slice.
     pub fn assign<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
         self.expr_mut().zip(expr).for_each(|(x, y)| y.clone_to(x));
     }
@@ -99,7 +100,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         AxisExprMut::new(self)
     }
 
-    /// Returns `true` if the array span contains an element with the given value.
+    /// Returns `true` if the array slice contains an element with the given value.
     pub fn contains(&self, x: &T) -> bool
     where
         T: PartialEq,
@@ -121,17 +122,17 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.mapping().dims()
     }
 
-    /// Returns an expression over the array span.
-    pub fn expr(&self) -> Expr<T, S, L> {
-        unsafe { Expr::new_unchecked(self.as_ptr(), self.mapping()) }
+    /// Returns an expression over the array slice.
+    pub fn expr(&self) -> View<T, S, L> {
+        unsafe { View::new_unchecked(self.as_ptr(), self.mapping()) }
     }
 
-    /// Returns a mutable expression over the array span.
-    pub fn expr_mut(&mut self) -> ExprMut<T, S, L> {
-        unsafe { ExprMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
+    /// Returns a mutable expression over the array slice.
+    pub fn expr_mut(&mut self) -> ViewMut<T, S, L> {
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
     }
 
-    /// Fills the array span with elements by cloning `value`.
+    /// Fills the array slice with elements by cloning `value`.
     pub fn fill(&mut self, value: T)
     where
         T: Clone,
@@ -139,26 +140,26 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.expr_mut().for_each(|x| x.clone_from(&value));
     }
 
-    /// Fills the array span with elements returned by calling a closure repeatedly.
+    /// Fills the array slice with elements returned by calling a closure repeatedly.
     pub fn fill_with<F: FnMut() -> T>(&mut self, mut f: F) {
         self.expr_mut().for_each(|x| *x = f());
     }
 
-    /// Returns a one-dimensional array view of the array span.
+    /// Returns a one-dimensional array view of the array slice.
     ///
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
-    pub fn flatten(&self) -> Expr<T, (Dyn,), L> {
+    pub fn flatten(&self) -> View<T, (Dyn,), L> {
         self.expr().into_flattened()
     }
 
-    /// Returns a mutable one-dimensional array view over the array span.
+    /// Returns a mutable one-dimensional array view over the array slice.
     ///
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
-    pub fn flatten_mut(&mut self) -> ExprMut<T, (Dyn,), L> {
+    pub fn flatten_mut(&mut self) -> ViewMut<T, (Dyn,), L> {
         self.expr_mut().into_flattened()
     }
 
@@ -166,8 +167,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     ///
     /// # Safety
     ///
-    /// The index must be within bounds of the array span.
-    pub unsafe fn get_unchecked<I: SpanIndex<T, S, L>>(&self, index: I) -> &I::Output {
+    /// The index must be within bounds of the array slice.
+    pub unsafe fn get_unchecked<I: SliceIndex<T, S, L>>(&self, index: I) -> &I::Output {
         index.get_unchecked(self)
     }
 
@@ -175,8 +176,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     ///
     /// # Safety
     ///
-    /// The index must be within bounds of the array span.
-    pub unsafe fn get_unchecked_mut<I: SpanIndex<T, S, L>>(&mut self, index: I) -> &mut I::Output {
+    /// The index must be within bounds of the array slice.
+    pub unsafe fn get_unchecked_mut<I: SliceIndex<T, S, L>>(&mut self, index: I) -> &mut I::Output {
         index.get_unchecked_mut(self)
     }
 
@@ -190,13 +191,13 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.mapping().is_empty()
     }
 
-    /// Returns an iterator over the array span.
-    pub fn iter(&self) -> Iter<Expr<'_, T, S, L>> {
+    /// Returns an iterator over the array slice.
+    pub fn iter(&self) -> Iter<View<'_, T, S, L>> {
         self.expr().into_iter()
     }
 
-    /// Returns a mutable iterator over the array span.
-    pub fn iter_mut(&mut self) -> Iter<ExprMut<'_, T, S, L>> {
+    /// Returns a mutable iterator over the array slice.
+    pub fn iter_mut(&mut self) -> Iter<ViewMut<'_, T, S, L>> {
         self.expr_mut().into_iter()
     }
 
@@ -240,7 +241,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
     /// Returns the array layout mapping.
     pub fn mapping(&self) -> L::Mapping<S> {
         if mem::size_of::<S>() > 0 {
-            RawSpan::from_span(self).mapping()
+            RawSlice::from_slice(self).mapping()
         } else {
             L::Mapping::default()
         }
@@ -275,49 +276,49 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         S::RANK
     }
 
-    /// Returns a remapped array view of the array span.
+    /// Returns a remapped array view of the array slice.
     ///
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
-    pub fn remap<M: Layout>(&self) -> Expr<T, S, M> {
+    pub fn remap<M: Layout>(&self) -> View<T, S, M> {
         self.expr().into_mapping()
     }
 
-    /// Returns a mutable remapped array view of the array span.
+    /// Returns a mutable remapped array view of the array slice.
     ///
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
-    pub fn remap_mut<M: Layout>(&mut self) -> ExprMut<T, S, M> {
+    pub fn remap_mut<M: Layout>(&mut self) -> ViewMut<T, S, M> {
         self.expr_mut().into_mapping()
     }
 
-    /// Returns a reordered array view of the array span.
-    pub fn reorder(&self) -> Expr<T, S::Reverse, S::Layout<L>> {
+    /// Returns a reordered array view of the array slice.
+    pub fn reorder(&self) -> View<T, S::Reverse, S::Layout<L>> {
         self.expr().into_reordered()
     }
 
-    /// Returns a mutable reordered array view of the array span.
-    pub fn reorder_mut(&mut self) -> ExprMut<T, S::Reverse, S::Layout<L>> {
+    /// Returns a mutable reordered array view of the array slice.
+    pub fn reorder_mut(&mut self) -> ViewMut<T, S::Reverse, S::Layout<L>> {
         self.expr_mut().into_reordered()
     }
 
-    /// Returns a reshaped array view of the array span.
+    /// Returns a reshaped array view of the array slice.
     ///
     /// # Panics
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
-    pub fn reshape<I: IntoShape>(&self, shape: I) -> Expr<T, I::IntoShape, L> {
+    pub fn reshape<I: IntoShape>(&self, shape: I) -> View<T, I::IntoShape, L> {
         self.expr().into_shape(shape)
     }
 
-    /// Returns a mutable reshaped array view of the array span.
+    /// Returns a mutable reshaped array view of the array slice.
     ///
     /// # Panics
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
-    pub fn reshape_mut<I: IntoShape>(&mut self, shape: I) -> ExprMut<T, I::IntoShape, L> {
+    pub fn reshape_mut<I: IntoShape>(&mut self, shape: I) -> ViewMut<T, I::IntoShape, L> {
         self.expr_mut().into_shape(shape)
     }
 
@@ -326,7 +327,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.mapping().shape()
     }
 
-    /// Divides an array span into two at an index along the outermost dimension.
+    /// Divides an array slice into two at an index along the outermost dimension.
     ///
     /// # Panics
     ///
@@ -336,13 +337,13 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &self,
         mid: usize,
     ) -> (
-        Expr<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-        Expr<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+        View<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+        View<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
     ) {
         self.expr().into_split_at(mid)
     }
 
-    /// Divides a mutable array span into two at an index along the outermost dimension.
+    /// Divides a mutable array slice into two at an index along the outermost dimension.
     ///
     /// # Panics
     ///
@@ -352,13 +353,13 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ExprMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-        ExprMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+        ViewMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
+        ViewMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
     ) {
         self.expr_mut().into_split_at(mid)
     }
 
-    /// Divides an array span into two at an index along the specified dimension.
+    /// Divides an array slice into two at an index along the specified dimension.
     ///
     /// # Panics
     ///
@@ -368,8 +369,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &self,
         mid: usize,
     ) -> (
-        Expr<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
-        Expr<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        View<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        View<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
     )
     where
         Nth<N>: Axis,
@@ -377,7 +378,7 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.expr().into_split_axis_at(mid)
     }
 
-    /// Divides a mutable array span into two at an index along the specified dimension.
+    /// Divides a mutable array slice into two at an index along the specified dimension.
     ///
     /// # Panics
     ///
@@ -387,8 +388,8 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ExprMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
-        ExprMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        ViewMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        ViewMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
     )
     where
         Nth<N>: Axis,
@@ -410,52 +411,52 @@ impl<T, S: Shape, L: Layout> Span<T, S, L> {
         self.mapping().strides()
     }
 
-    /// Copies the array span into a new array.
+    /// Copies the array slice into a new array.
     #[cfg(not(feature = "nightly"))]
-    pub fn to_grid(&self) -> Grid<T, S>
+    pub fn to_tensor(&self) -> Tensor<T, S>
     where
         T: Clone,
     {
-        Grid::from_expr(self.expr().cloned())
+        Tensor::from_expr(self.expr().cloned())
     }
 
-    /// Copies the array span into a new array.
+    /// Copies the array slice into a new array.
     #[cfg(feature = "nightly")]
-    pub fn to_grid(&self) -> Grid<T, S>
+    pub fn to_tensor(&self) -> Tensor<T, S>
     where
         T: Clone,
     {
-        self.to_grid_in(Global)
+        self.to_tensor_in(Global)
     }
 
-    /// Copies the array span into a new array with the specified allocator.
+    /// Copies the array slice into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
-    pub fn to_grid_in<A: Allocator>(&self, alloc: A) -> Grid<T, S, A>
+    pub fn to_tensor_in<A: Allocator>(&self, alloc: A) -> Tensor<T, S, A>
     where
         T: Clone,
     {
-        Grid::from_expr_in(self.expr().cloned(), alloc)
+        Tensor::from_expr_in(self.expr().cloned(), alloc)
     }
 
-    /// Copies the array span into a new vector.
+    /// Copies the array slice into a new vector.
     pub fn to_vec(&self) -> Vec<T>
     where
         T: Clone,
     {
-        self.to_grid().into_vec()
+        self.to_tensor().into_vec()
     }
 
-    /// Copies the array span into a new vector with the specified allocator.
+    /// Copies the array slice into a new vector with the specified allocator.
     #[cfg(feature = "nightly")]
     pub fn to_vec_in<A: Allocator>(&self, alloc: A) -> Vec<T, A>
     where
         T: Clone,
     {
-        self.to_grid_in(alloc).into_vec()
+        self.to_tensor_in(alloc).into_vec()
     }
 }
 
-impl<T, S: Shape> Span<T, S> {
+impl<T, S: Shape> Slice<T, S> {
     /// Returns a mutable slice of all elements in the array, which must have dense layout.
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.expr_mut().into_slice()
@@ -467,13 +468,13 @@ impl<T, S: Shape> Span<T, S> {
     }
 }
 
-impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
+impl<T, X: Dim, Y: Dim, L: Layout> Slice<T, (X, Y), L> {
     /// Returns an array view for the specified column.
     ///
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn col(&self, index: usize) -> Expr<T, (X,), Strided> {
+    pub fn col(&self, index: usize) -> View<T, (X,), Strided> {
         self.view(.., index)
     }
 
@@ -482,7 +483,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn col_mut(&mut self, index: usize) -> ExprMut<T, (X,), Strided> {
+    pub fn col_mut(&mut self, index: usize) -> ViewMut<T, (X,), Strided> {
         self.view_mut(.., index)
     }
 
@@ -504,23 +505,23 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
         LanesMut::new(self)
     }
 
-    /// Returns an array view for the given diagonal of the array span,
+    /// Returns an array view for the given diagonal of the array slice,
     /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
     ///
     /// # Panics
     ///
     /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag(&self, index: isize) -> Expr<T, (Dyn,), Strided> {
+    pub fn diag(&self, index: isize) -> View<T, (Dyn,), Strided> {
         self.expr().into_diag(index)
     }
 
-    /// Returns a mutable array view for the given diagonal of the array span,
+    /// Returns a mutable array view for the given diagonal of the array slice,
     /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
     ///
     /// # Panics
     ///
     /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag_mut(&mut self, index: isize) -> ExprMut<T, (Dyn,), Strided> {
+    pub fn diag_mut(&mut self, index: isize) -> ViewMut<T, (Dyn,), Strided> {
         self.expr_mut().into_diag(index)
     }
 
@@ -529,7 +530,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn row(&self, index: usize) -> Expr<T, (Y,), L> {
+    pub fn row(&self, index: usize) -> View<T, (Y,), L> {
         self.view(index, ..)
     }
 
@@ -538,7 +539,7 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds.
-    pub fn row_mut(&mut self, index: usize) -> ExprMut<T, (Y,), L> {
+    pub fn row_mut(&mut self, index: usize) -> ViewMut<T, (Y,), L> {
         self.view_mut(index, ..)
     }
 
@@ -563,11 +564,11 @@ impl<T, X: Dim, Y: Dim, L: Layout> Span<T, (X, Y), L> {
 
 macro_rules! impl_permute {
     (($($xyz:tt),+), ($($abc:tt),*)) => {
-        impl<T, $($xyz: Dim,)+ L: Layout> Span<T, ($($xyz,)+), L> {
+        impl<T, $($xyz: Dim,)+ L: Layout> Slice<T, ($($xyz,)+), L> {
             /// Returns an array view with the dimensions permuted.
             pub fn permute<$(const $abc: usize),+>(
                 &self
-            ) -> Expr<
+            ) -> View<
                 T,
                 <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
                 <($(Const<$abc>,)+) as Permutation>::Layout<L>,
@@ -581,7 +582,7 @@ macro_rules! impl_permute {
             /// Returns a mutable array view with the dimensions permuted.
             pub fn permute_mut<$(const $abc: usize),+>(
                 &mut self
-            ) -> ExprMut<
+            ) -> ViewMut<
                 T,
                 <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
                 <($(Const<$abc>,)+) as Permutation>::Layout<L>,
@@ -604,20 +605,20 @@ impl_permute!((X, Y, Z, W, U, V), (A, B, C, D, E, F));
 
 macro_rules! impl_view {
     (($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
-        impl<T, $($xyz: Dim,)+ L: Layout> Span<T, ($($xyz,)+), L> {
+        impl<T, $($xyz: Dim,)+ L: Layout> Slice<T, ($($xyz,)+), L> {
             /// Copies the specified subarray into a new array.
             ///
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
-            pub fn grid<$($abc: DimIndex),+>(
+            pub fn tensor<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
-            ) -> Grid<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
+            ) -> Tensor<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
             where
                 T: Clone,
             {
-                self.view($($idx),+).to_grid()
+                self.view($($idx),+).to_tensor()
             }
 
             /// Returns an array view for the specified subarray.
@@ -628,7 +629,7 @@ macro_rules! impl_view {
             pub fn view<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
-            ) -> Expr<
+            ) -> View<
                 T,
                 <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
                 <($($abc,)+) as ViewIndex>::Layout<L>,
@@ -644,7 +645,7 @@ macro_rules! impl_view {
             pub fn view_mut<$($abc: DimIndex),+>(
                 &mut self,
                 $($idx: $abc),+,
-            ) -> ExprMut<
+            ) -> ViewMut<
                 T,
                 <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
                 <($($abc,)+) as ViewIndex>::Layout<L>,
@@ -662,7 +663,7 @@ impl_view!((X, Y, Z, W), (A, B, C, D), (a, b, c, d));
 impl_view!((X, Y, Z, W, U), (A, B, C, D, E), (a, b, c, d, e));
 impl_view!((X, Y, Z, W, U, V), (A, B, C, D, E, F), (a, b, c, d, e, f));
 
-impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a Span<T, S, L> {
+impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a Slice<T, S, L> {
     type Output<F: FnMut(&'a T) -> U> = Map<Self::IntoExpr, F>;
     type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
@@ -679,7 +680,7 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a Span<T, S, L> {
     }
 }
 
-impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut Span<T, S, L> {
+impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut Slice<T, S, L> {
     type Output<F: FnMut(&'a mut T) -> U> = Map<Self::IntoExpr, F>;
     type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
@@ -696,31 +697,31 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut Span<T, S, L> {
     }
 }
 
-impl<T, S: Shape, L: Layout> AsMut<Span<T, S, L>> for Span<T, S, L> {
-    fn as_mut(&mut self) -> &mut Span<T, S, L> {
+impl<T, S: Shape, L: Layout> AsMut<Slice<T, S, L>> for Slice<T, S, L> {
+    fn as_mut(&mut self) -> &mut Slice<T, S, L> {
         self
     }
 }
 
-impl<T, S: Shape> AsMut<[T]> for Span<T, S> {
+impl<T, S: Shape> AsMut<[T]> for Slice<T, S> {
     fn as_mut(&mut self) -> &mut [T] {
         &mut self[..]
     }
 }
 
-impl<T, S: Shape, L: Layout> AsRef<Span<T, S, L>> for Span<T, S, L> {
-    fn as_ref(&self) -> &Span<T, S, L> {
+impl<T, S: Shape, L: Layout> AsRef<Slice<T, S, L>> for Slice<T, S, L> {
+    fn as_ref(&self) -> &Slice<T, S, L> {
         self
     }
 }
 
-impl<T, S: Shape> AsRef<[T]> for Span<T, S> {
+impl<T, S: Shape> AsRef<[T]> for Slice<T, S> {
     fn as_ref(&self) -> &[T] {
         &self[..]
     }
 }
 
-impl<T: Debug, S: Shape, L: Layout> Debug for Span<T, S, L> {
+impl<T: Debug, S: Shape, L: Layout> Debug for Slice<T, S, L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         if S::RANK == 0 {
             self[S::Dims::default()].fmt(f)
@@ -730,7 +731,7 @@ impl<T: Debug, S: Shape, L: Layout> Debug for Span<T, S, L> {
     }
 }
 
-impl<T: Hash, S: Shape, L: Layout> Hash for Span<T, S, L> {
+impl<T: Hash, S: Shape, L: Layout> Hash for Slice<T, S, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         for i in 0..S::RANK {
             #[cfg(not(feature = "nightly"))]
@@ -743,7 +744,7 @@ impl<T: Hash, S: Shape, L: Layout> Hash for Span<T, S, L> {
     }
 }
 
-impl<T, S: Shape, L: Layout, I: SpanIndex<T, S, L>> Index<I> for Span<T, S, L> {
+impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> Index<I> for Slice<T, S, L> {
     type Output = I::Output;
 
     fn index(&self, index: I) -> &I::Output {
@@ -751,42 +752,42 @@ impl<T, S: Shape, L: Layout, I: SpanIndex<T, S, L>> Index<I> for Span<T, S, L> {
     }
 }
 
-impl<T, S: Shape, L: Layout, I: SpanIndex<T, S, L>> IndexMut<I> for Span<T, S, L> {
+impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> IndexMut<I> for Slice<T, S, L> {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
     }
 }
 
-impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a Span<T, S, L> {
+impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a Slice<T, S, L> {
     type Shape = S;
-    type IntoExpr = Expr<'a, T, S, L>;
+    type IntoExpr = View<'a, T, S, L>;
 
     fn into_expr(self) -> Self::IntoExpr {
         self.expr()
     }
 }
 
-impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a mut Span<T, S, L> {
+impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a mut Slice<T, S, L> {
     type Shape = S;
-    type IntoExpr = ExprMut<'a, T, S, L>;
+    type IntoExpr = ViewMut<'a, T, S, L>;
 
     fn into_expr(self) -> Self::IntoExpr {
         self.expr_mut()
     }
 }
 
-impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a Span<T, S, L> {
+impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a Slice<T, S, L> {
     type Item = &'a T;
-    type IntoIter = Iter<Expr<'a, T, S, L>>;
+    type IntoIter = Iter<View<'a, T, S, L>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Span<T, S, L> {
+impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Slice<T, S, L> {
     type Item = &'a mut T;
-    type IntoIter = Iter<ExprMut<'a, T, S, L>>;
+    type IntoIter = Iter<ViewMut<'a, T, S, L>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
@@ -794,23 +795,23 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Span<T, S, L> {
 }
 
 #[cfg(feature = "nightly")]
-unsafe impl<T: Send, S: Shape, L: Layout> Send for Span<T, S, L> {}
+unsafe impl<T: Send, S: Shape, L: Layout> Send for Slice<T, S, L> {}
 #[cfg(feature = "nightly")]
-unsafe impl<T: Sync, S: Shape, L: Layout> Sync for Span<T, S, L> {}
+unsafe impl<T: Sync, S: Shape, L: Layout> Sync for Slice<T, S, L> {}
 
-impl<T: Clone, S: Shape> ToOwned for Span<T, S> {
-    type Owned = Grid<T, S>;
+impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
+    type Owned = Tensor<T, S>;
 
     fn to_owned(&self) -> Self::Owned {
-        self.to_grid()
+        self.to_tensor()
     }
 
     fn clone_into(&self, target: &mut Self::Owned) {
-        target.clone_from_span(self);
+        target.clone_from_slice(self);
     }
 }
 
-fn contains<T: PartialEq, S: Shape, L: Layout>(this: &Span<T, S, L>, value: &T) -> bool {
+fn contains<T: PartialEq, S: Shape, L: Layout>(this: &Slice<T, S, L>, value: &T) -> bool {
     if L::IS_DENSE {
         this.remap()[..].contains(value)
     } else if S::RANK < 2 {

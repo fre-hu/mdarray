@@ -10,13 +10,14 @@ use std::ops::{
 use crate::alloc::Allocator;
 use crate::array::Array;
 use crate::buffer::Buffer;
-use crate::expr::{Expr, ExprMut, Fill, FillWith, FromElem, FromFn, IntoExpr, Map};
+use crate::expr::{Fill, FillWith, FromElem, FromFn, IntoExpr, Map};
 use crate::expression::Expression;
-use crate::grid::Grid;
 use crate::layout::Layout;
 use crate::shape::{ConstShape, Shape};
-use crate::span::Span;
+use crate::slice::Slice;
+use crate::tensor::Tensor;
 use crate::traits::{Apply, IntoExpression};
+use crate::view::{View, ViewMut};
 
 /// Range constructed from a unit spaced range with the given step size.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -36,9 +37,9 @@ pub struct StepRange<R, S> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, step};
+/// use mdarray::{step, view};
 ///
-/// let v = expr![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+/// let v = view![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 ///
 /// assert_eq!(v.view(step(0..10, 2)).to_vec(), [0, 2, 4, 6, 8]);
 /// assert_eq!(v.view(step(0..10, -2)).to_vec(), [9, 7, 5, 3, 1]);
@@ -48,46 +49,15 @@ pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
 }
 
 impl<T: Eq, S: ConstShape> Eq for Array<T, S> {}
-impl<T: Eq, S: Shape, L: Layout> Eq for Expr<'_, T, S, L> {}
-impl<T: Eq, S: Shape, L: Layout> Eq for ExprMut<'_, T, S, L> {}
 impl<B: Buffer<Item: Eq>> Eq for IntoExpr<B> {}
-impl<T: Eq, S: Shape, A: Allocator> Eq for Grid<T, S, A> {}
-impl<T: Eq, S: Shape, L: Layout> Eq for Span<T, S, L> {}
+impl<T: Eq, S: Shape, L: Layout> Eq for Slice<T, S, L> {}
+impl<T: Eq, S: Shape, A: Allocator> Eq for Tensor<T, S, A> {}
+impl<T: Eq, S: Shape, L: Layout> Eq for View<'_, T, S, L> {}
+impl<T: Eq, S: Shape, L: Layout> Eq for ViewMut<'_, T, S, L> {}
 
 impl<U, V, S: ConstShape, T: Shape, L: Layout, I: ?Sized> PartialEq<I> for Array<U, S>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, L>>,
-    U: PartialEq<V>,
-{
-    fn eq(&self, other: &I) -> bool {
-        (**self).eq(other)
-    }
-}
-
-impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Expr<'_, U, S, L>
-where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, M>>,
-    U: PartialEq<V>,
-{
-    fn eq(&self, other: &I) -> bool {
-        (**self).eq(other)
-    }
-}
-
-impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I>
-    for ExprMut<'_, U, S, L>
-where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, M>>,
-    U: PartialEq<V>,
-{
-    fn eq(&self, other: &I) -> bool {
-        (**self).eq(other)
-    }
-}
-
-impl<U, V, S: Shape, T: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Grid<U, S, A>
-where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, L>>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, L>>,
     U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
@@ -97,7 +67,7 @@ where
 
 impl<T, S: Shape, L: Layout, B: Buffer, I: ?Sized> PartialEq<I> for IntoExpr<B>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, T, S, L>>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, T, S, L>>,
     B::Item: PartialEq<T>,
 {
     fn eq(&self, other: &I) -> bool {
@@ -105,9 +75,9 @@ where
     }
 }
 
-impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Span<U, S, L>
+impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Slice<U, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = Expr<'a, V, T, M>>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, M>>,
     U: PartialEq<V>,
 {
     fn eq(&self, other: &I) -> bool {
@@ -120,8 +90,8 @@ where
             // This is a workaround until const if is available, see #3582 and #122301.
 
             fn compare_inner<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
-                this: &Span<U, S, L>,
-                other: &Span<V, T, M>,
+                this: &Slice<U, S, L>,
+                other: &Slice<V, T, M>,
             ) -> bool
             where
                 U: PartialEq<V>,
@@ -134,8 +104,8 @@ where
             }
 
             fn compare_outer<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
-                this: &Span<U, S, L>,
-                other: &Span<V, T, M>,
+                this: &Slice<U, S, L>,
+                other: &Slice<V, T, M>,
             ) -> bool
             where
                 U: PartialEq<V>,
@@ -158,54 +128,40 @@ where
     }
 }
 
+impl<U, V, S: Shape, T: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Tensor<U, S, A>
+where
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, L>>,
+    U: PartialEq<V>,
+{
+    fn eq(&self, other: &I) -> bool {
+        (**self).eq(other)
+    }
+}
+
+impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for View<'_, U, S, L>
+where
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, M>>,
+    U: PartialEq<V>,
+{
+    fn eq(&self, other: &I) -> bool {
+        (**self).eq(other)
+    }
+}
+
+impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I>
+    for ViewMut<'_, U, S, L>
+where
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, M>>,
+    U: PartialEq<V>,
+{
+    fn eq(&self, other: &I) -> bool {
+        (**self).eq(other)
+    }
+}
+
 macro_rules! impl_binary_op {
     ($trt:tt, $fn:tt) => {
         impl<'a, T, U, S: ConstShape, I: Apply<U>> $trt<I> for &'a Array<T, S>
-        where
-            &'a T: $trt<I::Item, Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
-
-            fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |(x, y)| y.$fn(x))
-            }
-        }
-
-        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a Expr<'_, T, S, L>
-        where
-            &'a T: $trt<I::Item, Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
-
-            fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |(x, y)| y.$fn(x))
-            }
-        }
-
-        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a ExprMut<'_, T, S, L>
-        where
-            &'a T: $trt<I::Item, Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
-
-            fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |(x, y)| y.$fn(x))
-            }
-        }
-
-        impl<'a, T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for &'a Grid<T, S, A>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -235,7 +191,52 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a Span<T, S, L>
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a Slice<T, S, L>
+        where
+            &'a T: $trt<I::Item, Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<'a, T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for &'a Tensor<T, S, A>
+        where
+            &'a T: $trt<I::Item, Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a View<'_, T, S, L>
+        where
+            &'a T: $trt<I::Item, Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a ViewMut<'_, T, S, L>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -258,21 +259,6 @@ macro_rules! impl_binary_op {
 
             fn $fn(self, rhs: I) -> Self::Output {
                 self.zip_with(rhs, |(x, y)| x.$fn(y))
-            }
-        }
-
-        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for Expr<'a, T, S, L>
-        where
-            &'a T: $trt<I::Item, Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
-
-            fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
         }
 
@@ -336,17 +322,6 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T: Default, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Grid<T, S, A>
-        where
-            T: $trt<I::Item, Output = T>,
-        {
-            type Output = Self;
-
-            fn $fn(self, rhs: I) -> Self {
-                self.zip_with(rhs, |(x, y)| x.$fn(y))
-            }
-        }
-
         impl<T, B: Buffer, I: Apply<T>> $trt<I> for IntoExpr<B>
         where
             B::Item: $trt<I::Item, Output = T>,
@@ -371,6 +346,32 @@ macro_rules! impl_binary_op {
 
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
+
+            fn $fn(self, rhs: I) -> Self::Output {
+                rhs.zip_with(self, |(x, y)| y.$fn(x))
+            }
+        }
+
+        impl<T: Default, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Tensor<T, S, A>
+        where
+            T: $trt<I::Item, Output = T>,
+        {
+            type Output = Self;
+
+            fn $fn(self, rhs: I) -> Self {
+                self.zip_with(rhs, |(x, y)| x.$fn(y))
+            }
+        }
+
+        impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for View<'a, T, S, L>
+        where
+            &'a T: $trt<I::Item, Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
@@ -401,24 +402,6 @@ macro_rules! impl_op_assign {
             }
         }
 
-        impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for ExprMut<'_, T, S, L>
-        where
-            T: $trt<I::Item>,
-        {
-            fn $fn(&mut self, rhs: I) {
-                self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
-            }
-        }
-
-        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Grid<T, S, A>
-        where
-            T: $trt<I::Item>,
-        {
-            fn $fn(&mut self, rhs: I) {
-                self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
-            }
-        }
-
         impl<B: Buffer, I: IntoExpression> $trt<I> for IntoExpr<B>
         where
             B::Item: $trt<I::Item>,
@@ -428,7 +411,25 @@ macro_rules! impl_op_assign {
             }
         }
 
-        impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for Span<T, S, L>
+        impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for Slice<T, S, L>
+        where
+            T: $trt<I::Item>,
+        {
+            fn $fn(&mut self, rhs: I) {
+                self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
+            }
+        }
+
+        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Tensor<T, S, A>
+        where
+            T: $trt<I::Item>,
+        {
+            fn $fn(&mut self, rhs: I) {
+                self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
+            }
+        }
+
+        impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for ViewMut<'_, T, S, L>
         where
             T: $trt<I::Item>,
         {
@@ -467,51 +468,6 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a Expr<'_, T, S, L>
-        where
-            &'a T: $trt<Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
-
-            fn $fn(self) -> Self::Output {
-                self.apply(|x| x.$fn())
-            }
-        }
-
-        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a ExprMut<'_, T, S, L>
-        where
-            &'a T: $trt<Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
-
-            fn $fn(self) -> Self::Output {
-                self.apply(|x| x.$fn())
-            }
-        }
-
-        impl<'a, T, U, S: Shape, A: Allocator> $trt for &'a Grid<T, S, A>
-        where
-            &'a T: $trt<Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
-
-            fn $fn(self) -> Self::Output {
-                self.apply(|x| x.$fn())
-            }
-        }
-
         impl<'a, T, B: Buffer> $trt for &'a IntoExpr<B>
         where
             &'a B::Item: $trt<Output = T>,
@@ -527,7 +483,52 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a Span<T, S, L>
+        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a Slice<T, S, L>
+        where
+            &'a T: $trt<Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<'a, T, U, S: Shape, A: Allocator> $trt for &'a Tensor<T, S, A>
+        where
+            &'a T: $trt<Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a View<'_, T, S, L>
+        where
+            &'a T: $trt<Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<'a, T, U, S: Shape, L: Layout> $trt for &'a ViewMut<'_, T, S, L>
         where
             &'a T: $trt<Output = U>,
         {
@@ -547,21 +548,6 @@ macro_rules! impl_unary_op {
             T: $trt<Output = U>,
         {
             type Output = Array<U, S>;
-
-            fn $fn(self) -> Self::Output {
-                self.apply(|x| x.$fn())
-            }
-        }
-
-        impl<'a, T, U, S: Shape, L: Layout> $trt for Expr<'a, T, S, L>
-        where
-            &'a T: $trt<Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
@@ -628,17 +614,6 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T: Default, S: Shape, A: Allocator> $trt for Grid<T, S, A>
-        where
-            T: $trt<Output = T>,
-        {
-            type Output = Self;
-
-            fn $fn(self) -> Self {
-                self.apply(|x| x.$fn())
-            }
-        }
-
         impl<T, B: Buffer> $trt for IntoExpr<B>
         where
             B::Item: $trt<Output = T>,
@@ -663,6 +638,32 @@ macro_rules! impl_unary_op {
 
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
+
+            fn $fn(self) -> Self::Output {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<T: Default, S: Shape, A: Allocator> $trt for Tensor<T, S, A>
+        where
+            T: $trt<Output = T>,
+        {
+            type Output = Self;
+
+            fn $fn(self) -> Self {
+                self.apply(|x| x.$fn())
+            }
+        }
+
+        impl<'a, T, U, S: Shape, L: Layout> $trt for View<'a, T, S, L>
+        where
+            &'a T: $trt<Output = U>,
+        {
+            #[cfg(not(feature = "nightly"))]
+            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
+
+            #[cfg(feature = "nightly")]
+            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())

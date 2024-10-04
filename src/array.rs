@@ -7,15 +7,16 @@ use std::ptr;
 
 use crate::buffer::Buffer;
 use crate::dim::Const;
-use crate::expr::{self, Expr, ExprMut, IntoExpr, Map, Zip};
+use crate::expr::{self, IntoExpr, Map, Zip};
 use crate::expression::Expression;
-use crate::grid::Grid;
-use crate::index::SpanIndex;
+use crate::index::SliceIndex;
 use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
 use crate::shape::{ConstShape, IntoShape, Shape};
-use crate::span::Span;
+use crate::slice::Slice;
+use crate::tensor::Tensor;
 use crate::traits::{Apply, FromExpression, IntoExpression};
+use crate::view::{View, ViewMut};
 
 /// Multidimensional array with constant-sized dimensions and inline allocation.
 #[derive(Clone, Copy, Default)]
@@ -154,7 +155,7 @@ impl<T, U, S: ConstShape> Apply<U> for Array<T, S> {
 
 impl<T, U: ?Sized, S: ConstShape> AsMut<U> for Array<T, S>
 where
-    Span<T, S>: AsMut<U>,
+    Slice<T, S>: AsMut<U>,
 {
     fn as_mut(&mut self) -> &mut U {
         (**self).as_mut()
@@ -163,7 +164,7 @@ where
 
 impl<T, U: ?Sized, S: ConstShape> AsRef<U> for Array<T, S>
 where
-    Span<T, S>: AsRef<U>,
+    Slice<T, S>: AsRef<U>,
 {
     fn as_ref(&self) -> &U {
         (**self).as_ref()
@@ -205,14 +206,14 @@ impl_as_mut_ref!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
 impl_as_mut_ref!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
 impl_as_mut_ref!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
-impl<T, S: ConstShape> Borrow<Span<T, S>> for Array<T, S> {
-    fn borrow(&self) -> &Span<T, S> {
+impl<T, S: ConstShape> Borrow<Slice<T, S>> for Array<T, S> {
+    fn borrow(&self) -> &Slice<T, S> {
         self
     }
 }
 
-impl<T, S: ConstShape> BorrowMut<Span<T, S>> for Array<T, S> {
-    fn borrow_mut(&mut self) -> &mut Span<T, S> {
+impl<T, S: ConstShape> BorrowMut<Slice<T, S>> for Array<T, S> {
+    fn borrow_mut(&mut self) -> &mut Slice<T, S> {
         self
     }
 }
@@ -224,28 +225,28 @@ impl<T: Debug, S: ConstShape> Debug for Array<T, S> {
 }
 
 impl<T, S: ConstShape> Deref for Array<T, S> {
-    type Target = Span<T, S>;
+    type Target = Slice<T, S>;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*(self as *const Self as *const Span<T, S>) }
+        unsafe { &*(self as *const Self as *const Slice<T, S>) }
     }
 }
 
 impl<T, S: ConstShape> DerefMut for Array<T, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *(self as *mut Self as *mut Span<T, S>) }
+        unsafe { &mut *(self as *mut Self as *mut Slice<T, S>) }
     }
 }
 
-impl<T, S: ConstShape> From<Grid<T, S>> for Array<T, S> {
-    fn from(value: Grid<T, S>) -> Self {
+impl<T, S: ConstShape> From<Tensor<T, S>> for Array<T, S> {
+    fn from(value: Tensor<T, S>) -> Self {
         Self::from_expr(value.into_expr())
     }
 }
 
 impl<'a, T: 'a + Clone, S: ConstShape, L: Layout, I> From<I> for Array<T, S>
 where
-    I: IntoExpression<IntoExpr = Expr<'a, T, S, L>>,
+    I: IntoExpression<IntoExpr = View<'a, T, S, L>>,
 {
     fn from(value: I) -> Self {
         Self::from_expr(value.into_expr().cloned())
@@ -299,7 +300,7 @@ impl<T: Hash, S: ConstShape> Hash for Array<T, S> {
     }
 }
 
-impl<T, S: ConstShape, I: SpanIndex<T, S, Dense>> Index<I> for Array<T, S> {
+impl<T, S: ConstShape, I: SliceIndex<T, S, Dense>> Index<I> for Array<T, S> {
     type Output = I::Output;
 
     fn index(&self, index: I) -> &I::Output {
@@ -307,7 +308,7 @@ impl<T, S: ConstShape, I: SpanIndex<T, S, Dense>> Index<I> for Array<T, S> {
     }
 }
 
-impl<T, S: ConstShape, I: SpanIndex<T, S, Dense>> IndexMut<I> for Array<T, S> {
+impl<T, S: ConstShape, I: SliceIndex<T, S, Dense>> IndexMut<I> for Array<T, S> {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
     }
@@ -315,7 +316,7 @@ impl<T, S: ConstShape, I: SpanIndex<T, S, Dense>> IndexMut<I> for Array<T, S> {
 
 impl<'a, T, S: ConstShape> IntoExpression for &'a Array<T, S> {
     type Shape = S;
-    type IntoExpr = Expr<'a, T, S>;
+    type IntoExpr = View<'a, T, S>;
 
     fn into_expr(self) -> Self::IntoExpr {
         self.expr()
@@ -324,7 +325,7 @@ impl<'a, T, S: ConstShape> IntoExpression for &'a Array<T, S> {
 
 impl<'a, T, S: ConstShape> IntoExpression for &'a mut Array<T, S> {
     type Shape = S;
-    type IntoExpr = ExprMut<'a, T, S>;
+    type IntoExpr = ViewMut<'a, T, S>;
 
     fn into_expr(self) -> Self::IntoExpr {
         self.expr_mut()
@@ -344,7 +345,7 @@ impl<T, S: ConstShape> IntoExpression for Array<T, S> {
 
 impl<'a, T, S: ConstShape> IntoIterator for &'a Array<T, S> {
     type Item = &'a T;
-    type IntoIter = Iter<Expr<'a, T, S>>;
+    type IntoIter = Iter<View<'a, T, S>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -353,7 +354,7 @@ impl<'a, T, S: ConstShape> IntoIterator for &'a Array<T, S> {
 
 impl<'a, T, S: ConstShape> IntoIterator for &'a mut Array<T, S> {
     type Item = &'a mut T;
-    type IntoIter = Iter<ExprMut<'a, T, S>>;
+    type IntoIter = Iter<ViewMut<'a, T, S>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()

@@ -43,11 +43,11 @@ pub struct Zip<A, B> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression, FromExpression, Grid};
+/// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let g = Grid::from_expr(expr::cloned(expr![0, 1, 2]));
+/// let t = Tensor::from_expr(expr::cloned(view![0, 1, 2]));
 ///
-/// assert_eq!(g, expr![0, 1, 2]);
+/// assert_eq!(t, view![0, 1, 2]);
 /// ```
 pub fn cloned<'a, T: 'a + Clone, I: IntoExpression<Item = &'a T>>(expr: I) -> Cloned<I::IntoExpr> {
     expr.into_expr().cloned()
@@ -58,11 +58,11 @@ pub fn cloned<'a, T: 'a + Clone, I: IntoExpression<Item = &'a T>>(expr: I) -> Cl
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression, FromExpression, Grid};
+/// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let g = Grid::from_expr(expr::copied(expr![0, 1, 2]));
+/// let t = Tensor::from_expr(expr::copied(view![0, 1, 2]));
 ///
-/// assert_eq!(g, expr![0, 1, 2]);
+/// assert_eq!(t, view![0, 1, 2]);
 /// ```
 pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Copied<I::IntoExpr> {
     expr.into_expr().copied()
@@ -73,11 +73,11 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid, Expression, FromExpression, Grid};
+/// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let g = Grid::from_expr(expr::enumerate(expr![1, 2, 3]));
+/// let t = Tensor::from_expr(expr::enumerate(view![1, 2, 3]));
 ///
-/// assert_eq!(g, expr![([0], &1), ([1], &2), ([2], &3)]);
+/// assert_eq!(t, view![([0], &1), ([1], &2), ([2], &3)]);
 /// ```
 pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr, <I::Shape as Shape>::Dims> {
     expr.into_expr().enumerate()
@@ -88,11 +88,11 @@ pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr, <I::Shape
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression, FromExpression, Grid};
+/// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let g = Grid::from_expr(expr::map(expr![0, 1, 2], |x| 2 * x));
+/// let t = Tensor::from_expr(expr::map(view![0, 1, 2], |x| 2 * x));
 ///
-/// assert_eq!(g, expr![0, 2, 4]);
+/// assert_eq!(t, view![0, 2, 4]);
 /// ```
 pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I::IntoExpr, F> {
     expr.into_expr().map(f)
@@ -107,14 +107,14 @@ pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid, Expression, FromExpression, Grid};
+/// use mdarray::{expr, tensor, view, FromExpression, Tensor};
 ///
-/// let a = grid![0, 1, 2];
-/// let b = grid![3, 4, 5];
+/// let a = tensor![0, 1, 2];
+/// let b = tensor![3, 4, 5];
 ///
-/// let g = Grid::from_expr(expr::zip(a, b));
+/// let t = Tensor::from_expr(expr::zip(a, b));
 ///
-/// assert_eq!(g, expr![(0, 3), (1, 4), (2, 5)]);
+/// assert_eq!(t, view![(0, 3), (1, 4), (2, 5)]);
 /// ```
 pub fn zip<A: IntoExpression, B: IntoExpression>(a: A, b: B) -> Zip<A::IntoExpr, B::IntoExpr> {
     a.into_expr().zip(b)

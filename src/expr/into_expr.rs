@@ -7,14 +7,14 @@ use std::ptr;
 
 use crate::buffer::Buffer;
 use crate::expr::adapters::{Map, Zip};
-use crate::expr::expr::{Expr, ExprMut};
 use crate::expression::Expression;
-use crate::index::SpanIndex;
+use crate::index::SliceIndex;
 use crate::iter::Iter;
 use crate::layout::Dense;
 use crate::shape::Shape;
-use crate::span::Span;
+use crate::slice::Slice;
 use crate::traits::{Apply, IntoExpression};
+use crate::view::{View, ViewMut};
 
 /// Expression that moves elements out of an array.
 pub struct IntoExpr<B: Buffer> {
@@ -64,7 +64,7 @@ impl<'a, T, B: Buffer> Apply<T> for &'a mut IntoExpr<B> {
 
 impl<T: ?Sized, B: Buffer> AsMut<T> for IntoExpr<B>
 where
-    Span<B::Item, B::Shape>: AsMut<T>,
+    Slice<B::Item, B::Shape>: AsMut<T>,
 {
     fn as_mut(&mut self) -> &mut T {
         (**self).as_mut()
@@ -73,21 +73,21 @@ where
 
 impl<T: ?Sized, B: Buffer> AsRef<T> for IntoExpr<B>
 where
-    Span<B::Item, B::Shape>: AsRef<T>,
+    Slice<B::Item, B::Shape>: AsRef<T>,
 {
     fn as_ref(&self) -> &T {
         (**self).as_ref()
     }
 }
 
-impl<B: Buffer> Borrow<Span<B::Item, B::Shape>> for IntoExpr<B> {
-    fn borrow(&self) -> &Span<B::Item, B::Shape> {
+impl<B: Buffer> Borrow<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+    fn borrow(&self) -> &Slice<B::Item, B::Shape> {
         self
     }
 }
 
-impl<B: Buffer> BorrowMut<Span<B::Item, B::Shape>> for IntoExpr<B> {
-    fn borrow_mut(&mut self) -> &mut Span<B::Item, B::Shape> {
+impl<B: Buffer> BorrowMut<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+    fn borrow_mut(&mut self) -> &mut Slice<B::Item, B::Shape> {
         self
     }
 }
@@ -119,14 +119,14 @@ impl<B: Buffer + Default> Default for IntoExpr<B> {
 }
 
 impl<B: Buffer> Deref for IntoExpr<B> {
-    type Target = Span<B::Item, B::Shape>;
+    type Target = Slice<B::Item, B::Shape>;
 
     fn deref(&self) -> &Self::Target {
         debug_assert!(self.index == 0, "expression in use");
 
-        let span = self.buffer.as_span();
+        let slice = self.buffer.as_slice();
 
-        unsafe { &*(span as *const Span<ManuallyDrop<B::Item>, B::Shape> as *const Self::Target) }
+        unsafe { &*(slice as *const Slice<ManuallyDrop<B::Item>, B::Shape> as *const Self::Target) }
     }
 }
 
@@ -134,17 +134,17 @@ impl<B: Buffer> DerefMut for IntoExpr<B> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         debug_assert!(self.index == 0, "expression in use");
 
-        let span = self.buffer.as_mut_span();
+        let slice = self.buffer.as_mut_slice();
 
-        unsafe { &mut *(span as *mut Span<ManuallyDrop<B::Item>, B::Shape> as *mut Self::Target) }
+        unsafe { &mut *(slice as *mut Slice<ManuallyDrop<B::Item>, B::Shape> as *mut Self::Target) }
     }
 }
 
 impl<B: Buffer> Drop for IntoExpr<B> {
     fn drop(&mut self) {
         unsafe {
-            let ptr = self.buffer.as_mut_span().as_mut_ptr().add(self.index) as *mut B::Item;
-            let len = self.buffer.as_span().len() - self.index;
+            let ptr = self.buffer.as_mut_slice().as_mut_ptr().add(self.index) as *mut B::Item;
+            let len = self.buffer.as_slice().len() - self.index;
 
             ptr::slice_from_raw_parts_mut(ptr, len).drop_in_place();
         }
@@ -158,15 +158,15 @@ impl<B: Buffer> Expression for IntoExpr<B> {
     const SPLIT_MASK: usize = (1 << B::Shape::RANK) >> 1;
 
     fn shape(&self) -> Self::Shape {
-        self.buffer.as_span().shape()
+        self.buffer.as_slice().shape()
     }
 
     unsafe fn get_unchecked(&mut self, _: usize) -> B::Item {
-        debug_assert!(self.index < self.buffer.as_span().len(), "index out of bounds");
+        debug_assert!(self.index < self.buffer.as_slice().len(), "index out of bounds");
 
         self.index += 1; // Keep track of that the element is moved out.
 
-        ManuallyDrop::take(&mut *self.buffer.as_mut_span().as_mut_ptr().add(self.index - 1))
+        ManuallyDrop::take(&mut *self.buffer.as_mut_slice().as_mut_ptr().add(self.index - 1))
     }
 
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
@@ -179,7 +179,7 @@ impl<B: Buffer<Item: Hash>> Hash for IntoExpr<B> {
     }
 }
 
-impl<B: Buffer, I: SpanIndex<B::Item, B::Shape, Dense>> Index<I> for IntoExpr<B> {
+impl<B: Buffer, I: SliceIndex<B::Item, B::Shape, Dense>> Index<I> for IntoExpr<B> {
     type Output = I::Output;
 
     fn index(&self, index: I) -> &I::Output {
@@ -187,7 +187,7 @@ impl<B: Buffer, I: SpanIndex<B::Item, B::Shape, Dense>> Index<I> for IntoExpr<B>
     }
 }
 
-impl<B: Buffer, I: SpanIndex<B::Item, B::Shape, Dense>> IndexMut<I> for IntoExpr<B> {
+impl<B: Buffer, I: SliceIndex<B::Item, B::Shape, Dense>> IndexMut<I> for IntoExpr<B> {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
     }
@@ -195,7 +195,7 @@ impl<B: Buffer, I: SpanIndex<B::Item, B::Shape, Dense>> IndexMut<I> for IntoExpr
 
 impl<'a, B: Buffer> IntoExpression for &'a IntoExpr<B> {
     type Shape = B::Shape;
-    type IntoExpr = Expr<'a, B::Item, B::Shape>;
+    type IntoExpr = View<'a, B::Item, B::Shape>;
 
     fn into_expr(self) -> Self::IntoExpr {
         self.expr()
@@ -204,7 +204,7 @@ impl<'a, B: Buffer> IntoExpression for &'a IntoExpr<B> {
 
 impl<'a, B: Buffer> IntoExpression for &'a mut IntoExpr<B> {
     type Shape = B::Shape;
-    type IntoExpr = ExprMut<'a, B::Item, B::Shape>;
+    type IntoExpr = ViewMut<'a, B::Item, B::Shape>;
 
     fn into_expr(self) -> Self::IntoExpr {
         self.expr_mut()
@@ -213,7 +213,7 @@ impl<'a, B: Buffer> IntoExpression for &'a mut IntoExpr<B> {
 
 impl<'a, B: Buffer> IntoIterator for &'a IntoExpr<B> {
     type Item = &'a B::Item;
-    type IntoIter = Iter<Expr<'a, B::Item, B::Shape>>;
+    type IntoIter = Iter<View<'a, B::Item, B::Shape>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -222,7 +222,7 @@ impl<'a, B: Buffer> IntoIterator for &'a IntoExpr<B> {
 
 impl<'a, B: Buffer> IntoIterator for &'a mut IntoExpr<B> {
     type Item = &'a mut B::Item;
-    type IntoIter = Iter<ExprMut<'a, B::Item, B::Shape>>;
+    type IntoIter = Iter<ViewMut<'a, B::Item, B::Shape>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()

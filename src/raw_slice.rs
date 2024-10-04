@@ -3,23 +3,23 @@ use std::ptr::NonNull;
 
 use crate::layout::Layout;
 use crate::shape::Shape;
-use crate::span::Span;
+use crate::slice::Slice;
 
-pub(crate) struct RawSpan<T, S: Shape, L: Layout> {
+pub(crate) struct RawSlice<T, S: Shape, L: Layout> {
     ptr: NonNull<T>,
     mapping: L::Mapping<S>,
 }
 
-impl<T, S: Shape, L: Layout> RawSpan<T, S, L> {
+impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
     pub(crate) fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr.as_ptr()
     }
 
-    pub(crate) fn as_mut_span(&mut self) -> &mut Span<T, S, L> {
+    pub(crate) fn as_mut_slice(&mut self) -> &mut Slice<T, S, L> {
         if mem::size_of::<S>() > 0 {
-            unsafe { &mut *(self as *mut Self as *mut Span<T, S, L>) }
+            unsafe { &mut *(self as *mut Self as *mut Slice<T, S, L>) }
         } else {
-            unsafe { &mut *(self.ptr.as_ptr() as *mut Span<T, S, L>) }
+            unsafe { &mut *(self.ptr.as_ptr() as *mut Slice<T, S, L>) }
         }
     }
 
@@ -27,24 +27,24 @@ impl<T, S: Shape, L: Layout> RawSpan<T, S, L> {
         self.ptr.as_ptr()
     }
 
-    pub(crate) fn as_span(&self) -> &Span<T, S, L> {
+    pub(crate) fn as_slice(&self) -> &Slice<T, S, L> {
         if mem::size_of::<S>() > 0 {
-            unsafe { &*(self as *const Self as *const Span<T, S, L>) }
+            unsafe { &*(self as *const Self as *const Slice<T, S, L>) }
         } else {
-            unsafe { &*(self.ptr.as_ptr() as *const Span<T, S, L>) }
+            unsafe { &*(self.ptr.as_ptr() as *const Slice<T, S, L>) }
         }
     }
 
-    pub(crate) fn from_mut_span(span: &mut Span<T, S, L>) -> &mut Self {
+    pub(crate) fn from_mut_slice(slice: &mut Slice<T, S, L>) -> &mut Self {
         assert!(mem::size_of::<S>() > 0, "ZST not allowed");
 
-        unsafe { &mut *(span as *mut Span<T, S, L> as *mut Self) }
+        unsafe { &mut *(slice as *mut Slice<T, S, L> as *mut Self) }
     }
 
-    pub(crate) fn from_span(span: &Span<T, S, L>) -> &Self {
+    pub(crate) fn from_slice(slice: &Slice<T, S, L>) -> &Self {
         assert!(mem::size_of::<S>() > 0, "ZST not allowed");
 
-        unsafe { &*(span as *const Span<T, S, L> as *const Self) }
+        unsafe { &*(slice as *const Slice<T, S, L> as *const Self) }
     }
 
     pub(crate) fn mapping(&self) -> L::Mapping<S> {
@@ -64,10 +64,10 @@ impl<T, S: Shape, L: Layout> RawSpan<T, S, L> {
     }
 }
 
-impl<T, S: Shape, L: Layout> Clone for RawSpan<T, S, L> {
+impl<T, S: Shape, L: Layout> Clone for RawSlice<T, S, L> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T, S: Shape, L: Layout> Copy for RawSpan<T, S, L> {}
+impl<T, S: Shape, L: Layout> Copy for RawSlice<T, S, L> {}

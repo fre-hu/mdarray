@@ -1,25 +1,25 @@
 use std::fmt::{Debug, Formatter, Result};
 use std::marker::PhantomData;
 
-use crate::expr::expr::{Expr, ExprMut};
 use crate::expression::Expression;
 use crate::index::Axis;
 use crate::iter::Iter;
 use crate::layout::Layout;
 use crate::mapping::Mapping;
 use crate::shape::{IntoShape, Shape};
-use crate::span::Span;
+use crate::slice::Slice;
+use crate::view::{View, ViewMut};
 
 /// Array axis expression.
 pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
-    span: &'a Span<T, S, L>,
+    slice: &'a Slice<T, S, L>,
     offset: isize,
     phantom: PhantomData<A>,
 }
 
 /// Mutable array axis expression.
 pub struct AxisExprMut<'a, T, S: Shape, L: Layout, A: Axis> {
-    span: &'a mut Span<T, S, L>,
+    slice: &'a mut Slice<T, S, L>,
     offset: isize,
     phantom: PhantomData<A>,
 }
@@ -53,14 +53,14 @@ pub struct FromFn<S: Shape, F> {
 
 /// Array lanes expression.
 pub struct Lanes<'a, T, S: Shape, L: Layout, A: Axis> {
-    span: &'a Span<T, S, L>,
+    slice: &'a Slice<T, S, L>,
     offset: isize,
     phantom: PhantomData<A>,
 }
 
 /// Mutable array lanes expression.
 pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
-    span: &'a mut Span<T, S, L>,
+    slice: &'a mut Slice<T, S, L>,
     offset: isize,
     phantom: PhantomData<A>,
 }
@@ -70,13 +70,13 @@ pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid};
+/// use mdarray::{expr, tensor, view};
 ///
-/// let mut g = grid![0; 3];
+/// let mut t = tensor![0; 3];
 ///
-/// g.assign(expr::fill(1));
+/// t.assign(expr::fill(1));
 ///
-/// assert_eq!(g, expr![1; 3]);
+/// assert_eq!(t, view![1; 3]);
 /// ```
 pub fn fill<T: Clone>(value: T) -> Fill<T> {
     Fill::new(value)
@@ -87,13 +87,13 @@ pub fn fill<T: Clone>(value: T) -> Fill<T> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid};
+/// use mdarray::{expr, tensor, view};
 ///
-/// let mut g = grid![0; 3];
+/// let mut t = tensor![0; 3];
 ///
-/// g.assign(expr::fill_with(|| 1));
+/// t.assign(expr::fill_with(|| 1));
 ///
-/// assert_eq!(g, expr![1; 3]);
+/// assert_eq!(t, view![1; 3]);
 /// ```
 pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
     FillWith::new(f)
@@ -104,11 +104,11 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression, FromExpression, Grid};
+/// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let g = Grid::from_expr(expr::from_elem([2, 3], 1));
+/// let t = Tensor::from_expr(expr::from_elem([2, 3], 1));
 ///
-/// assert_eq!(g, expr![[1; 3]; 2]);
+/// assert_eq!(t, view![[1; 3]; 2]);
 /// ```
 pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::IntoShape> {
     FromElem::new(shape.into_shape(), elem)
@@ -119,11 +119,11 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::In
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, Expression, FromExpression, Grid};
+/// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let g = Grid::from_expr(expr::from_fn([2, 3], |[i, j]| 3 * i + j + 1));
+/// let t = Tensor::from_expr(expr::from_fn([2, 3], |[i, j]| 3 * i + j + 1));
 ///
-/// assert_eq!(g, expr![[1, 2, 3], [4, 5, 6]]);
+/// assert_eq!(t, view![[1, 2, 3], [4, 5, 6]]);
 /// ```
 pub fn from_fn<T, I: IntoShape, F>(shape: I, f: F) -> FromFn<I::IntoShape, F>
 where
@@ -136,15 +136,15 @@ macro_rules! impl_axis_expr {
     ($name:tt, $expr:tt, $as_ptr:tt, {$($mut:tt)?}, $repeatable:tt) => {
         impl<'a, T, S: Shape, L: Layout, A: Axis> $name<'a, T, S, L, A> {
             pub(crate) fn new(
-                span: &'a $($mut)? Span<T, S, L>,
+                slice: &'a $($mut)? Slice<T, S, L>,
             ) -> Self {
                 // Ensure that the dimension is valid.
                 _ = A::index(S::RANK);
 
                 // Ensure that the subarray is valid.
-                _ = A::remove(span.mapping()).shape().checked_len().expect("invalid length");
+                _ = A::remove(slice.mapping()).shape().checked_len().expect("invalid length");
 
-                Self { span, offset: 0, phantom: PhantomData }
+                Self { slice, offset: 0, phantom: PhantomData }
             }
         }
 
@@ -152,7 +152,7 @@ macro_rules! impl_axis_expr {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
                 let index = A::index(S::RANK);
 
-                f.debug_tuple(stringify!($name)).field(&index).field(&self.span).finish()
+                f.debug_tuple(stringify!($name)).field(&index).field(&self.slice).finish()
             }
         }
 
@@ -163,19 +163,19 @@ macro_rules! impl_axis_expr {
             const SPLIT_MASK: usize = 1;
 
             fn shape(&self) -> Self::Shape {
-                A::keep(self.span.mapping()).shape()
+                A::keep(self.slice.mapping()).shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-                let stride = A::keep(self.span.mapping()).stride(0);
+                let stride = A::keep(self.slice.mapping()).stride(0);
                 let offset = self.offset + stride * index as isize;
 
-                let mapping = A::remove(self.span.mapping());
+                let mapping = A::remove(self.slice.mapping());
 
                 // If the view is empty, we must not offset the pointer.
                 let count = if mapping.is_empty() { 0 } else { offset };
 
-                $expr::new_unchecked(self.span.$as_ptr().offset(count), mapping)
+                $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping)
             }
 
             unsafe fn reset_dim(&mut self, _: usize, _: usize) {
@@ -183,7 +183,7 @@ macro_rules! impl_axis_expr {
             }
 
             unsafe fn step_dim(&mut self, _: usize) {
-                self.offset += A::keep(self.span.mapping()).stride(0);
+                self.offset += A::keep(self.slice.mapping()).stride(0);
             }
         }
 
@@ -198,8 +198,8 @@ macro_rules! impl_axis_expr {
     };
 }
 
-impl_axis_expr!(AxisExpr, Expr, as_ptr, {}, true);
-impl_axis_expr!(AxisExprMut, ExprMut, as_mut_ptr, {mut}, false);
+impl_axis_expr!(AxisExpr, View, as_ptr, {}, true);
+impl_axis_expr!(AxisExprMut, ViewMut, as_mut_ptr, {mut}, false);
 
 impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for AxisExpr<'a, T, S, L, A> {
     fn clone(&self) -> Self {
@@ -378,15 +378,15 @@ macro_rules! impl_lanes {
     ($name:tt, $expr:tt, $as_ptr:tt, {$($mut:tt)?}, $repeatable:tt) => {
         impl<'a, T, S: Shape, L: Layout, A: Axis> $name<'a, T, S, L, A> {
             pub(crate) fn new(
-                span: &'a $($mut)? Span<T, S, L>,
+                slice: &'a $($mut)? Slice<T, S, L>,
             ) -> Self {
                 // Ensure that the dimension is valid.
                 _ = A::index(S::RANK);
 
                 // Ensure that the subarray is valid.
-                _ = A::remove(span.mapping()).shape().checked_len().expect("invalid length");
+                _ = A::remove(slice.mapping()).shape().checked_len().expect("invalid length");
 
-                Self { span, offset: 0, phantom: PhantomData }
+                Self { slice, offset: 0, phantom: PhantomData }
             }
         }
 
@@ -394,7 +394,7 @@ macro_rules! impl_lanes {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
                 let index = A::index(S::RANK);
 
-                f.debug_tuple(stringify!($name)).field(&index).field(&self.span).finish()
+                f.debug_tuple(stringify!($name)).field(&index).field(&self.slice).finish()
             }
         }
 
@@ -405,31 +405,31 @@ macro_rules! impl_lanes {
             const SPLIT_MASK: usize = ((1 << S::RANK) - 1) >> 1;
 
             fn shape(&self) -> Self::Shape {
-                A::remove(self.span.mapping()).shape()
+                A::remove(self.slice.mapping()).shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
                 let stride = if S::RANK > 1 {
-                    A::remove(self.span.mapping()).stride(S::RANK - 2)
+                    A::remove(self.slice.mapping()).stride(S::RANK - 2)
                 } else {
                     0
                 };
 
                 let offset = self.offset + stride * index as isize;
-                let mapping = A::keep(self.span.mapping());
+                let mapping = A::keep(self.slice.mapping());
 
                 // If the view is empty, we must not offset the pointer.
                 let count = if mapping.is_empty() { 0 } else { offset };
 
-                $expr::new_unchecked(self.span.$as_ptr().offset(count), mapping)
+                $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping)
             }
 
             unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-                self.offset -= A::remove(self.span.mapping()).stride(index) * count as isize;
+                self.offset -= A::remove(self.slice.mapping()).stride(index) * count as isize;
             }
 
             unsafe fn step_dim(&mut self, index: usize) {
-                self.offset += A::remove(self.span.mapping()).stride(index);
+                self.offset += A::remove(self.slice.mapping()).stride(index);
             }
         }
 
@@ -444,8 +444,8 @@ macro_rules! impl_lanes {
     };
 }
 
-impl_lanes!(Lanes, Expr, as_ptr, {}, true);
-impl_lanes!(LanesMut, ExprMut, as_mut_ptr, {mut}, false);
+impl_lanes!(Lanes, View, as_ptr, {}, true);
+impl_lanes!(LanesMut, ViewMut, as_mut_ptr, {mut}, false);
 
 impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for Lanes<'a, T, S, L, A> {
     fn clone(&self) -> Self {

@@ -2,13 +2,10 @@ use crate::expression::Expression;
 use crate::traits::IntoExpression;
 
 mod adapters;
-#[allow(clippy::module_inception)]
-mod expr;
 mod into_expr;
 mod sources;
 
 pub use adapters::{cloned, copied, enumerate, map, zip, Cloned, Copied, Enumerate, Map, Zip};
-pub use expr::{Expr, ExprMut};
 pub use into_expr::IntoExpr;
 pub use sources::{fill, fill_with, from_elem, from_fn, Fill, FillWith, FromElem, FromFn};
 pub use sources::{AxisExpr, AxisExprMut, Lanes, LanesMut};
@@ -19,9 +16,9 @@ pub use sources::{AxisExpr, AxisExprMut, Lanes, LanesMut};
 /// # Examples
 ///
 /// ```
-/// use mdarray::expr;
+/// use mdarray::{expr, view};
 ///
-/// let v = expr![0, 1, 2];
+/// let v = view![0, 1, 2];
 ///
 /// assert_eq!(expr::fold(v, 0, |acc, x| acc + x), 3);
 /// ```
@@ -34,13 +31,13 @@ pub fn fold<T, I: IntoExpression, F: FnMut(T, I::Item) -> T>(expr: I, init: T, f
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, grid};
+/// use mdarray::{expr, tensor, view};
 ///
-/// let mut g = grid![0, 1, 2];
+/// let mut t = tensor![0, 1, 2];
 ///
-/// expr::for_each(&mut g, |x| *x *= 2);
+/// expr::for_each(&mut t, |x| *x *= 2);
 ///
-/// assert_eq!(g, expr![0, 2, 4]);
+/// assert_eq!(t, view![0, 2, 4]);
 /// ```
 pub fn for_each<I: IntoExpression, F: FnMut(I::Item)>(expr: I, f: F) {
     expr.into_expr().for_each(f)
