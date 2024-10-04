@@ -4,7 +4,7 @@ Below are some design notes, to better understand how the library is working
 internally and choices that are made. It is a complement to the documentation
 in `lib.rs`.
 
-## The `Span` type for array references
+## The `Slice` type for array references
 
 The starting point of the design is to mimic the `Vec`, `slice` and `array`
 types in Rust when possible. This includes having a similar interface and
@@ -18,15 +18,15 @@ to have custom dynamically sized types (DSTs) that could be larger, but
 unfortunately this seems to be far away in the future.
 
 It is solved by having separate view types that can contain metadata, and that
-a reference is simply a pointer to the internal metadata structure `RawSpan`.
-The owned array type `Grid` has the same metadata structure, which makes it
+a reference is simply a pointer to the internal metadata structure `RawSlice`.
+The owned array type `Tensor` has the same metadata structure, which makes it
 possible to dereference from both the owned array and view types to a single
 reference type.
 
 The reference type is implemented as a zero sized type (ZST), or as an extern
 type with nightly features. What is important is to disallow mutation of the
 metadata, since otherwise one could modify the internal state of owned arrays
-creating undefined behavior. Internally in the `Span` methods there is a type
+creating undefined behavior. Internally in the `Slice` methods there is a type
 cast to the metadata structure to access its contents.
 
 It could be possible to use another solution in the future, e.g. unmovable types
@@ -38,24 +38,24 @@ An array shape can be defined using a combination of static and/or dynamic
 dimensions. Static dimensions are included in the type and do not take up space
 in the metadata. This makes it possible to have fixed sized arrays without any
 metadata, except for a pointer to the array elements. One can then dereference
-to the `Span` type also for fixed sized arrays that are allocated on the stack.
+to the `Slice` type also for fixed sized arrays that are allocated on the stack.
 
-When there is no metadata, a reference to `Span` points to the array elements
+When there is no metadata, a reference to `Slice` points to the array elements
 and not to the metadata structure. This is handled automatically depending on
 the size of the metadata.
 
 ## Array view and expression types
 
-There are two types for array views: `Expr` and `ExprMut`. These are created
-with the methods `expr` and `expr_mut` in `Span`, and with other methods that
+There are two types for array views: `View` and `ViewMut`. These are created
+with the methods `expr` and `expr_mut` in `Slice`, and with other methods that
 give subarray views.
 
-One can wonder about the naming of these, and the reason is that in addition to
-view types there is also a need to have types for iteration. The normal iterator
-types cannot be used, since they do not contain information about multiple
-dimensions. This is an issue for example with the `map` and `zip` adaptors,
-since the result type is internal to Rust and cannot be extended. Furthermore,
-iteration over multiple dimensions with the `next` method is not efficient.
+In addition to being arrays views, these type are also used as iterator types.
+The normal iterator types cannot be used, since they do not contain information
+about multiple dimensions. This is an issue for example with the `map` and `zip`
+adaptors, since the result type is internal to Rust and cannot be extended.
+Furthermore, iteration over multiple dimensions with the `next` method is not
+efficient.
 
 A solution is to create a separate `Expression` trait in parallel to `Iterator`.
 The trait has similar methods as the iterator trait, and it is the combinators
@@ -70,12 +70,12 @@ When iterating over an expression, the value is consumed so that one cannot
 have a partially evaluated expression. It is needed to be able to merge the
 expression and view types as above, and simplifies expression building.
 
-The `Expression` trait is not implemented for the `Array` and `Grid` types.
+The `Expression` trait is not implemented for the `Array` and `Tensor` types.
 The reason is that it would give the wrong behavior, so that e.g. the result
 from the `map` method is an expression and not an array. One would then also
 expect the input array to be consumed, but it is not useful as default.
 
-The `Expression` trait is also not implemented for `&Span` and `&mut Span`.
+The `Expression` trait is also not implemented for `&Slice` and `&mut Slice`.
 While it could make sense and be convenient, it unfortunately deviates from
 how `Iterator` and `IntoIterator` are implemented for normal array types.
 
@@ -109,8 +109,8 @@ Below are the larger differences to C++ mdarray/mdspan:
   is left for higher level libraries.
 
 - The owned array type is parameterized by an allocator instead of a container.
-  The main reason is to be able to define the `RawSpan` structure internally
-  and support dereferencing to `Span`.
+  The main reason is to be able to define the `RawSlice` structure internally
+  and support dereferencing to `Slice`.
 
 - The fixed size array type is different from the generic array type with heap
   allocation. This is to align with Rust array types, and that the interface

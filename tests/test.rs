@@ -310,8 +310,8 @@ fn test_expr() {
     assert_eq!(format!("{:?}", a.cols()), "Lanes(0, [[1, 2, 3], [4, 5, 6]])");
     assert_eq!(format!("{:?}", a.rows_mut()), "LanesMut(1, [[1, 2, 3], [4, 5, 6]])");
 
-    assert_eq!(format!("{:?}", a.clone().drain(1..)), "[[4, 5, 6]]");
-    assert_eq!(format!("{:?}", a.clone().into_expr()), "[[1, 2, 3], [4, 5, 6]]");
+    assert_eq!(format!("{:?}", a.clone().drain(1..)), "IntoExpr([[4, 5, 6]])");
+    assert_eq!(format!("{:?}", a.clone().into_expr()), "IntoExpr([[1, 2, 3], [4, 5, 6]])");
 
     assert_eq!(format!("{:?}", expr::fill(1)), "Fill(1)");
     assert_eq!(format!("{:?}", expr::fill_with(|| 1)), "FillWith");

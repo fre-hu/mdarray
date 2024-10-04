@@ -179,14 +179,6 @@ macro_rules! impl_view {
             }
         }
 
-        impl<'a, T, S: Shape> $name<'a, T, S> {
-            /// Converts the array view into a slice of all elements, where the array view
-            /// must have dense layout.
-            pub fn into_slice($($mut)? self) -> &'a $($mut)? [T] {
-                unsafe { slice::$from_raw_parts(self.$as_ptr(), self.len()) }
-            }
-        }
-
         impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a $name<'_, T, S, L> {
             type Output<F: FnMut(&'a T) -> U> = Map<Self::IntoExpr, F>;
             type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =

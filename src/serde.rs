@@ -10,9 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
 use crate::array::Array;
-use crate::buffer::Buffer;
 use crate::dim::Dim;
-use crate::expr::IntoExpr;
 use crate::index::{Axis, Nth};
 use crate::layout::Layout;
 use crate::shape::{ConstShape, Shape};
@@ -107,12 +105,6 @@ impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Tensor<T, S> {
 }
 
 impl<T: Serialize, S: ConstShape> Serialize for Array<T, S> {
-    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
-        (**self).serialize(serializer)
-    }
-}
-
-impl<B: Buffer<Item: Serialize>> Serialize for IntoExpr<B> {
     fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }

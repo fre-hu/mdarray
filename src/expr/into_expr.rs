@@ -1,20 +1,12 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::fmt::{Debug, Formatter, Result};
-use std::hash::{Hash, Hasher};
 use std::mem::ManuallyDrop;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr;
 
 use crate::buffer::Buffer;
-use crate::expr::adapters::{Map, Zip};
 use crate::expression::Expression;
-use crate::index::SliceIndex;
 use crate::iter::Iter;
-use crate::layout::Dense;
 use crate::shape::Shape;
 use crate::slice::Slice;
-use crate::traits::{Apply, IntoExpression};
-use crate::view::{View, ViewMut};
 
 /// Expression that moves elements out of an array.
 pub struct IntoExpr<B: Buffer> {
@@ -28,67 +20,25 @@ impl<B: Buffer> IntoExpr<B> {
     }
 }
 
-impl<'a, T, B: Buffer> Apply<T> for &'a IntoExpr<B> {
-    type Output<F: FnMut(&'a B::Item) -> T> = Map<Self::IntoExpr, F>;
-    type ZippedWith<I: IntoExpression, F: FnMut((&'a B::Item, I::Item)) -> T> =
-        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
+impl<B: Buffer> AsMut<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+    fn as_mut(&mut self) -> &mut Slice<B::Item, B::Shape> {
+        debug_assert!(self.index == 0, "expression in use");
 
-    fn apply<F: FnMut(&'a B::Item) -> T>(self, f: F) -> Self::Output<F> {
-        self.expr().map(f)
-    }
-
-    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
-    where
-        F: FnMut((&'a B::Item, I::Item)) -> T,
-    {
-        self.expr().zip(expr).map(f)
+        unsafe {
+            &mut *(self.buffer.as_mut_slice() as *mut Slice<ManuallyDrop<B::Item>, B::Shape>
+                as *mut Slice<B::Item, B::Shape>)
+        }
     }
 }
 
-impl<'a, T, B: Buffer> Apply<T> for &'a mut IntoExpr<B> {
-    type Output<F: FnMut(&'a mut B::Item) -> T> = Map<Self::IntoExpr, F>;
-    type ZippedWith<I: IntoExpression, F: FnMut((&'a mut B::Item, I::Item)) -> T> =
-        Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
+impl<B: Buffer> AsRef<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+    fn as_ref(&self) -> &Slice<B::Item, B::Shape> {
+        debug_assert!(self.index == 0, "expression in use");
 
-    fn apply<F: FnMut(&'a mut B::Item) -> T>(self, f: F) -> Self::Output<F> {
-        self.expr_mut().map(f)
-    }
-
-    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
-    where
-        F: FnMut((&'a mut B::Item, I::Item)) -> T,
-    {
-        self.expr_mut().zip(expr).map(f)
-    }
-}
-
-impl<T: ?Sized, B: Buffer> AsMut<T> for IntoExpr<B>
-where
-    Slice<B::Item, B::Shape>: AsMut<T>,
-{
-    fn as_mut(&mut self) -> &mut T {
-        (**self).as_mut()
-    }
-}
-
-impl<T: ?Sized, B: Buffer> AsRef<T> for IntoExpr<B>
-where
-    Slice<B::Item, B::Shape>: AsRef<T>,
-{
-    fn as_ref(&self) -> &T {
-        (**self).as_ref()
-    }
-}
-
-impl<B: Buffer> Borrow<Slice<B::Item, B::Shape>> for IntoExpr<B> {
-    fn borrow(&self) -> &Slice<B::Item, B::Shape> {
-        self
-    }
-}
-
-impl<B: Buffer> BorrowMut<Slice<B::Item, B::Shape>> for IntoExpr<B> {
-    fn borrow_mut(&mut self) -> &mut Slice<B::Item, B::Shape> {
-        self
+        unsafe {
+            &*(self.buffer.as_slice() as *const Slice<ManuallyDrop<B::Item>, B::Shape>
+                as *const Slice<B::Item, B::Shape>)
+        }
     }
 }
 
@@ -108,35 +58,13 @@ impl<B: Buffer + Clone> Clone for IntoExpr<B> {
 
 impl<B: Buffer<Item: Debug>> Debug for IntoExpr<B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        (**self).fmt(f)
+        f.debug_tuple("IntoExpr").field(&self.as_ref()).finish()
     }
 }
 
 impl<B: Buffer + Default> Default for IntoExpr<B> {
     fn default() -> Self {
         Self { buffer: Default::default(), index: 0 }
-    }
-}
-
-impl<B: Buffer> Deref for IntoExpr<B> {
-    type Target = Slice<B::Item, B::Shape>;
-
-    fn deref(&self) -> &Self::Target {
-        debug_assert!(self.index == 0, "expression in use");
-
-        let slice = self.buffer.as_slice();
-
-        unsafe { &*(slice as *const Slice<ManuallyDrop<B::Item>, B::Shape> as *const Self::Target) }
-    }
-}
-
-impl<B: Buffer> DerefMut for IntoExpr<B> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        debug_assert!(self.index == 0, "expression in use");
-
-        let slice = self.buffer.as_mut_slice();
-
-        unsafe { &mut *(slice as *mut Slice<ManuallyDrop<B::Item>, B::Shape> as *mut Self::Target) }
     }
 }
 
@@ -171,62 +99,6 @@ impl<B: Buffer> Expression for IntoExpr<B> {
 
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
     unsafe fn step_dim(&mut self, _: usize) {}
-}
-
-impl<B: Buffer<Item: Hash>> Hash for IntoExpr<B> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (**self).hash(state)
-    }
-}
-
-impl<B: Buffer, I: SliceIndex<B::Item, B::Shape, Dense>> Index<I> for IntoExpr<B> {
-    type Output = I::Output;
-
-    fn index(&self, index: I) -> &I::Output {
-        index.index(self)
-    }
-}
-
-impl<B: Buffer, I: SliceIndex<B::Item, B::Shape, Dense>> IndexMut<I> for IntoExpr<B> {
-    fn index_mut(&mut self, index: I) -> &mut I::Output {
-        index.index_mut(self)
-    }
-}
-
-impl<'a, B: Buffer> IntoExpression for &'a IntoExpr<B> {
-    type Shape = B::Shape;
-    type IntoExpr = View<'a, B::Item, B::Shape>;
-
-    fn into_expr(self) -> Self::IntoExpr {
-        self.expr()
-    }
-}
-
-impl<'a, B: Buffer> IntoExpression for &'a mut IntoExpr<B> {
-    type Shape = B::Shape;
-    type IntoExpr = ViewMut<'a, B::Item, B::Shape>;
-
-    fn into_expr(self) -> Self::IntoExpr {
-        self.expr_mut()
-    }
-}
-
-impl<'a, B: Buffer> IntoIterator for &'a IntoExpr<B> {
-    type Item = &'a B::Item;
-    type IntoIter = Iter<View<'a, B::Item, B::Shape>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, B: Buffer> IntoIterator for &'a mut IntoExpr<B> {
-    type Item = &'a mut B::Item;
-    type IntoIter = Iter<ViewMut<'a, B::Item, B::Shape>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
-    }
 }
 
 impl<B: Buffer> IntoIterator for IntoExpr<B> {

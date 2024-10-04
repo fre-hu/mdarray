@@ -456,18 +456,6 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 }
 
-impl<T, S: Shape> Slice<T, S> {
-    /// Returns a mutable slice of all elements in the array, which must have dense layout.
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self.expr_mut().into_slice()
-    }
-
-    /// Returns a slice of all elements in the array, which must have dense layout.
-    pub fn as_slice(&self) -> &[T] {
-        self.expr().into_slice()
-    }
-}
-
 impl<T, X: Dim, Y: Dim, L: Layout> Slice<T, (X, Y), L> {
     /// Returns an array view for the specified column.
     ///
@@ -705,7 +693,7 @@ impl<T, S: Shape, L: Layout> AsMut<Slice<T, S, L>> for Slice<T, S, L> {
 
 impl<T, S: Shape> AsMut<[T]> for Slice<T, S> {
     fn as_mut(&mut self) -> &mut [T] {
-        &mut self[..]
+        self.expr_mut().into()
     }
 }
 
@@ -717,7 +705,7 @@ impl<T, S: Shape, L: Layout> AsRef<Slice<T, S, L>> for Slice<T, S, L> {
 
 impl<T, S: Shape> AsRef<[T]> for Slice<T, S> {
     fn as_ref(&self) -> &[T] {
-        &self[..]
+        self.expr().into()
     }
 }
 
