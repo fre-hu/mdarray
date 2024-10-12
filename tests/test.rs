@@ -1,3 +1,5 @@
+#![allow(clippy::comparison_chain)]
+#![allow(clippy::needless_range_loop)]
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
@@ -24,15 +26,15 @@ use aligned_alloc::AlignedAlloc;
 use mdarray::mapping::{DenseMapping, Mapping, StridedMapping};
 use mdarray::{array, step, tensor, view, Array, DTensor, StepRange, Tensor, View, ViewMut};
 use mdarray::{expr, Apply, Expression, IntoCloned, IntoExpression};
-use mdarray::{Const, Dense, Dyn, Layout, Rank, Shape, Strided};
+use mdarray::{Const, Dense, Dyn, DynRank, Layout, Rank, Shape, Strided};
 
 macro_rules! to_slice {
-    ($span:expr) => {
-        $span.to_tensor()[..]
+    ($slice:expr) => {
+        $slice.to_tensor()[..]
     };
 }
 
-fn check_mapping<S: Shape, L: Layout, M: Mapping>(_: M) {
+fn check_mapping<S: Shape, L: Layout, M: Mapping>(_: &M) {
     assert_eq!(any::type_name::<L::Mapping<S>>(), any::type_name::<M>());
 }
 
@@ -73,15 +75,14 @@ fn test_base() {
     #[cfg(feature = "nightly")]
     let mut b = DTensor::<usize, 3>::with_capacity_in(60, a.allocator().clone());
 
-    a.resize([3, 4, 5], 0);
-    b.resize([5, 4, 3], 0);
+    a.resize(&[3, 4, 5], 0);
+    b.resize(&[5, 4, 3], 0);
 
     assert_eq!(a.dim(1), 4);
-    assert_eq!(a.dims(), [3, 4, 5]);
+    assert_eq!(a.shape(), &Rank::<3>::from_dims(&[3, 4, 5]));
     assert_eq!(a.len(), 60);
     assert_eq!(a.rank(), 3);
     assert_eq!(a.stride(1), 5);
-    assert_eq!(a.strides(), [20, 5, 1]);
 
     for i in 0..3 {
         for j in 0..4 {
@@ -151,14 +152,14 @@ fn test_base() {
         s.set_mapping(DenseMapping::new((Dyn(3), Dyn(4), Dyn(5))));
     }
 
-    a.resize([4, 4, 4], 9999);
-    b.resize_with([4, 4, 4], || 9999);
+    a.resize(&[4, 4, 4], 9999);
+    b.resize_with(&[4, 4, 4], || 9999);
 
     assert_eq!(a.flatten().iter().sum::<usize>(), 213576);
     assert_eq!(b.flatten().iter().sum::<usize>(), 213576);
 
-    assert_eq!(r.view(1.., 1.., 1..).dims(), [4, 3, 2]);
-    assert_eq!(s.view(1.., 1.., 1..).dims(), [2, 3, 4]);
+    assert_eq!(r.view(1.., 1.., 1..).shape(), &(Dyn(4), Dyn(3), Dyn(2)));
+    assert_eq!(s.view(1.., 1.., 1..).shape(), &(Dyn(2), Dyn(3), Dyn(4)));
 
     assert_eq!(r.view(1.., 1.., 1..).strides(), [12, 3, 1]);
     assert_eq!(s.view(1.., 1.., 1..).strides(), [20, 5, 1]);
@@ -251,8 +252,8 @@ fn test_base() {
 
     assert_eq!(tensor![123].into_scalar(), Tensor::from_elem((), 123)[[]]);
 
-    assert_eq!(DTensor::<i32, 3>::from([[[456; 0]; 3]; 0]).dims(), [0, 3, 0]);
-    assert_eq!(DTensor::<i32, 3>::from([[[456; 3]; 0]; 3]).dims(), [3, 0, 3]);
+    assert_eq!(DTensor::<i32, 3>::from([[[456; 0]; 3]; 0]).shape(), &(Dyn(0), Dyn(3), Dyn(0)));
+    assert_eq!(DTensor::<i32, 3>::from([[[456; 3]; 0]; 3]).shape(), &(Dyn(3), Dyn(0), Dyn(3)));
 
     assert_eq!(view![1, 2, 3].permute::<0>(), view![1, 2, 3]);
 
@@ -269,8 +270,8 @@ fn test_base() {
     assert_eq!(v.into_permuted::<2, 1, 0>(), view![[[1], [4]], [[2], [5]], [[3], [6]]]);
 
     assert_eq!(Array::<usize, ()>(123).into_scalar(), 123);
-    assert_eq!(array![1, 2, 3].into_shape((Const::<1>, Const::<3>)), view![[1, 2, 3]]);
-    assert_eq!(array![1, 2, 3].into_shape((Const::<3>, Const::<1>)), view![[1], [2], [3]]);
+    assert_eq!(array![1, 2, 3].into_shape::<(Const::<1>, Const::<3>)>(), view![[1, 2, 3]]);
+    assert_eq!(array![1, 2, 3].into_shape::<(Const::<3>, Const::<1>)>(), view![[1], [2], [3]]);
     assert_eq!(array![[1, 2, 3], [4, 5, 6]], view![[1, 2, 3], [4, 5, 6]]);
 
     assert_eq!(tensor![[1, 2, 3], [4, 5, 6]].reorder(), view![[1, 4], [2, 5], [3, 6]]);
@@ -299,8 +300,6 @@ fn test_base() {
 fn test_expr() {
     let mut a = tensor![[1, 2, 3], [4, 5, 6]];
 
-    assert_eq!(a.dims(), [2, 3]);
-
     assert_eq!((&a + &view![1, 2, 3]).eval::<Tensor<_, _>>()[..], [2, 4, 6, 5, 7, 9]);
     assert_eq!((&view![1, 2, 3] + &a).eval::<Tensor<_, _>>()[..], [2, 4, 6, 5, 7, 9]);
 
@@ -316,7 +315,7 @@ fn test_expr() {
     assert_eq!(format!("{:?}", expr::fill(1)), "Fill(1)");
     assert_eq!(format!("{:?}", expr::fill_with(|| 1)), "FillWith");
     assert_eq!(format!("{:?}", expr::from_elem([1, 2], 3)), "FromElem((Dyn(1), Dyn(2)), 3)");
-    assert_eq!(format!("{:?}", expr::from_fn([1, 2], |i| i)), "FromFn((Dyn(1), Dyn(2)))");
+    assert_eq!(format!("{:?}", expr::from_fn([1, 2], |i| i[0])), "FromFn((Dyn(1), Dyn(2)))");
 
     let e1 = format!("{:?}", a.expr().cloned().map(|x| x + 3));
     let e2 = format!("{:?}", a.view(..1, ..).expr().zip(&a.view(1.., ..)));
@@ -339,7 +338,7 @@ fn test_expr() {
     let mut c = tensor![[1, 2], [3, 4], [5, 6]];
 
     c.expand(tensor![[7, 8], [9, 10]].into_expr());
-    _ = view![11, 12].expr().cloned().eval_into(&mut c);
+    _ = view![[11, 12]].expr().cloned().eval_into(&mut c);
 
     assert_eq!(c, view![[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], [11, 12]]);
 
@@ -352,7 +351,7 @@ fn test_expr() {
     assert_eq!(c, view![[2; 2]; 6]);
 
     let d = view![[(1, 5), (2, 6)], [(3, 5), (4, 6)]];
-    let e = [[([0, 0], 1), ([0, 1], 1)], [([1, 0], 1), ([1, 1], 1)], [([2, 0], 1), ([2, 1], 1)]];
+    let e = [[(0, 1), (1, 1)], [(2, 1), (3, 1)], [(4, 1), (5, 1)]];
 
     let f = view![[1, 2], [3, 4]];
 
@@ -405,19 +404,19 @@ fn test_macros() {
     let view5: View<usize, _> = view![[[[[]]]]];
     let view6: View<usize, _> = view![[[[[[]]]]]];
 
-    assert_eq!(tensor1.dims(), [0]);
-    assert_eq!(tensor2.dims(), [1, 0]);
-    assert_eq!(tensor3.dims(), [1, 1, 0]);
-    assert_eq!(tensor4.dims(), [1, 1, 1, 0]);
-    assert_eq!(tensor5.dims(), [1, 1, 1, 1, 0]);
-    assert_eq!(tensor6.dims(), [1, 1, 1, 1, 1, 0]);
+    assert_eq!(tensor1.shape(), &(Dyn(0),));
+    assert_eq!(tensor2.shape(), &(Dyn(1), Dyn(0)));
+    assert_eq!(tensor3.shape(), &(Dyn(1), Dyn(1), Dyn(0)));
+    assert_eq!(tensor4.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
+    assert_eq!(tensor5.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
+    assert_eq!(tensor6.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
 
-    assert_eq!(view1.dims(), [0]);
-    assert_eq!(view2.dims(), [1, 0]);
-    assert_eq!(view3.dims(), [1, 1, 0]);
-    assert_eq!(view4.dims(), [1, 1, 1, 0]);
-    assert_eq!(view5.dims(), [1, 1, 1, 1, 0]);
-    assert_eq!(view6.dims(), [1, 1, 1, 1, 1, 0]);
+    assert_eq!(view1.shape(), &(Dyn(0),));
+    assert_eq!(view2.shape(), &(Dyn(1), Dyn(0)));
+    assert_eq!(view3.shape(), &(Dyn(1), Dyn(1), Dyn(0)));
+    assert_eq!(view4.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
+    assert_eq!(view5.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
+    assert_eq!(view6.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
 
     assert_eq!(tensor![1, 2, 3], Tensor::from([1, 2, 3]));
     assert_eq!(tensor![[1, 2, 3], [4, 5, 6]], Tensor::from([[1, 2, 3], [4, 5, 6]]));
@@ -451,7 +450,7 @@ fn test_macros() {
 #[test]
 fn test_mapping() {
     let d = DenseMapping::new((Const::<1>, Dyn(2), Const::<3>));
-    let s = StridedMapping::new((Dyn(1), Const::<2>, Dyn(3)), [4, 5, 6]);
+    let s = StridedMapping::new(DynRank::from_dims(&[1, 2, 3]), &[4, 5, 6]);
 
     assert_eq!(d.is_contiguous(), true);
     assert_eq!(s.is_empty(), false);
@@ -467,7 +466,7 @@ fn test_mapping() {
     let y = format!("{:?}", s);
 
     assert_eq!(x, "DenseMapping { shape: (Const(1), Dyn(2), Const(3)) }");
-    assert_eq!(y, "StridedMapping { shape: (Dyn(1), Const(2), Dyn(3)), strides: [4, 5, 6] }");
+    assert_eq!(y, "StridedMapping { shape: DynRank([1, 2, 3]), strides: [4, 5, 6] }");
 }
 
 #[test]
@@ -494,6 +493,8 @@ fn test_ops() {
     a = b.expr() - a;
 
     assert_eq!(a, Tensor::from([[57, 50, 43], [36, 29, 22]]));
+
+    let mut a = a.into_shape([2, 3].as_slice());
 
     a = (&a - &b).eval();
     a = (&a - b.expr()).eval();

@@ -2,7 +2,6 @@ use std::ops::{
     Bound, Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 
-use crate::dim::Dims;
 use crate::index;
 use crate::layout::{Dense, Layout};
 use crate::mapping::Mapping;
@@ -27,7 +26,7 @@ pub trait SliceIndex<T, S: Shape, L: Layout> {
     fn index_mut(self, slice: &mut Slice<T, S, L>) -> &mut Self::Output;
 }
 
-impl<T, D: Dims, S: Shape<Dims = D>, L: Layout> SliceIndex<T, S, L> for D {
+impl<T, S: Shape, L: Layout> SliceIndex<T, S, L> for &[usize] {
     type Output = T;
 
     unsafe fn get_unchecked(self, slice: &Slice<T, S, L>) -> &T {
@@ -39,27 +38,47 @@ impl<T, D: Dims, S: Shape<Dims = D>, L: Layout> SliceIndex<T, S, L> for D {
     }
 
     fn index(self, slice: &Slice<T, S, L>) -> &T {
-        let dims = slice.dims();
+        assert!(self.len() == slice.rank(), "invalid rank");
 
-        for i in 0..S::RANK {
-            if self[i] >= dims[i] {
-                index::panic_bounds_check(self[i], dims[i])
+        for i in 0..self.len() {
+            if self[i] >= slice.dim(i) {
+                index::panic_bounds_check(self[i], slice.dim(i));
             }
         }
 
-        unsafe { self.get_unchecked(slice) }
+        unsafe { SliceIndex::get_unchecked(self, slice) }
     }
 
     fn index_mut(self, slice: &mut Slice<T, S, L>) -> &mut T {
-        let dims = slice.dims();
+        assert!(self.len() == slice.rank(), "invalid rank");
 
-        for i in 0..S::RANK {
-            if self[i] >= dims[i] {
-                index::panic_bounds_check(self[i], dims[i])
+        for i in 0..self.len() {
+            if self[i] >= slice.dim(i) {
+                index::panic_bounds_check(self[i], slice.dim(i));
             }
         }
 
-        unsafe { self.get_unchecked_mut(slice) }
+        unsafe { SliceIndex::get_unchecked_mut(self, slice) }
+    }
+}
+
+impl<T, const N: usize, S: Shape, L: Layout> SliceIndex<T, S, L> for [usize; N] {
+    type Output = T;
+
+    unsafe fn get_unchecked(self, slice: &Slice<T, S, L>) -> &T {
+        SliceIndex::get_unchecked(&self[..], slice)
+    }
+
+    unsafe fn get_unchecked_mut(self, slice: &mut Slice<T, S, L>) -> &mut T {
+        SliceIndex::get_unchecked_mut(&self[..], slice)
+    }
+
+    fn index(self, slice: &Slice<T, S, L>) -> &T {
+        SliceIndex::index(&self[..], slice)
+    }
+
+    fn index_mut(self, slice: &mut Slice<T, S, L>) -> &mut T {
+        SliceIndex::index_mut(&self[..], slice)
     }
 }
 
@@ -76,18 +95,18 @@ impl<T, S: Shape, L: Layout> SliceIndex<T, S, L> for usize {
 
     fn index(self, slice: &Slice<T, S, L>) -> &T {
         if self >= slice.len() {
-            index::panic_bounds_check(self, slice.len())
+            index::panic_bounds_check(self, slice.len());
         }
 
-        unsafe { self.get_unchecked(slice) }
+        unsafe { SliceIndex::get_unchecked(self, slice) }
     }
 
     fn index_mut(self, slice: &mut Slice<T, S, L>) -> &mut T {
         if self >= slice.len() {
-            index::panic_bounds_check(self, slice.len())
+            index::panic_bounds_check(self, slice.len());
         }
 
-        unsafe { self.get_unchecked_mut(slice) }
+        unsafe { SliceIndex::get_unchecked_mut(self, slice) }
     }
 }
 

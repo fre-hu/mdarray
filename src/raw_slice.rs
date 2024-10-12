@@ -47,16 +47,16 @@ impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
         unsafe { &*(slice as *const Slice<T, S, L> as *const Self) }
     }
 
-    pub(crate) fn mapping(&self) -> L::Mapping<S> {
-        self.mapping
+    pub(crate) fn mapping(&self) -> &L::Mapping<S> {
+        &self.mapping
+    }
+
+    pub(crate) unsafe fn mapping_mut(&mut self) -> &mut L::Mapping<S> {
+        &mut self.mapping
     }
 
     pub(crate) unsafe fn new_unchecked(ptr: *mut T, mapping: L::Mapping<S>) -> Self {
         Self { ptr: NonNull::new_unchecked(ptr), mapping }
-    }
-
-    pub(crate) unsafe fn set_mapping(&mut self, new_mapping: L::Mapping<S>) {
-        self.mapping = new_mapping;
     }
 
     pub(crate) unsafe fn set_ptr(&mut self, new_ptr: *mut T) {
@@ -66,8 +66,13 @@ impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
 
 impl<T, S: Shape, L: Layout> Clone for RawSlice<T, S, L> {
     fn clone(&self) -> Self {
-        *self
+        Self { ptr: self.ptr, mapping: self.mapping.clone() }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.ptr = source.ptr;
+        self.mapping.clone_from(&source.mapping);
     }
 }
 
-impl<T, S: Shape, L: Layout> Copy for RawSlice<T, S, L> {}
+impl<T, S: Shape, L: Layout<Mapping<S>: Copy>> Copy for RawSlice<T, S, L> {}

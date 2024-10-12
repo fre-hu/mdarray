@@ -11,7 +11,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::alloc::Allocator;
 use crate::array::Array;
 use crate::dim::Dim;
-use crate::index::{Axis, Nth};
 use crate::layout::Layout;
 use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
@@ -26,19 +25,19 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
     type Value = Tensor<T, S>;
 
     fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
-        write!(formatter, "an array of rank {}", S::RANK)
+        write!(formatter, "an array of rank {}", S::RANK.expect("invalid rank"))
     }
 
     fn visit_seq<A: SeqAccess<'a>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-        assert!(S::RANK > 0, "invalid rank");
+        assert!(S::RANK.is_some_and(|rank| rank > 0), "invalid rank");
 
         let mut vec = Vec::new();
-        let mut dims = S::default().dims();
+        let mut shape = S::default();
         let mut size = 0;
 
         let size_hint = seq.size_hint().unwrap_or(0);
 
-        if S::RANK == 1 {
+        if S::RANK == Some(1) {
             vec.reserve(size_hint);
 
             while let Some(value) = seq.next_element()? {
@@ -46,19 +45,27 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
                 size += 1;
             }
         } else {
-            while let Some(value) = seq.next_element::<Tensor<T, <Nth<0> as Axis>::Other<S>>>()? {
+            while let Some(value) = seq.next_element::<Tensor<T, S::Tail>>()? {
                 if size == 0 {
                     vec.reserve(value.len() * size_hint);
-                    dims[1..].copy_from_slice(&value.dims()[..]);
+                    shape.with_mut_dims(|dims| {
+                        value.shape().with_dims(|src| dims[1..].copy_from_slice(src));
+                    });
                 } else {
-                    let found = &value.dims()[..];
-                    let expect = &dims[1..];
+                    shape.with_dims(|dims| {
+                        value.shape().with_dims(|src| {
+                            let dst = &dims[1..];
 
-                    if found != expect {
-                        let msg = format!("invalid dimensions {:?}, expected {:?}", found, expect);
+                            if src != dst {
+                                let msg =
+                                    format!("invalid dimensions {:?}, expected {:?}", src, dst);
 
-                        return Err(A::Error::custom(msg));
-                    }
+                                Err(A::Error::custom(msg))
+                            } else {
+                                Ok(())
+                            }
+                        })
+                    })?;
                 }
 
                 vec.append(&mut value.into_vec());
@@ -66,33 +73,35 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
             }
         }
 
-        if <Nth<0> as Axis>::Dim::<S>::SIZE.is_none() {
-            dims[0] = size;
-        } else if size != dims[0] {
-            let msg = format!("invalid dimension {:?}, expected {:?}", size, dims[0]);
+        if S::Head::SIZE.is_none() {
+            shape.with_mut_dims(|dims| dims[0] = size);
+        } else if size != shape.dim(0) {
+            let msg = format!("invalid dimension {:?}, expected {:?}", size, shape.dim(0));
 
             return Err(A::Error::custom(msg));
         }
 
-        Ok(Tensor::from(vec).into_shape(S::from_dims(dims)))
+        Ok(Tensor::from(vec).into_shape(shape))
     }
 }
 
 impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
-        if S::RANK > 0 {
+        if S::RANK != Some(0) {
             Ok(<Tensor<T, S> as Deserialize>::deserialize(deserializer)?.into())
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
-            Ok(Array::from([value]).into_shape(S::default()))
+            Ok(Array::from([value]).into_shape())
         }
     }
 }
 
 impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Tensor<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
-        if S::RANK > 0 {
+        let rank = S::RANK.expect("dynamic rank not supported");
+
+        if rank > 0 {
             let visitor = TensorVisitor { phantom: PhantomData };
 
             deserializer.deserialize_seq(visitor)
@@ -112,8 +121,10 @@ impl<T: Serialize, S: ConstShape> Serialize for Array<T, S> {
 
 impl<T: Serialize, S: Shape, L: Layout> Serialize for Slice<T, S, L> {
     fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
-        if S::RANK == 0 {
-            self[S::Dims::default()].serialize(serializer)
+        let rank = S::RANK.expect("dynamic rank not supported");
+
+        if rank == 0 {
+            self[[]].serialize(serializer)
         } else {
             let mut seq = serializer.serialize_seq(Some(self.dim(0)))?;
 

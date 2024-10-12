@@ -14,8 +14,8 @@
 //! - Standard Rust mechanisms are used for e.g. indexing and iteration.
 //! - Generic expressions for multidimensional iteration.
 //!
-//! The design is inspired from other Rust crates (ndarray, nalgebra, bitvec
-//! and dfdx), the proposed C++ mdarray and mdspan types, and multidimensional
+//! The design is inspired from other Rust crates (ndarray, nalgebra, bitvec, dfdx
+//! and candle), the proposed C++ mdarray and mdspan types, and multidimensional
 //! arrays in other languages.
 //!
 //! ## Array types
@@ -39,6 +39,9 @@
 //! - `DTensor<T, const N: usize, ...>` for a dense array with a given rank.
 //! - `DSlice<T, const N: usize, ...>` for an array slice with a given rank.
 //!
+//! The rank can be dynamic using the `DynRank` shape type. This is the default
+//! for array types if no shape is specified.
+//!
 //! The layout mapping describes how elements are stored in memory. The mapping
 //! is parameterized by the shape and the layout. It contains the dynamic size
 //! and stride per dimension when needed.
@@ -46,8 +49,8 @@
 //! The layout is `Dense` if elements are stored contiguously without gaps, and
 //! it is `Strided` if all dimensions can have arbitrary strides.
 //!
-//! The array elements are stored in row-major or C order, where the last
-//! dimension is the innermost one.
+//! The array elements are stored in row-major or C order, where the first
+//! dimension is the outermost one.
 //!
 //! ## Indexing and views
 //!
@@ -142,6 +145,8 @@
 //! assert_eq!(c, view![[4.0, 5.0], [5.0, 7.0], [6.0, 9.0]]);
 //! ```
 
+#![allow(clippy::comparison_chain)]
+#![allow(clippy::needless_range_loop)]
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
@@ -192,12 +197,12 @@ mod alloc {
 }
 
 pub use array::Array;
-pub use dim::{Const, Dim, Dims, Dyn, Strides};
+pub use dim::{Const, Dim, Dyn};
 pub use expression::Expression;
 pub use iter::Iter;
 pub use layout::{Dense, Layout, Strided};
 pub use ops::{step, StepRange};
-pub use shape::{ConstShape, IntoShape, Rank, Shape};
+pub use shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 pub use slice::{DSlice, Slice};
 pub use tensor::{DTensor, Tensor};
 pub use traits::{Apply, FromExpression, IntoCloned, IntoExpression};

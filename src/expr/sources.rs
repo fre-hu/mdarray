@@ -1,5 +1,4 @@
 use std::fmt::{Debug, Formatter, Result};
-use std::marker::PhantomData;
 
 use crate::expression::Expression;
 use crate::index::Axis;
@@ -13,56 +12,56 @@ use crate::view::{View, ViewMut};
 /// Array axis expression.
 pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
+    keep: <A::Keep<S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
-    phantom: PhantomData<A>,
 }
 
 /// Mutable array axis expression.
 pub struct AxisExprMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
+    keep: <A::Keep<S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
-    phantom: PhantomData<A>,
 }
 
 /// Expression that repeats an element by cloning.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Fill<T> {
     value: T,
 }
 
 /// Expression that gives elements by calling a closure repeatedly.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct FillWith<F> {
     f: F,
 }
 
 /// Expression with a defined shape that repeats an element by cloning.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct FromElem<T, S> {
     shape: S,
     elem: T,
 }
 
 /// Expression with a defined shape and elements from the given function.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct FromFn<S: Shape, F> {
     shape: S,
     f: F,
-    index: S::Dims,
+    index: S::Dims<usize>,
 }
 
 /// Array lanes expression.
 pub struct Lanes<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
+    remove: <A::Split<S, L> as Layout>::Mapping<A::Other<S>>,
     offset: isize,
-    phantom: PhantomData<A>,
 }
 
 /// Mutable array lanes expression.
 pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
+    remove: <A::Split<S, L> as Layout>::Mapping<A::Other<S>>,
     offset: isize,
-    phantom: PhantomData<A>,
 }
 
 /// Creates an expression with elements by cloning `value`.
@@ -121,13 +120,13 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::In
 /// ```
 /// use mdarray::{expr, view, FromExpression, Tensor};
 ///
-/// let t = Tensor::from_expr(expr::from_fn([2, 3], |[i, j]| 3 * i + j + 1));
+/// let t = Tensor::from_expr(expr::from_fn([2, 3], |i| 3 * i[0] + i[1] + 1));
 ///
 /// assert_eq!(t, view![[1, 2, 3], [4, 5, 6]]);
 /// ```
 pub fn from_fn<T, I: IntoShape, F>(shape: I, f: F) -> FromFn<I::IntoShape, F>
 where
-    F: FnMut(<I::IntoShape as Shape>::Dims) -> T,
+    F: FnMut(&[usize]) -> T,
 {
     FromFn::new(shape.into_shape(), f)
 }
@@ -138,19 +137,15 @@ macro_rules! impl_axis_expr {
             pub(crate) fn new(
                 slice: &'a $($mut)? Slice<T, S, L>,
             ) -> Self {
-                // Ensure that the dimension is valid.
-                _ = A::index(S::RANK);
+                let keep = A::keep(slice.mapping());
 
-                // Ensure that the subarray is valid.
-                _ = A::remove(slice.mapping()).shape().checked_len().expect("invalid length");
-
-                Self { slice, offset: 0, phantom: PhantomData }
+                Self { slice, keep, offset: 0 }
             }
         }
 
         impl<'a, T: Debug, S: Shape, L: Layout, A: Axis> Debug for $name<'a, T, S, L, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                let index = A::index(S::RANK);
+                let index = A::index(self.slice.rank());
 
                 f.debug_tuple(stringify!($name)).field(&index).field(&self.slice).finish()
             }
@@ -160,22 +155,25 @@ macro_rules! impl_axis_expr {
             type Shape = (A::Dim<S>,);
 
             const IS_REPEATABLE: bool = $repeatable;
-            const SPLIT_MASK: usize = 1;
 
-            fn shape(&self) -> Self::Shape {
-                A::keep(self.slice.mapping()).shape()
+            fn shape(&self) -> &Self::Shape {
+                self.keep.shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-                let stride = A::keep(self.slice.mapping()).stride(0);
-                let offset = self.offset + stride * index as isize;
+                let offset = self.offset + self.keep.inner_stride() * index as isize;
 
                 let mapping = A::remove(self.slice.mapping());
+                let len = mapping.shape().checked_len().expect("invalid length");
 
                 // If the view is empty, we must not offset the pointer.
-                let count = if mapping.is_empty() { 0 } else { offset };
+                let count = if len == 0 { 0 } else { offset };
 
                 $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping)
+            }
+
+            fn inner_rank(&self) -> usize {
+                1
             }
 
             unsafe fn reset_dim(&mut self, _: usize, _: usize) {
@@ -183,7 +181,7 @@ macro_rules! impl_axis_expr {
             }
 
             unsafe fn step_dim(&mut self, _: usize) {
-                self.offset += A::keep(self.slice.mapping()).stride(0);
+                self.offset += self.keep.inner_stride();
             }
         }
 
@@ -201,13 +199,17 @@ macro_rules! impl_axis_expr {
 impl_axis_expr!(AxisExpr, View, as_ptr, {}, true);
 impl_axis_expr!(AxisExprMut, ViewMut, as_mut_ptr, {mut}, false);
 
-impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for AxisExpr<'a, T, S, L, A> {
+impl<T, S: Shape, L: Layout, A: Axis> Clone for AxisExpr<'_, T, S, L, A> {
     fn clone(&self) -> Self {
-        *self
+        Self { slice: self.slice, keep: self.keep.clone(), offset: self.offset }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.slice = source.slice;
+        self.keep.clone_from(&source.keep);
+        self.offset = source.offset;
     }
 }
-
-impl<'a, T, S: Shape, L: Layout, A: Axis> Copy for AxisExpr<'a, T, S, L, A> {}
 
 impl<T> Fill<T> {
     pub(crate) fn new(value: T) -> Self {
@@ -225,12 +227,17 @@ impl<T: Clone> Expression for Fill<T> {
     type Shape = ();
 
     const IS_REPEATABLE: bool = true;
-    const SPLIT_MASK: usize = 0;
 
-    fn shape(&self) {}
+    fn shape(&self) -> &() {
+        &()
+    }
 
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         self.value.clone()
+    }
+
+    fn inner_rank(&self) -> usize {
+        usize::MAX
     }
 
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
@@ -262,12 +269,17 @@ impl<T, F: FnMut() -> T> Expression for FillWith<F> {
     type Shape = ();
 
     const IS_REPEATABLE: bool = true;
-    const SPLIT_MASK: usize = 0;
 
-    fn shape(&self) {}
+    fn shape(&self) -> &() {
+        &()
+    }
 
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         (self.f)()
+    }
+
+    fn inner_rank(&self) -> usize {
+        usize::MAX
     }
 
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
@@ -301,14 +313,17 @@ impl<T: Clone, S: Shape> Expression for FromElem<T, S> {
     type Shape = S;
 
     const IS_REPEATABLE: bool = true;
-    const SPLIT_MASK: usize = 0;
 
-    fn shape(&self) -> S {
-        self.shape
+    fn shape(&self) -> &S {
+        &self.shape
     }
 
     unsafe fn get_unchecked(&mut self, _: usize) -> T {
         self.elem.clone()
+    }
+
+    fn inner_rank(&self) -> usize {
+        usize::MAX
     }
 
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
@@ -332,40 +347,53 @@ impl<S: Shape, F> FromFn<S, F> {
     }
 }
 
-impl<T: Debug, S: Shape, F: FnMut(S::Dims) -> T> Debug for FromFn<S, F> {
+impl<S: Shape, F> Debug for FromFn<S, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_tuple("FromFn").field(&self.shape).finish()
     }
 }
 
-impl<T, S: Shape, F: FnMut(S::Dims) -> T> Expression for FromFn<S, F> {
+impl<T, S: Shape, F: FnMut(&[usize]) -> T> Expression for FromFn<S, F> {
     type Shape = S;
 
     const IS_REPEATABLE: bool = true;
-    const SPLIT_MASK: usize = (1 << S::RANK) - 1;
 
-    fn shape(&self) -> S {
-        self.shape
+    fn shape(&self) -> &S {
+        &self.shape
     }
 
-    unsafe fn get_unchecked(&mut self, index: usize) -> T {
-        if S::RANK > 0 {
-            self.index[S::RANK - 1] = index;
+    unsafe fn get_unchecked(&mut self, _: usize) -> T {
+        let value = (self.f)(self.index.as_ref());
+
+        // Increment the last dimension, which will be reset by reset_dim().
+        if self.rank() > 0 {
+            self.index.as_mut()[self.shape.rank() - 1] += 1;
         }
 
-        (self.f)(self.index)
+        value
+    }
+
+    fn inner_rank(&self) -> usize {
+        if self.shape.rank() > 0 {
+            1
+        } else {
+            usize::MAX
+        }
     }
 
     unsafe fn reset_dim(&mut self, index: usize, _: usize) {
-        self.index[index] = 0;
+        self.index.as_mut()[index] = 0;
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        self.index[index] += 1;
+        // Don't increment the last dimension, since it is done in get_unchecked().
+        if index + 1 < self.rank() {
+            self.index.as_mut()[index] += 1;
+        }
     }
 }
 
-impl<T, S: Shape, F: FnMut(S::Dims) -> T> IntoIterator for FromFn<S, F> {
+impl<T, S: Shape, F: FnMut(&[usize]) -> T> IntoIterator for FromFn<S, F> {
     type Item = T;
     type IntoIter = Iter<Self>;
 
@@ -380,19 +408,18 @@ macro_rules! impl_lanes {
             pub(crate) fn new(
                 slice: &'a $($mut)? Slice<T, S, L>,
             ) -> Self {
-                // Ensure that the dimension is valid.
-                _ = A::index(S::RANK);
+                let remove = A::remove(slice.mapping());
 
                 // Ensure that the subarray is valid.
-                _ = A::remove(slice.mapping()).shape().checked_len().expect("invalid length");
+                _ = remove.shape().checked_len().expect("invalid length");
 
-                Self { slice, offset: 0, phantom: PhantomData }
+                Self { slice, remove, offset: 0 }
             }
         }
 
         impl<'a, T: Debug, S: Shape, L: Layout, A: Axis> Debug for $name<'a, T, S, L, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                let index = A::index(S::RANK);
+                let index = A::index(self.slice.rank());
 
                 f.debug_tuple(stringify!($name)).field(&index).field(&self.slice).finish()
             }
@@ -402,20 +429,13 @@ macro_rules! impl_lanes {
             type Shape = A::Other<S>;
 
             const IS_REPEATABLE: bool = $repeatable;
-            const SPLIT_MASK: usize = ((1 << S::RANK) - 1) >> 1;
 
-            fn shape(&self) -> Self::Shape {
-                A::remove(self.slice.mapping()).shape()
+            fn shape(&self) -> &Self::Shape {
+                self.remove.shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-                let stride = if S::RANK > 1 {
-                    A::remove(self.slice.mapping()).stride(S::RANK - 2)
-                } else {
-                    0
-                };
-
-                let offset = self.offset + stride * index as isize;
+                let offset = self.remove.inner_stride() * index as isize;
                 let mapping = A::keep(self.slice.mapping());
 
                 // If the view is empty, we must not offset the pointer.
@@ -424,12 +444,22 @@ macro_rules! impl_lanes {
                 $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping)
             }
 
+            fn inner_rank(&self) -> usize {
+                if A::Split::<S, L>::IS_DENSE {
+                    // For static rank 0, the inner stride is 0 so we allow inner rank >0.
+                    if A::Other::<S>::RANK == Some(0) { usize::MAX } else { self.remove.rank() }
+                } else {
+                    // For rank 0, the inner stride is always 0 so we can allow inner rank >0.
+                    if self.remove.rank() > 0 { 1 } else { usize::MAX }
+                }
+            }
+
             unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-                self.offset -= A::remove(self.slice.mapping()).stride(index) * count as isize;
+                self.offset -= self.remove.stride(index) * count as isize;
             }
 
             unsafe fn step_dim(&mut self, index: usize) {
-                self.offset += A::remove(self.slice.mapping()).stride(index);
+                self.offset += self.remove.stride(index);
             }
         }
 
@@ -447,10 +477,14 @@ macro_rules! impl_lanes {
 impl_lanes!(Lanes, View, as_ptr, {}, true);
 impl_lanes!(LanesMut, ViewMut, as_mut_ptr, {mut}, false);
 
-impl<'a, T, S: Shape, L: Layout, A: Axis> Clone for Lanes<'a, T, S, L, A> {
+impl<T, S: Shape, L: Layout, A: Axis> Clone for Lanes<'_, T, S, L, A> {
     fn clone(&self) -> Self {
-        *self
+        Self { slice: self.slice, remove: self.remove.clone(), offset: self.offset }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.slice = source.slice;
+        self.remove.clone_from(&source.remove);
+        self.offset = source.offset;
     }
 }
-
-impl<'a, T, S: Shape, L: Layout, A: Axis> Copy for Lanes<'a, T, S, L, A> {}

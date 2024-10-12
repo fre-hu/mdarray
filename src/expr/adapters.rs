@@ -6,36 +6,37 @@ use crate::shape::Shape;
 use crate::traits::IntoExpression;
 
 /// Expression that clones the elements of an underlying expression.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Cloned<E> {
     expr: E,
 }
 
 /// Expression that copies the elements of an underlying expression.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Copied<E> {
     expr: E,
 }
 
-/// Expression that gives the current index and the element during iteration.
-#[derive(Clone, Copy)]
-pub struct Enumerate<E, I> {
+/// Expression that gives the current count and the element during iteration.
+#[derive(Clone)]
+pub struct Enumerate<E> {
     expr: E,
-    index: I,
+    count: usize,
 }
 
 /// Expression that calls a closure on each element.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Map<E, F> {
     expr: E,
     f: F,
 }
 
 /// Expression that gives tuples `(x, y)` of the elements from each expression.
-#[derive(Clone, Copy, Debug)]
-pub struct Zip<A, B> {
+#[derive(Clone)]
+pub struct Zip<A: Expression, B: Expression> {
     a: A,
     b: B,
+    shape: <Self as Expression>::Shape,
 }
 
 /// Creates an expression that clones the elements of the argument.
@@ -77,9 +78,9 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 ///
 /// let t = Tensor::from_expr(expr::enumerate(view![1, 2, 3]));
 ///
-/// assert_eq!(t, view![([0], &1), ([1], &2), ([2], &3)]);
+/// assert_eq!(t, view![(0, &1), (1, &2), (2, &3)]);
 /// ```
-pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr, <I::Shape as Shape>::Dims> {
+pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr> {
     expr.into_expr().enumerate()
 }
 
@@ -130,14 +131,17 @@ impl<'a, T: 'a + Clone, E: Expression<Item = &'a T>> Expression for Cloned<E> {
     type Shape = E::Shape;
 
     const IS_REPEATABLE: bool = E::IS_REPEATABLE;
-    const SPLIT_MASK: usize = E::SPLIT_MASK;
 
-    fn shape(&self) -> E::Shape {
+    fn shape(&self) -> &E::Shape {
         self.expr.shape()
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
         self.expr.get_unchecked(index).clone()
+    }
+
+    fn inner_rank(&self) -> usize {
+        self.expr.inner_rank()
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
@@ -168,14 +172,17 @@ impl<'a, T: 'a + Copy, E: Expression<Item = &'a T>> Expression for Copied<E> {
     type Shape = E::Shape;
 
     const IS_REPEATABLE: bool = E::IS_REPEATABLE;
-    const SPLIT_MASK: usize = E::SPLIT_MASK;
 
-    fn shape(&self) -> E::Shape {
+    fn shape(&self) -> &E::Shape {
         self.expr.shape()
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
         *self.expr.get_unchecked(index)
+    }
+
+    fn inner_rank(&self) -> usize {
+        self.expr.inner_rank()
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
@@ -196,49 +203,48 @@ impl<'a, T: 'a + Copy, E: Expression<Item = &'a T>> IntoIterator for Copied<E> {
     }
 }
 
-impl<E: Expression> Enumerate<E, <E::Shape as Shape>::Dims> {
+impl<E: Expression> Enumerate<E> {
     pub(crate) fn new(expr: E) -> Self {
-        Self { expr, index: Default::default() }
+        Self { expr, count: 0 }
     }
 }
 
-impl<E: Debug, I> Debug for Enumerate<E, I> {
+impl<E: Debug> Debug for Enumerate<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_struct("Enumerate").field("expr", &self.expr).finish()
     }
 }
 
-impl<E: Expression> Expression for Enumerate<E, <E::Shape as Shape>::Dims> {
+impl<E: Expression> Expression for Enumerate<E> {
     type Shape = E::Shape;
 
     const IS_REPEATABLE: bool = E::IS_REPEATABLE;
-    const SPLIT_MASK: usize = (1 << E::Shape::RANK) - 1;
 
-    fn shape(&self) -> E::Shape {
+    fn shape(&self) -> &E::Shape {
         self.expr.shape()
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-        if E::Shape::RANK > 0 {
-            self.index[E::Shape::RANK - 1] = index;
-        }
+        self.count += 1;
 
-        (self.index, self.expr.get_unchecked(index))
+        (self.count - 1, self.expr.get_unchecked(index))
+    }
+
+    fn inner_rank(&self) -> usize {
+        self.expr.inner_rank()
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
         self.expr.reset_dim(index, count);
-        self.index[index] = 0;
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
         self.expr.step_dim(index);
-        self.index[index] += 1;
     }
 }
 
-impl<E: Expression> IntoIterator for Enumerate<E, <E::Shape as Shape>::Dims> {
-    type Item = (<E::Shape as Shape>::Dims, E::Item);
+impl<E: Expression> IntoIterator for Enumerate<E> {
+    type Item = (usize, E::Item);
     type IntoIter = Iter<Self>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -262,14 +268,17 @@ impl<T, E: Expression, F: FnMut(E::Item) -> T> Expression for Map<E, F> {
     type Shape = E::Shape;
 
     const IS_REPEATABLE: bool = E::IS_REPEATABLE;
-    const SPLIT_MASK: usize = E::SPLIT_MASK;
 
-    fn shape(&self) -> E::Shape {
+    fn shape(&self) -> &E::Shape {
         self.expr.shape()
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
         (self.f)(self.expr.get_unchecked(index))
+    }
+
+    fn inner_rank(&self) -> usize {
+        self.expr.inner_rank()
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
@@ -292,16 +301,28 @@ impl<T, E: Expression, F: FnMut(E::Item) -> T> IntoIterator for Map<E, F> {
 
 impl<A: Expression, B: Expression> Zip<A, B> {
     pub(crate) fn new(a: A, b: B) -> Self {
-        assert!(A::IS_REPEATABLE || A::Shape::RANK >= B::Shape::RANK, "expression not repeatable");
-        assert!(B::IS_REPEATABLE || B::Shape::RANK >= A::Shape::RANK, "expression not repeatable");
+        assert!(A::IS_REPEATABLE || a.rank() >= b.rank(), "expression not repeatable");
+        assert!(B::IS_REPEATABLE || b.rank() >= a.rank(), "expression not repeatable");
 
-        let min_rank = A::Shape::RANK.min(B::Shape::RANK);
-        let inner_match =
-            a.dims()[A::Shape::RANK - min_rank..] == b.dims()[B::Shape::RANK - min_rank..];
+        let shape = a.shape().with_dims(|a_dims| {
+            b.shape().with_dims(|b_dims| {
+                let dims = if a_dims.len() < b_dims.len() { b_dims } else { a_dims };
+                let inner_match =
+                    a_dims[dims.len() - b_dims.len()..] == b_dims[dims.len() - a_dims.len()..];
 
-        assert!(inner_match, "inner dimensions mismatch");
+                assert!(inner_match, "inner dimensions mismatch");
 
-        Self { a, b }
+                Shape::from_dims(dims)
+            })
+        });
+
+        Self { a, b, shape }
+    }
+}
+
+impl<A: Expression + Debug, B: Expression + Debug> Debug for Zip<A, B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        f.debug_struct("Zip").field("a", &self.a).field("b", &self.b).finish()
     }
 }
 
@@ -313,45 +334,40 @@ where
     type Shape = <<S::Reverse as Shape>::Merge<T::Reverse> as Shape>::Reverse;
 
     const IS_REPEATABLE: bool = A::IS_REPEATABLE && B::IS_REPEATABLE;
-    const SPLIT_MASK: usize = A::SPLIT_MASK | B::SPLIT_MASK;
 
-    fn shape(&self) -> Self::Shape {
-        let mut dims = <Self::Shape as Shape>::Dims::default();
-
-        if A::Shape::RANK < B::Shape::RANK {
-            dims[..].copy_from_slice(&self.b.dims()[..]);
-        } else {
-            dims[..].copy_from_slice(&self.a.dims()[..]);
-        }
-
-        Shape::from_dims(dims)
+    fn shape(&self) -> &Self::Shape {
+        &self.shape
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
         (self.a.get_unchecked(index), self.b.get_unchecked(index))
     }
 
-    unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-        let delta = A::Shape::RANK.max(B::Shape::RANK) - index;
+    fn inner_rank(&self) -> usize {
+        self.a.inner_rank().min(self.b.inner_rank())
+    }
 
-        if delta <= A::Shape::RANK {
-            self.a.reset_dim(A::Shape::RANK - delta, count);
+    unsafe fn reset_dim(&mut self, index: usize, count: usize) {
+        let delta = self.shape.rank() - index;
+
+        if delta <= self.a.rank() {
+            self.a.reset_dim(self.a.rank() - delta, count);
         }
 
-        if delta <= B::Shape::RANK {
-            self.b.reset_dim(B::Shape::RANK - delta, count);
+        if delta <= self.b.rank() {
+            self.b.reset_dim(self.b.rank() - delta, count);
         }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        let delta = A::Shape::RANK.max(B::Shape::RANK) - index;
+        let delta = self.shape.rank() - index;
 
-        if delta <= A::Shape::RANK {
-            self.a.step_dim(A::Shape::RANK - delta);
+        if delta <= self.a.rank() {
+            self.a.step_dim(self.a.rank() - delta);
         }
 
-        if delta <= B::Shape::RANK {
-            self.b.step_dim(B::Shape::RANK - delta);
+        if delta <= self.b.rank() {
+            self.b.step_dim(self.b.rank() - delta);
         }
     }
 }

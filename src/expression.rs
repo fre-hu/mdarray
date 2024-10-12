@@ -17,11 +17,8 @@ pub trait Expression: IntoIterator {
     /// True if the expression can be restarted from the beginning after the last element.
     const IS_REPEATABLE: bool;
 
-    /// Bitmask per dimension, indicating if it must not be merged with its outer dimension.
-    const SPLIT_MASK: usize;
-
     /// Returns the array shape.
-    fn shape(&self) -> Self::Shape;
+    fn shape(&self) -> &Self::Shape;
 
     /// Creates an expression which clones all of its elements.
     fn cloned<'a, T: 'a + Clone>(self) -> Cloned<Self>
@@ -48,13 +45,8 @@ pub trait Expression: IntoIterator {
         self.shape().dim(index)
     }
 
-    /// Returns the number of elements in each dimension.
-    fn dims(&self) -> <Self::Shape as Shape>::Dims {
-        self.shape().dims()
-    }
-
-    /// Creates an expression which gives tuples of the current index and the element.
-    fn enumerate(self) -> Enumerate<Self, <Self::Shape as Shape>::Dims>
+    /// Creates an expression which gives tuples of the current count and the element.
+    fn enumerate(self) -> Enumerate<Self>
     where
         Self: Sized,
     {
@@ -70,17 +62,14 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression with broadcasting and appends to the given array
-    /// along the outermost dimension.
-    ///
-    /// If the rank of the expression equals one less than the rank of the array,
-    /// the expression is assumed to have outermost dimension of size 1.
+    /// along the first dimension.
     ///
     /// If the array is empty, it is reshaped to match the shape of the expression.
     ///
     /// # Panics
     ///
-    /// Panics if the inner dimensions do not match, if the rank of the expression
-    /// is not valid, or if the outermost dimension is not dynamically-sized.
+    /// Panics if the inner dimensions do not match, if the rank is not the same and
+    /// at least 1, or if the first dimension is not dynamically-sized.
     fn eval_into<S: Shape, A: Allocator>(
         self,
         tensor: &mut Tensor<Self::Item, S, A>,
@@ -128,7 +117,7 @@ pub trait Expression: IntoIterator {
 
     /// Returns the array rank, i.e. the number of dimensions.
     fn rank(&self) -> usize {
-        Self::Shape::RANK
+        self.shape().rank()
     }
 
     /// Creates an expression that gives tuples `(x, y)` of the elements from each expression.
@@ -145,6 +134,9 @@ pub trait Expression: IntoIterator {
 
     #[doc(hidden)]
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item;
+
+    #[doc(hidden)]
+    fn inner_rank(&self) -> usize;
 
     #[doc(hidden)]
     unsafe fn reset_dim(&mut self, index: usize, count: usize);

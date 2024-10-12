@@ -72,41 +72,41 @@ where
     fn eq(&self, other: &I) -> bool {
         let other = other.into_expr();
 
-        if self.dims()[..] == other.dims()[..] {
+        if self.shape().with_dims(|dims| other.shape().with_dims(|other| dims == other)) {
             // Avoid very long compile times for release build with MIR inlining,
             // by avoiding recursion until types are known.
             //
             // This is a workaround until const if is available, see #3582 and #122301.
 
-            fn compare_inner<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
+            fn compare_dense<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
                 this: &Slice<U, S, L>,
                 other: &Slice<V, T, M>,
             ) -> bool
             where
                 U: PartialEq<V>,
             {
-                if L::IS_DENSE && M::IS_DENSE {
-                    this.remap()[..].eq(&other.remap()[..])
-                } else {
+                this.remap()[..].eq(&other.remap()[..])
+            }
+
+            fn compare_strided<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
+                this: &Slice<U, S, L>,
+                other: &Slice<V, T, M>,
+            ) -> bool
+            where
+                U: PartialEq<V>,
+            {
+                if this.rank() < 2 {
                     this.iter().eq(other)
+                } else {
+                    this.outer_expr().into_iter().eq(other.outer_expr())
                 }
             }
 
-            fn compare_outer<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
-                this: &Slice<U, S, L>,
-                other: &Slice<V, T, M>,
-            ) -> bool
-            where
-                U: PartialEq<V>,
-            {
-                this.outer_expr().into_iter().eq(other.outer_expr())
-            }
-
             let f = const {
-                if S::RANK < 2 || (L::IS_DENSE && M::IS_DENSE) {
-                    compare_inner
+                if L::IS_DENSE && M::IS_DENSE {
+                    compare_dense
                 } else {
-                    compare_outer
+                    compare_strided
                 }
             };
 
@@ -281,7 +281,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<S: Shape, T, U, F: FnMut(S::Dims) -> T, I: Apply<U>> $trt<I> for FromFn<S, F>
+        impl<S: Shape, T, U, F: FnMut(&[usize]) -> T, I: Apply<U>> $trt<I> for FromFn<S, F>
         where
             T: $trt<I::Item, Output = U>,
         {
@@ -549,7 +549,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<S: Shape, T, U, F: FnMut(S::Dims) -> T> $trt for FromFn<S, F>
+        impl<S: Shape, T, U, F: FnMut(&[usize]) -> T> $trt for FromFn<S, F>
         where
             T: $trt<Output = U>,
         {

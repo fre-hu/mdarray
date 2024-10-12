@@ -2,11 +2,10 @@
 use std::alloc::Allocator;
 use std::marker::PhantomData;
 use std::mem::{self, ManuallyDrop};
-use std::{cmp, ptr};
+use std::ptr;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
-use crate::index::{Axis, Nth};
 use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_slice::RawSlice;
@@ -106,70 +105,77 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
             )
         };
 
-        (vec, me.slice.mapping())
+        unsafe { (vec, ptr::read(me.slice.mapping())) }
     }
 
-    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, new_shape: S, mut f: F)
+    pub(crate) fn resize_with<F: FnMut() -> T>(&mut self, new_dims: &[usize], mut f: F)
     where
         A: Clone,
     {
-        if S::RANK > 0 {
-            let new_len = new_shape.checked_len().expect("invalid length");
-            let old_shape = self.slice.mapping().shape();
+        assert!(new_dims.len() == self.slice.mapping().rank(), "invalid rank");
+
+        if !new_dims.is_empty() {
+            let new_len = new_dims.iter().try_fold(1usize, |acc, &x| acc.checked_mul(x));
+            let new_len = new_len.expect("invalid length");
 
             unsafe {
-                self.with_mut_vec(|vec| {
-                    if new_len == 0 {
-                        vec.clear();
-                    } else if new_shape.dims()[1..] == old_shape.dims()[1..] {
-                        vec.resize_with(new_len, f);
-                    } else {
-                        #[cfg(not(feature = "nightly"))]
-                        let mut new_vec = Vec::with_capacity(new_len);
-                        #[cfg(feature = "nightly")]
-                        let mut new_vec = Vec::with_capacity_in(new_len, vec.allocator().clone());
+                self.with_mut_parts(|vec, old_mapping| {
+                    old_mapping.shape().with_dims(|old_dims| {
+                        if new_len == 0 {
+                            vec.clear();
+                        } else if new_dims[1..] == old_dims[1..] {
+                            vec.resize_with(new_len, &mut f);
+                        } else {
+                            #[cfg(not(feature = "nightly"))]
+                            let mut new_vec = Vec::with_capacity(new_len);
+                            #[cfg(feature = "nightly")]
+                            let mut new_vec =
+                                Vec::with_capacity_in(new_len, vec.allocator().clone());
 
-                        copy_dim::<T, S, A>(
-                            &mut DropGuard::new(vec),
-                            &mut new_vec,
-                            old_shape,
-                            new_shape,
-                            &mut f,
-                        );
+                            copy_dim::<T, S, A>(
+                                &mut DropGuard::new(vec),
+                                &mut new_vec,
+                                old_dims,
+                                new_dims,
+                                &mut f,
+                            );
 
-                        *vec = new_vec;
-                    }
+                            *vec = new_vec;
+                        }
+                    });
+
+                    old_mapping.shape_mut().with_mut_dims(|dims| dims.copy_from_slice(new_dims));
                 });
-
-                self.set_mapping(DenseMapping::new(new_shape));
             }
         }
     }
 
     pub(crate) unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<S>) {
+        debug_assert!(new_mapping.shape().checked_len().is_some(), "invalid length");
         debug_assert!(new_mapping.len() <= self.capacity, "length exceeds capacity");
 
-        self.slice.set_mapping(new_mapping);
+        *self.slice.mapping_mut() = new_mapping;
     }
 
     #[cfg(not(feature = "nightly"))]
-    pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T>) -> U>(&mut self, f: F) -> U {
+    pub(crate) unsafe fn with_mut_parts<U, F>(&mut self, f: F) -> U
+    where
+        F: FnOnce(&mut Vec<T>, &mut DenseMapping<S>) -> U,
+    {
         struct DropGuard<'a, T, S: Shape, A: Allocator> {
             tensor: &'a mut RawTensor<T, S, A>,
             vec: ManuallyDrop<Vec<T>>,
         }
 
-        impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
+        impl<T, S: Shape, A: Allocator> Drop for DropGuard<'_, T, S, A> {
             fn drop(&mut self) {
                 unsafe {
                     self.tensor.slice.set_ptr(self.vec.as_mut_ptr());
                     self.tensor.capacity = self.vec.capacity();
 
-                    let mapping = self.tensor.slice.mapping();
-
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
-                    if self.vec.len() != mapping.len() {
-                        self.tensor.slice.set_mapping(DenseMapping::default());
+                    if self.vec.len() != self.tensor.slice.mapping().len() {
+                        *self.tensor.slice.mapping_mut() = DenseMapping::default();
                         ptr::drop_in_place(self.vec.as_mut_slice());
                     }
                 }
@@ -181,7 +187,10 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
 
         let mut guard = DropGuard { tensor: self, vec: ManuallyDrop::new(vec) };
 
-        let result = f(&mut guard.vec);
+        let mapping = guard.tensor.slice.mapping_mut();
+        let result = f(&mut guard.vec, mapping);
+
+        debug_assert!(Some(guard.vec.len()) == mapping.shape().checked_len(), "length mismatch");
 
         guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
         guard.tensor.capacity = guard.vec.capacity();
@@ -192,24 +201,25 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
     }
 
     #[cfg(feature = "nightly")]
-    pub(crate) unsafe fn with_mut_vec<U, F: FnOnce(&mut Vec<T, A>) -> U>(&mut self, f: F) -> U {
+    pub(crate) unsafe fn with_mut_parts<U, F>(&mut self, f: F) -> U
+    where
+        F: FnOnce(&mut Vec<T, A>, &mut DenseMapping<S>) -> U,
+    {
         struct DropGuard<'a, T, S: Shape, A: Allocator> {
             tensor: &'a mut RawTensor<T, S, A>,
             vec: ManuallyDrop<Vec<T, A>>,
         }
 
-        impl<'a, T, S: Shape, A: Allocator> Drop for DropGuard<'a, T, S, A> {
+        impl<T, S: Shape, A: Allocator> Drop for DropGuard<'_, T, S, A> {
             fn drop(&mut self) {
                 unsafe {
                     self.tensor.slice.set_ptr(self.vec.as_mut_ptr());
                     self.tensor.capacity = self.vec.capacity();
                     self.tensor.alloc = ManuallyDrop::new(ptr::read(self.vec.allocator()));
 
-                    let mapping = self.tensor.slice.mapping();
-
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
-                    if self.vec.len() != mapping.len() {
-                        self.tensor.slice.set_mapping(DenseMapping::default());
+                    if self.vec.len() != self.tensor.slice.mapping().len() {
+                        *self.tensor.slice.mapping_mut() = DenseMapping::default();
                         ptr::drop_in_place(self.vec.as_mut_slice());
                     }
                 }
@@ -227,7 +237,10 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
 
         let mut guard = DropGuard { tensor: self, vec: ManuallyDrop::new(vec) };
 
-        let result = f(&mut guard.vec);
+        let mapping = unsafe { guard.tensor.slice.mapping_mut() };
+        let result = f(&mut guard.vec, mapping);
+
+        debug_assert!(Some(guard.vec.len()) == mapping.shape().checked_len(), "length mismatch");
 
         guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
         guard.tensor.capacity = guard.vec.capacity();
@@ -263,13 +276,15 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
 
 impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for RawTensor<T, S, A> {
     fn clone(&self) -> Self {
-        unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.slice.mapping()) }
+        unsafe { Self::from_parts(self.with_vec(|vec| vec.clone()), self.slice.mapping().clone()) }
     }
 
     fn clone_from(&mut self, source: &Self) {
         unsafe {
-            self.with_mut_vec(|dst| source.with_vec(|src| dst.clone_from(src)));
-            self.set_mapping(source.slice.mapping());
+            self.with_mut_parts(|dst, mapping| {
+                source.with_vec(|src| dst.clone_from(src));
+                mapping.clone_from(source.slice.mapping());
+            });
         }
     }
 }
@@ -310,7 +325,7 @@ impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     }
 }
 
-impl<'a, T, A: Allocator> Drop for DropGuard<'a, T, A> {
+impl<T, A: Allocator> Drop for DropGuard<'_, T, A> {
     fn drop(&mut self) {
         unsafe {
             ptr::slice_from_raw_parts_mut(self.ptr, self.len).drop_in_place();
@@ -321,43 +336,43 @@ impl<'a, T, A: Allocator> Drop for DropGuard<'a, T, A> {
 unsafe fn copy_dim<T, S: Shape, A: Allocator>(
     old_vec: &mut DropGuard<T, A>,
     new_vec: &mut vec_t!(T, A),
-    old_shape: S,
-    new_shape: S,
+    old_dims: &[usize],
+    new_dims: &[usize],
     f: &mut impl FnMut() -> T,
 ) {
-    let old_stride: usize = old_shape.dims()[1..].iter().product();
-    let new_stride: usize = new_shape.dims()[1..].iter().product();
+    let old_stride: usize = old_dims[1..].iter().product();
+    let new_stride: usize = new_dims[1..].iter().product();
 
-    let old_size = old_shape.dim(0);
-    let new_size = new_shape.dim(0);
+    let old_size = old_dims[0];
+    let new_size = new_dims[0];
 
-    let min_size = cmp::min(old_size, new_size);
+    let min_size = old_size.min(new_size);
 
-    if S::RANK > 1 {
+    if old_dims.len() > 1 {
         // Avoid very long compile times for release build with MIR inlining,
         // by avoiding recursion until types are known.
         //
         // This is a workaround until const if is available, see #3582 and #122301.
 
-        unsafe fn dummy<T, S: Shape, A: Allocator>(
+        unsafe fn dummy<T, A: Allocator>(
             _: &mut DropGuard<T, A>,
             _: &mut vec_t!(T, A),
-            _: S,
-            _: S,
+            _: &[usize],
+            _: &[usize],
             _: &mut impl FnMut() -> T,
         ) {
+            unreachable!();
         }
 
         let g = const {
-            if S::RANK > 1 {
-                copy_dim::<T, <Nth<0> as Axis>::Other<S>, A>
-            } else {
-                dummy::<T, <Nth<0> as Axis>::Other<S>, A>
+            match S::RANK {
+                Some(..2) => dummy::<T, A>,
+                _ => copy_dim::<T, S::Tail, A>,
             }
         };
 
         for _ in 0..min_size {
-            g(old_vec, new_vec, old_shape.remove_dim(0), new_shape.remove_dim(0), f);
+            g(old_vec, new_vec, &old_dims[1..], &new_dims[1..], f);
         }
     } else {
         debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");

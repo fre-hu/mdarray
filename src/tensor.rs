@@ -16,12 +16,12 @@ use crate::buffer::{Buffer, Drain};
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{self, IntoExpr, Map, Zip};
 use crate::expression::Expression;
-use crate::index::{Axis, Nth, SliceIndex};
+use crate::index::SliceIndex;
 use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_tensor::RawTensor;
-use crate::shape::{ConstShape, IntoShape, Rank, Shape};
+use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 use crate::slice::Slice;
 use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
 use crate::view::{View, ViewMut};
@@ -41,7 +41,7 @@ macro_rules! vec_t {
 }
 
 /// Dense multidimensional array.
-pub struct Tensor<T, S: Shape, A: Allocator = Global> {
+pub struct Tensor<T, S: Shape = DynRank, A: Allocator = Global> {
     tensor: RawTensor<T, S, A>,
 }
 
@@ -55,14 +55,14 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         self.tensor.allocator()
     }
 
-    /// Moves all elements from another array into the array along the outermost dimension.
+    /// Moves all elements from another array into the array along the first dimension.
     ///
     /// If the array is empty, it is reshaped to match the shape of the other array.
     ///
     /// # Panics
     ///
-    /// Panics if the inner dimensions do not match, if the rank is not at least 1,
-    /// or if the outermost dimension is not dynamically-sized.
+    /// Panics if the inner dimensions do not match, if the rank is not the same and
+    /// at least 1, or if the first dimension is not dynamically-sized.
     pub fn append(&mut self, other: &mut Self) {
         self.expand(other.drain(..));
     }
@@ -74,6 +74,8 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
     /// Clears the array, removing all values.
     ///
+    /// If the array type has dynamic rank, the rank is set to 1.
+    ///
     /// Note that this method has no effect on the allocated capacity of the array.
     ///
     /// # Panics
@@ -83,21 +85,23 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
         unsafe {
-            self.tensor.with_mut_vec(|vec| vec.clear());
-            self.tensor.set_mapping(DenseMapping::default());
+            self.tensor.with_mut_parts(|vec, mapping| {
+                vec.clear();
+                *mapping = DenseMapping::default();
+            });
         }
     }
 
-    /// Removes the specified range from the array along the outermost dimension,
+    /// Removes the specified range from the array along the first dimension,
     /// and returns the removed range as an expression.
     ///
     /// # Panics
     ///
-    /// Panics if the rank is not at least 1, or if the outermost dimension
+    /// Panics if the rank is not at least 1, or if the first dimension
     /// is not dynamically-sized.
     pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<T, S, A>> {
-        assert!(S::RANK > 0, "invalid rank");
-        assert!(<Nth<0> as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
+        assert!(self.rank() > 0, "invalid rank");
+        assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
 
         #[cfg(not(feature = "nightly"))]
         let range = crate::index::range(range, ..self.dim(0));
@@ -107,48 +111,46 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         IntoExpr::new(Drain::new(self, range.start, range.end))
     }
 
-    /// Appends an expression to the array along the outermost dimension with broadcasting,
+    /// Appends an expression to the array along the first dimension with broadcasting,
     /// cloning elements if needed.
-    ///
-    /// If the rank of the expression equals one less than the rank of the array,
-    /// the expression is assumed to have outermost dimension of size 1.
     ///
     /// If the array is empty, it is reshaped to match the shape of the expression.
     ///
     /// # Panics
     ///
-    /// Panics if the inner dimensions do not match, if the rank of the expression
-    /// is not valid, or if the outermost dimension is not dynamically-sized.
+    /// Panics if the inner dimensions do not match, if the rank is not the same and
+    /// at least 1, or if the first dimension is not dynamically-sized.
     pub fn expand<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
-        assert!(S::RANK > 0, "invalid rank");
-        assert!(I::Shape::RANK + 1 == S::RANK || I::Shape::RANK == S::RANK, "invalid rank");
-        assert!(<Nth<0> as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
+        assert!(self.rank() > 0, "invalid rank");
+        assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
 
         let expr = expr.into_expr();
         let len = expr.len();
 
         if len > 0 {
-            let inner_dims = &expr.dims()[1 + I::Shape::RANK - S::RANK..];
-            let mut dims = self.dims();
-
-            if self.is_empty() {
-                dims[0] = 0;
-                dims[1..].copy_from_slice(inner_dims);
-            } else {
-                assert!(inner_dims == &dims[1..], "inner dimensions mismatch");
-            }
-
-            dims[0] += if I::Shape::RANK < S::RANK { 1 } else { expr.dim(0) };
-
-            let shape = Shape::from_dims(dims);
-
             unsafe {
-                self.tensor.with_mut_vec(|vec| {
+                self.tensor.with_mut_parts(|vec, mapping| {
                     vec.reserve(len);
+
+                    expr.shape().with_dims(|src| {
+                        if mapping.is_empty() {
+                            if src.len() == mapping.rank() {
+                                mapping.shape_mut().with_mut_dims(|dims| dims.copy_from_slice(src));
+                            } else {
+                                *mapping = DenseMapping::new(Shape::from_dims(src));
+                            }
+                        } else {
+                            mapping.shape_mut().with_mut_dims(|dims| {
+                                assert!(src.len() == dims.len(), "invalid rank");
+                                assert!(src[1..] == dims[1..], "inner dimensions mismatch");
+
+                                dims[0] += src[0];
+                            });
+                        }
+                    });
+
                     expr.clone_into_vec(vec);
                 });
-
-                self.set_mapping(DenseMapping::new(shape));
             }
         }
     }
@@ -166,7 +168,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     #[cfg(feature = "nightly")]
     pub fn from_fn_in<I: IntoShape<IntoShape = S>, F>(shape: I, f: F, alloc: A) -> Self
     where
-        F: FnMut(S::Dims) -> T,
+        F: FnMut(&[usize]) -> T,
     {
         Self::from_expr_in(expr::from_fn(shape, f), alloc)
     }
@@ -219,7 +221,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     pub fn into_shape<I: IntoShape>(self, shape: I) -> Tensor<T, I::IntoShape, A> {
         let (vec, mapping) = self.tensor.into_parts();
 
-        unsafe { Tensor::from_parts(vec, Mapping::reshape(mapping, shape.into_shape())) }
+        unsafe { Tensor::from_parts(vec, mapping.reshape(shape.into_shape())) }
     }
 
     /// Converts the array into a vector.
@@ -252,33 +254,32 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// Reserves capacity for at least the additional number of elements in the array.
     pub fn reserve(&mut self, additional: usize) {
         unsafe {
-            self.tensor.with_mut_vec(|vec| vec.reserve(additional));
+            self.tensor.with_mut_parts(|vec, _| vec.reserve(additional));
         }
     }
 
     /// Reserves the minimum capacity for the additional number of elements in the array.
     pub fn reserve_exact(&mut self, additional: usize) {
         unsafe {
-            self.tensor.with_mut_vec(|vec| vec.reserve_exact(additional));
+            self.tensor.with_mut_parts(|vec, _| vec.reserve_exact(additional));
         }
     }
 
     /// Resizes the array to the new shape, creating new elements with the given value.
-    pub fn resize<I: IntoShape<IntoShape = S>>(&mut self, new_shape: I, value: T)
+    pub fn resize(&mut self, new_dims: &[usize], value: T)
     where
         T: Clone,
         A: Clone,
     {
-        self.tensor.resize_with(new_shape.into_shape(), || value.clone());
+        self.tensor.resize_with(new_dims, || value.clone());
     }
 
     /// Resizes the array to the new shape, creating new elements from the given closure.
-    pub fn resize_with<I: IntoShape<IntoShape = S>, F>(&mut self, new_shape: I, f: F)
+    pub fn resize_with<F: FnMut() -> T>(&mut self, new_dims: &[usize], f: F)
     where
         A: Clone,
-        F: FnMut() -> T,
     {
-        self.tensor.resize_with(new_shape.into_shape(), f);
+        self.tensor.resize_with(new_dims, f);
     }
 
     /// Forces the array layout mapping to the new mapping.
@@ -293,14 +294,14 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// Shrinks the capacity of the array with a lower bound.
     pub fn shrink_to(&mut self, min_capacity: usize) {
         unsafe {
-            self.tensor.with_mut_vec(|vec| vec.shrink_to(min_capacity));
+            self.tensor.with_mut_parts(|vec, _| vec.shrink_to(min_capacity));
         }
     }
 
     /// Shrinks the capacity of the array as much as possible.
     pub fn shrink_to_fit(&mut self) {
         unsafe {
-            self.tensor.with_mut_vec(|vec| vec.shrink_to_fit());
+            self.tensor.with_mut_parts(|vec, _| vec.shrink_to_fit());
         }
     }
 
@@ -315,7 +316,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         unsafe { slice::from_raw_parts_mut(ptr.add(self.len()).cast(), len) }
     }
 
-    /// Shortens the array along the outermost dimension, keeping the first `size` indices.
+    /// Shortens the array along the first dimension, keeping the first `size` indices.
     ///
     /// If `size` is greater or equal to the current dimension size, this has no effect.
     ///
@@ -323,18 +324,18 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// # Panics
     ///
-    /// Panics if the rank is not at least 1, or if the outermost dimension
+    /// Panics if the rank is not at least 1, or if the first dimension
     /// is not dynamically-sized.
     pub fn truncate(&mut self, size: usize) {
-        assert!(S::RANK > 0, "invalid rank");
-        assert!(<Nth<0> as Axis>::Dim::<S>::SIZE.is_none(), "dimension not dynamically-sized");
+        assert!(self.rank() > 0, "invalid rank");
+        assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
 
         if size < self.dim(0) {
-            let new_mapping = DenseMapping::resize_dim(self.mapping(), 0, size);
-
             unsafe {
-                self.tensor.with_mut_vec(|vec| vec.truncate(new_mapping.len()));
-                self.tensor.set_mapping(new_mapping);
+                self.tensor.with_mut_parts(|vec, mapping| {
+                    mapping.shape_mut().with_mut_dims(|dims| dims[0] = size);
+                    vec.truncate(mapping.len());
+                });
             }
         }
     }
@@ -345,7 +346,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.tensor.with_mut_vec(|vec| vec.try_reserve(additional)) }
+        unsafe { self.tensor.with_mut_parts(|vec, _| vec.try_reserve(additional)) }
     }
 
     /// Tries to reserve the minimum capacity for the additional number of elements in the array.
@@ -354,7 +355,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        unsafe { self.tensor.with_mut_vec(|vec| vec.try_reserve_exact(additional)) }
+        unsafe { self.tensor.with_mut_parts(|vec, _| vec.try_reserve_exact(additional)) }
     }
 
     /// Creates a new, empty array with the specified capacity and allocator.
@@ -371,7 +372,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
     #[cfg(not(feature = "nightly"))]
     fn from_expr<E: Expression<Item = T, Shape = S>>(expr: E) -> Self {
-        let shape = expr.shape();
+        let shape = expr.shape().clone();
         let mut vec = Vec::with_capacity(shape.len());
 
         expr.clone_into_vec(&mut vec);
@@ -384,7 +385,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     where
         E: Expression<Item = T, Shape = S>,
     {
-        let shape = expr.shape();
+        let shape = expr.shape().clone();
         let mut vec = Vec::with_capacity_in(shape.len(), alloc);
 
         expr.clone_into_vec(&mut vec);
@@ -410,7 +411,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// Creates an array with the results from the given function.
     pub fn from_fn<I: IntoShape<IntoShape = S>, F>(shape: I, f: F) -> Self
     where
-        F: FnMut(S::Dims) -> T,
+        F: FnMut(&[usize]) -> T,
     {
         Self::from_expr(expr::from_fn(shape, f))
     }
@@ -468,7 +469,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// Creates an array with the results from the given function.
     pub fn from_fn<I: IntoShape<IntoShape = S>, F>(shape: I, f: F) -> Self
     where
-        F: FnMut(S::Dims) -> T,
+        F: FnMut(&[usize]) -> T,
     {
         Self::from_fn_in(shape, f, Global)
     }
@@ -511,8 +512,10 @@ impl<T, S: Shape> Tensor<T, S> {
 impl<T: Clone, S: Shape> Tensor<T, S> {
     pub(crate) fn clone_from_slice(&mut self, slice: &Slice<T, S>) {
         unsafe {
-            self.tensor.with_mut_vec(|vec| slice[..].clone_into(vec));
-            self.tensor.set_mapping(slice.mapping());
+            self.tensor.with_mut_parts(|vec, mapping| {
+                slice[..].clone_into(vec);
+                mapping.clone_from(slice.mapping());
+            });
         }
     }
 }
@@ -644,12 +647,10 @@ impl<'a, T: Copy, A: Allocator> Extend<&'a T> for Tensor<T, (Dyn,), A> {
 impl<T, A: Allocator> Extend<T> for Tensor<T, (Dyn,), A> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         unsafe {
-            let len = self.tensor.with_mut_vec(|vec| {
+            self.tensor.with_mut_parts(|vec, mapping| {
                 vec.extend(iter);
-                vec.len()
+                *mapping = DenseMapping::new((Dyn(vec.len()),));
             });
-
-            self.set_mapping(DenseMapping::new((Dyn(len),)));
         }
     }
 }
@@ -873,7 +874,7 @@ macro_rules! impl_try_from_array {
             type Error = Tensor<T, Rank<$n>>;
 
             fn try_from(value: Tensor<T, Rank<$n>>) -> Result<Self, Self::Error> {
-                if value.dims() == [$($xyz),+] {
+                if value.shape() == &($(Dyn($xyz),)+) {
                     let mut vec = value.into_vec();
 
                     unsafe {

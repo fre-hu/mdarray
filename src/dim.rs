@@ -1,11 +1,8 @@
 use std::fmt::{Debug, Formatter, Result};
-
-use std::ops::{
-    Bound, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
-};
+use std::hash::Hash;
 
 /// Array dimension trait.
-pub trait Dim: Copy + Debug + Default + Send + Sync {
+pub trait Dim: Copy + Debug + Default + Eq + Hash + Send + Sync {
     /// Merge dimensions, where constant size is preferred over dynamic.
     type Merge<D: Dim>: Dim;
 
@@ -23,50 +20,28 @@ pub trait Dim: Copy + Debug + Default + Send + Sync {
     fn size(self) -> usize;
 }
 
-/// Array dimensions trait.
-pub trait Dims:
-    Copy
+#[allow(unreachable_pub)]
+pub trait Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync>:
+    AsMut<[T]>
+    + AsRef<[T]>
+    + Clone
     + Debug
     + Default
-    + IndexMut<(Bound<usize>, Bound<usize>), Output = [usize]>
-    + IndexMut<usize, Output = usize>
-    + IndexMut<Range<usize>, Output = [usize]>
-    + IndexMut<RangeFrom<usize>, Output = [usize]>
-    + IndexMut<RangeFull, Output = [usize]>
-    + IndexMut<RangeInclusive<usize>, Output = [usize]>
-    + IndexMut<RangeTo<usize>, Output = [usize]>
-    + IndexMut<RangeToInclusive<usize>, Output = [usize]>
+    + Eq
+    + Hash
     + Send
     + Sync
-    + for<'a> TryFrom<&'a [usize], Error: Debug>
+    + for<'a> TryFrom<&'a [T], Error: Debug>
 {
-}
-
-/// Array strides trait.
-pub trait Strides:
-    Copy
-    + Debug
-    + Default
-    + IndexMut<(Bound<usize>, Bound<usize>), Output = [isize]>
-    + IndexMut<usize, Output = isize>
-    + IndexMut<Range<usize>, Output = [isize]>
-    + IndexMut<RangeFrom<usize>, Output = [isize]>
-    + IndexMut<RangeFull, Output = [isize]>
-    + IndexMut<RangeInclusive<usize>, Output = [isize]>
-    + IndexMut<RangeTo<usize>, Output = [isize]>
-    + IndexMut<RangeToInclusive<usize>, Output = [isize]>
-    + Send
-    + Sync
-    + for<'a> TryFrom<&'a [isize], Error: Debug>
-{
+    fn new(len: usize) -> Self;
 }
 
 /// Type-level constant.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Eq, Hash, PartialEq)]
 pub struct Const<const N: usize>;
 
 /// Dynamically-sized dimension type.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Dyn(pub usize);
 
 impl<const N: usize> Debug for Const<N> {
@@ -105,13 +80,24 @@ impl Dim for Dyn {
     }
 }
 
-macro_rules! impl_dims_strides {
+macro_rules! impl_dims {
     ($($n:tt),+) => {
         $(
-            impl Dims for [usize; $n] {}
-            impl Strides for [isize; $n] {}
+            impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for [T; $n] {
+                fn new(len: usize) -> Self {
+                    assert!(len == $n, "invalid length");
+
+                    Self::default()
+                }
+            }
         )+
     };
 }
 
-impl_dims_strides!(0, 1, 2, 3, 4, 5, 6);
+impl_dims!(0, 1, 2, 3, 4, 5, 6);
+
+impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for Box<[T]> {
+    fn new(len: usize) -> Self {
+        vec![T::default(); len].into()
+    }
+}

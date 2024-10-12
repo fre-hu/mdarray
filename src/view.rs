@@ -14,18 +14,18 @@ use crate::iter::Iter;
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
-use crate::shape::{IntoShape, Rank, Shape};
+use crate::shape::{DynRank, IntoShape, Rank, Shape};
 use crate::slice::Slice;
 use crate::traits::{Apply, IntoExpression};
 
 /// Multidimensional array view.
-pub struct View<'a, T, S: Shape, L: Layout = Dense> {
+pub struct View<'a, T, S: Shape = DynRank, L: Layout = Dense> {
     slice: RawSlice<T, S, L>,
     phantom: PhantomData<&'a T>,
 }
 
 /// Mutable multidimensional array view.
-pub struct ViewMut<'a, T, S: Shape, L: Layout = Dense> {
+pub struct ViewMut<'a, T, S: Shape = DynRank, L: Layout = Dense> {
     slice: RawSlice<T, S, L>,
     phantom: PhantomData<&'a mut T>,
 }
@@ -76,7 +76,7 @@ macro_rules! impl_view {
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
 
-            /// Divides the array view into two at an index along the outermost dimension.
+            /// Divides the array view into two at an index along the first dimension.
             ///
             /// # Panics
             ///
@@ -89,9 +89,7 @@ macro_rules! impl_view {
                 $name<'a, T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
                 $name<'a, T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
             ) {
-                let (left, right) = self.into_split_dim_at::<Nth<0>>(mid);
-
-                (left.into_mapping(), right.into_mapping())
+                self.into_split_axis_at::<0>(mid)
             }
 
             /// Divides the array view into two at an index along the specified dimension.
@@ -101,7 +99,7 @@ macro_rules! impl_view {
             /// Panics if the split point is larger than the number of elements in that dimension,
             /// or if the dimension is out of bounds.
             pub fn into_split_axis_at<const N: usize>(
-                self,
+                $($mut)? self,
                 mid: usize,
             ) -> (
                 $name<'a, T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
@@ -110,7 +108,7 @@ macro_rules! impl_view {
             where
                 Nth<N>: Axis,
             {
-                self.into_split_dim_at::<Nth<N>>(mid)
+                unsafe { Self::split_axis_at::<Nth<N>>(self.$as_ptr(), self.mapping(), mid) }
             }
 
             /// Creates an array view from a raw pointer and layout.
@@ -124,30 +122,31 @@ macro_rules! impl_view {
                 Self { slice, phantom: PhantomData }
             }
 
-            fn into_split_dim_at<A: Axis>(
-                $($mut)? self,
+            pub(crate) unsafe fn split_axis_at<A: Axis>(
+                ptr: *$raw_mut T,
+                mapping: &L::Mapping<S>,
                 mid: usize
             ) -> (
                 $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
                 $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
             ) {
-                let index = A::index(S::RANK);
-                let size = self.dim(index);
+                let index = A::index(mapping.rank());
+                let size = mapping.dim(index);
 
                 if mid > size {
                     index::panic_bounds_check(mid, size);
                 }
 
-                let left_mapping = A::resize(self.mapping(), mid);
-                let right_mapping = A::resize(self.mapping(), size - mid);
+                let left_mapping = A::resize(mapping, mid);
+                let right_mapping = A::resize(mapping, size - mid);
 
                 // Calculate offset for the second view if non-empty.
-                let offset = self.stride(index) * mid as isize;
+                let offset = mapping.stride(index) * mid as isize;
                 let count = if right_mapping.is_empty() { 0 } else { offset };
 
                 unsafe {
-                    let left = $name::new_unchecked(self.$as_ptr(), left_mapping);
-                    let right = $name::new_unchecked(self.$as_ptr().offset(count), right_mapping);
+                    let left = $name::new_unchecked(ptr, left_mapping);
+                    let right = $name::new_unchecked(ptr.offset(count), right_mapping);
 
                     (left, right)
                 }
@@ -173,7 +172,7 @@ macro_rules! impl_view {
                 };
 
                 let count = if len > 0 { offset } else { 0 }; // Offset pointer if non-empty.
-                let mapping = StridedMapping::new((Dyn(len),), [self.stride(0) + self.stride(1)]);
+                let mapping = StridedMapping::new((Dyn(len),), &[self.stride(0) + self.stride(1)]);
 
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
             }
@@ -229,17 +228,25 @@ macro_rules! impl_view {
             type Shape = S;
 
             const IS_REPEATABLE: bool = $repeatable;
-            const SPLIT_MASK: usize =
-                if L::IS_DENSE { (1 << S::RANK) >> 1 } else { (1 << S::RANK) - 1 };
 
-            fn shape(&self) -> S {
+            fn shape(&self) -> &S {
                 (**self).shape()
             }
 
             unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
-                let count = if S::RANK > 0 { self.stride(S::RANK - 1) * index as isize } else { 0 };
+                let count = self.slice.mapping().inner_stride() * index as isize;
 
-                &$($mut)? *self.$as_ptr().offset(count)
+                &$($mut)? *self.slice.$as_ptr().offset(count)
+            }
+
+            fn inner_rank(&self) -> usize {
+                if L::IS_DENSE {
+                    // For static rank 0, the inner stride is 0 so we allow inner rank >0.
+                    if S::RANK == Some(0) { usize::MAX } else { self.rank() }
+                } else {
+                    // For rank 0, the inner stride is always 0 so we can allow inner rank >0.
+                    if self.rank() > 0 { 1 } else { usize::MAX }
+                }
             }
 
             unsafe fn reset_dim(&mut self, index: usize, count: usize) {
@@ -343,12 +350,9 @@ macro_rules! impl_into_permuted {
                 let dims = [$(self.dim($abc)),+];
                 let strides = [$(self.stride($abc)),+];
 
-                let shape = Shape::from_dims(TryFrom::try_from(&dims[..]).expect("invalid rank"));
-                let strides = TryFrom::try_from(&strides[..]).expect("invalid rank");
+                let mapping = StridedMapping::new(Shape::from_dims(&dims), &strides);
 
-                let mapping = Mapping::remap(StridedMapping::new(shape, strides));
-
-                unsafe { View::new_unchecked(self.as_ptr(), mapping) }
+                unsafe { View::new_unchecked(self.as_ptr(), Mapping::remap(&mapping)) }
             }
         }
 
@@ -368,12 +372,9 @@ macro_rules! impl_into_permuted {
                 let dims = [$(self.dim($abc)),+];
                 let strides = [$(self.stride($abc)),+];
 
-                let shape = Shape::from_dims(TryFrom::try_from(&dims[..]).expect("invalid rank"));
-                let strides = TryFrom::try_from(&strides[..]).expect("invalid rank");
+                let mapping = StridedMapping::new(Shape::from_dims(&dims), &strides);
 
-                let mapping = Mapping::remap(StridedMapping::new(shape, strides));
-
-                unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
+                unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), Mapping::remap(&mapping)) }
             }
         }
     };
@@ -479,11 +480,15 @@ impl<T, S: Shape, L: Layout> BorrowMut<Slice<T, S, L>> for ViewMut<'_, T, S, L> 
 
 impl<T, S: Shape, L: Layout> Clone for View<'_, T, S, L> {
     fn clone(&self) -> Self {
-        *self
+        Self { slice: self.slice.clone(), phantom: PhantomData }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.slice.clone_from(&source.slice);
     }
 }
 
-impl<T, S: Shape, L: Layout> Copy for View<'_, T, S, L> {}
+impl<T, S: Shape, L: Layout<Mapping<S>: Copy>> Copy for View<'_, T, S, L> {}
 
 impl<T, S: Shape, L: Layout> DerefMut for ViewMut<'_, T, S, L> {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -562,11 +567,11 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut ViewMut<'_, T, S, L> {
     }
 }
 
-unsafe impl<'a, T: Sync, S: Shape, L: Layout> Send for View<'a, T, S, L> {}
-unsafe impl<'a, T: Sync, S: Shape, L: Layout> Sync for View<'a, T, S, L> {}
+unsafe impl<T: Sync, S: Shape, L: Layout> Send for View<'_, T, S, L> {}
+unsafe impl<T: Sync, S: Shape, L: Layout> Sync for View<'_, T, S, L> {}
 
-unsafe impl<'a, T: Send, S: Shape, L: Layout> Send for ViewMut<'a, T, S, L> {}
-unsafe impl<'a, T: Sync, S: Shape, L: Layout> Sync for ViewMut<'a, T, S, L> {}
+unsafe impl<T: Send, S: Shape, L: Layout> Send for ViewMut<'_, T, S, L> {}
+unsafe impl<T: Sync, S: Shape, L: Layout> Sync for ViewMut<'_, T, S, L> {}
 
 macro_rules! impl_try_from_array_ref {
     ($n:tt, ($($xyz:tt),+), $array:tt) => {
@@ -584,7 +589,7 @@ macro_rules! impl_try_from_array_ref {
             type Error = View<'a, T, Rank<$n>>;
 
             fn try_from(value: View<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
-                if value.dims() == [$($xyz),+] {
+                if value.shape() == &($(Dyn($xyz),)+) {
                     Ok(unsafe { &*value.as_ptr().cast() })
                 } else {
                     Err(value)
@@ -606,7 +611,7 @@ macro_rules! impl_try_from_array_ref {
             type Error = ViewMut<'a, T, Rank<$n>>;
 
             fn try_from(mut value: ViewMut<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
-                if value.dims() == [$($xyz),+] {
+                if value.shape() == &($(Dyn($xyz),)+) {
                     Ok(unsafe { &mut *value.as_mut_ptr().cast() })
                 } else {
                     Err(value)

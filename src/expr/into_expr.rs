@@ -5,7 +5,6 @@ use std::ptr;
 use crate::buffer::Buffer;
 use crate::expression::Expression;
 use crate::iter::Iter;
-use crate::shape::Shape;
 use crate::slice::Slice;
 
 /// Expression that moves elements out of an array.
@@ -83,9 +82,8 @@ impl<B: Buffer> Expression for IntoExpr<B> {
     type Shape = B::Shape;
 
     const IS_REPEATABLE: bool = false;
-    const SPLIT_MASK: usize = (1 << B::Shape::RANK) >> 1;
 
-    fn shape(&self) -> Self::Shape {
+    fn shape(&self) -> &Self::Shape {
         self.buffer.as_slice().shape()
     }
 
@@ -95,6 +93,10 @@ impl<B: Buffer> Expression for IntoExpr<B> {
         self.index += 1; // Keep track of that the element is moved out.
 
         ManuallyDrop::take(&mut *self.buffer.as_mut_slice().as_mut_ptr().add(self.index - 1))
+    }
+
+    fn inner_rank(&self) -> usize {
+        usize::MAX
     }
 
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}

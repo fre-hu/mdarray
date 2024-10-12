@@ -28,26 +28,26 @@ pub trait Axis {
 
     #[doc(hidden)]
     fn keep<M: Mapping>(
-        mapping: M,
+        mapping: &M,
     ) -> <Self::Keep<M::Shape, M::Layout> as Layout>::Mapping<(Self::Dim<M::Shape>,)> {
-        let index = Self::index(M::Shape::RANK);
+        let index = Self::index(mapping.rank());
 
-        Mapping::prepend_dim(DenseMapping::new(()), mapping.dim(index), mapping.stride(index))
+        Mapping::prepend_dim(&DenseMapping::new(()), mapping.dim(index), mapping.stride(index))
     }
 
     #[doc(hidden)]
     fn remove<M: Mapping>(
-        mapping: M,
+        mapping: &M,
     ) -> <Self::Split<M::Shape, M::Layout> as Layout>::Mapping<Self::Other<M::Shape>> {
-        Mapping::remove_dim::<M>(mapping, Self::index(M::Shape::RANK))
+        Mapping::remove_dim::<M>(mapping, Self::index(mapping.rank()))
     }
 
     #[doc(hidden)]
     fn resize<M: Mapping>(
-        mapping: M,
+        mapping: &M,
         new_size: usize,
     ) -> <Self::Split<M::Shape, M::Layout> as Layout>::Mapping<Self::Replace<Dyn, M::Shape>> {
-        Mapping::resize_dim::<M>(mapping, Self::index(M::Shape::RANK), new_size)
+        Mapping::resize_dim::<M>(mapping, Self::index(mapping.rank()), new_size)
     }
 }
 
@@ -66,6 +66,7 @@ pub struct Nth<const N: usize>;
 // 3            Strided     Strided     L           -
 // 4            Strided     Strided     Strided     L
 // ...
+// DynRank      Strided     Strided     Strided     Strided
 //
 // Split<S, L>:
 //
@@ -76,6 +77,7 @@ pub struct Nth<const N: usize>;
 // 3            L           Strided     Strided     -
 // 4            L           Strided     Strided     Strided
 // ...
+// DynRank      L           Strided     Strided     Strided
 //
 
 impl Axis for Nth<0> {

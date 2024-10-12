@@ -6,7 +6,7 @@ use std::ops::{
 };
 
 use crate::dim::Dyn;
-use crate::index::{self, Axis, Nth};
+use crate::index;
 use crate::layout::{Layout, Strided};
 use crate::mapping::Mapping;
 use crate::ops::StepRange;
@@ -24,16 +24,14 @@ pub trait DimIndex {
     type Outer<L: Layout, I: ViewIndex>: Layout;
 
     #[doc(hidden)]
-    fn dim_index<M: Mapping, I: ViewIndex, J>(
+    fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
-        index: I,
-        mapping: M,
-    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<M::Shape>>)
-    where
-        J: ViewIndex<Shape<M::Shape> = Self::Shape<M::Shape, I>>;
+        tail: I,
+        mapping: &M,
+    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<S>>);
 }
 
-/// Array view index trait, for a tuple of indices.
+/// Array view index trait, for a multidimensional index.
 pub trait ViewIndex {
     /// Array view shape.
     type Shape<S: Shape>: Shape;
@@ -45,10 +43,13 @@ pub trait ViewIndex {
     type Outer<L: Layout>: Layout;
 
     #[doc(hidden)]
-    fn view_index<M: Mapping>(
+    const RANK: usize = 0;
+
+    #[doc(hidden)]
+    fn view_index<S: Shape, M: Mapping>(
         self,
-        mapping: M,
-    ) -> (isize, <Self::Layout<M::Layout> as Layout>::Mapping<Self::Shape<M::Shape>>);
+        mapping: &M,
+    ) -> (isize, <Self::Layout<M::Layout> as Layout>::Mapping<Self::Shape<S>>);
 }
 
 impl DimIndex for usize {
@@ -56,24 +57,21 @@ impl DimIndex for usize {
     type Layout<L: Layout, I: ViewIndex> = I::Layout<L>;
     type Outer<L: Layout, I: ViewIndex> = Strided;
 
-    fn dim_index<M: Mapping, I: ViewIndex, J>(
+    fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
-        index: I,
-        mapping: M,
-    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<M::Shape>>)
-    where
-        J: ViewIndex<Shape<M::Shape> = Self::Shape<M::Shape, I>>,
-    {
-        let (offset, inner) = index.view_index(Nth::<0>::remove(mapping));
+        tail: I,
+        mapping: &M,
+    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<S>>) {
+        let (offset, inner) = tail.view_index(mapping);
 
-        let size = mapping.dim(0);
-        let stride = mapping.stride(0);
+        let size = mapping.dim(mapping.rank() - 1 - I::RANK);
+        let stride = mapping.stride(mapping.rank() - 1 - I::RANK);
 
         if self >= size {
             index::panic_bounds_check(self, size)
         }
 
-        (offset + stride * self as isize, Mapping::remap(inner))
+        (offset + stride * self as isize, Mapping::remap(&inner))
     }
 }
 
@@ -82,20 +80,17 @@ impl DimIndex for RangeFull {
     type Layout<L: Layout, I: ViewIndex> = I::Outer<L>;
     type Outer<L: Layout, I: ViewIndex> = I::Outer<L>;
 
-    fn dim_index<M: Mapping, I: ViewIndex, J>(
+    fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
-        index: I,
-        mapping: M,
-    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<M::Shape>>)
-    where
-        J: ViewIndex<Shape<M::Shape> = Self::Shape<M::Shape, I>>,
-    {
-        let (offset, inner) = index.view_index(Nth::<0>::remove(mapping));
+        tail: I,
+        mapping: &M,
+    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<S>>) {
+        let (offset, inner) = tail.view_index::<S::Tail, M>(mapping);
 
-        let size = mapping.dim(0);
-        let stride = mapping.stride(0);
+        let size = mapping.dim(mapping.rank() - 1 - I::RANK);
+        let stride = mapping.stride(mapping.rank() - 1 - I::RANK);
 
-        (offset, Mapping::prepend_dim(inner, size, stride))
+        (offset, Mapping::prepend_dim(&inner, size, stride))
     }
 }
 
@@ -106,18 +101,18 @@ macro_rules! impl_dim_index {
             type Layout<L: Layout, I: ViewIndex> = I::Outer<L>;
             type Outer<L: Layout, I: ViewIndex> = Strided;
 
-            fn dim_index<M: Mapping, I: ViewIndex, J>(
+            fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J>(
                 self,
-                index: I,
-                mapping: M,
-            ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<M::Shape>>)
+                tail: I,
+                mapping: &M,
+            ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<S>>)
             where
-                J: ViewIndex<Shape<M::Shape> = Self::Shape<M::Shape, I>>,
+                J: ViewIndex<Shape<S> = Self::Shape<S, I>>,
             {
-                let (offset, inner) = index.view_index(Nth::<0>::remove(mapping));
+                let (offset, inner) = tail.view_index::<S::Tail, M>(mapping);
 
-                let size = mapping.dim(0);
-                let stride = mapping.stride(0);
+                let size = mapping.dim(mapping.rank() - 1 - I::RANK);
+                let stride = mapping.stride(mapping.rank() - 1 - I::RANK);
 
                 #[cfg(not(feature = "nightly"))]
                 let range = crate::index::range(self, ..size);
@@ -125,7 +120,7 @@ macro_rules! impl_dim_index {
                 let range = slice::range(self, ..size);
                 let count = stride * range.start as isize;
 
-                (offset + count, Mapping::prepend_dim(inner, range.len(), stride))
+                (offset + count, Mapping::prepend_dim(&inner, range.len(), stride))
             }
         }
     };
@@ -143,18 +138,15 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
     type Layout<L: Layout, I: ViewIndex> = Strided;
     type Outer<L: Layout, I: ViewIndex> = Strided;
 
-    fn dim_index<M: Mapping, I: ViewIndex, J>(
+    fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
-        index: I,
-        mapping: M,
-    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<M::Shape>>)
-    where
-        J: ViewIndex<Shape<M::Shape> = Self::Shape<M::Shape, I>>,
-    {
-        let (offset, inner) = index.view_index(Nth::<0>::remove(mapping));
+        tail: I,
+        mapping: &M,
+    ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<S>>) {
+        let (offset, inner) = tail.view_index::<S::Tail, M>(mapping);
 
-        let size = mapping.dim(0);
-        let stride = mapping.stride(0);
+        let size = mapping.dim(mapping.rank() - 1 - I::RANK);
+        let stride = mapping.stride(mapping.rank() - 1 - I::RANK);
 
         #[cfg(not(feature = "nightly"))]
         let range = crate::index::range(self.range, ..size);
@@ -164,7 +156,7 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
 
         let delta = if self.step < 0 && !range.is_empty() { range.end - 1 } else { range.start };
 
-        (offset + stride * delta as isize, Mapping::prepend_dim(inner, len, stride * self.step))
+        (offset + stride * delta as isize, Mapping::prepend_dim(&inner, len, stride * self.step))
     }
 }
 
@@ -173,10 +165,12 @@ impl ViewIndex for () {
     type Layout<L: Layout> = L;
     type Outer<L: Layout> = L;
 
-    fn view_index<M: Mapping>(
+    const RANK: usize = 0;
+
+    fn view_index<S: Shape, M: Mapping>(
         self,
-        _: M,
-    ) -> (isize, <Self::Layout<M::Layout> as Layout>::Mapping<Self::Shape<M::Shape>>) {
+        _: &M,
+    ) -> (isize, <Self::Layout<M::Layout> as Layout>::Mapping<Self::Shape<S>>) {
         (0, Default::default())
     }
 }
@@ -188,11 +182,13 @@ macro_rules! impl_view_index {
             type Layout<L: Layout> = X::Layout<L, ($($yz,)*)>;
             type Outer<L: Layout> = X::Outer<L, ($($yz,)*)>;
 
-            fn view_index<M: Mapping>(
+            const RANK: usize = $n;
+
+            fn view_index<S: Shape, M: Mapping>(
                 self,
-                mapping: M,
-            ) -> (isize, <Self::Layout<M::Layout> as Layout>::Mapping<Self::Shape<M::Shape>>) {
-                self.0.dim_index::<M, ($($yz,)*), Self>(($(self.$jk,)*), mapping)
+                mapping: &M,
+            ) -> (isize, <Self::Layout<M::Layout> as Layout>::Mapping<Self::Shape<S>>) {
+                self.0.dim_index::<S, M, ($($yz,)*), Self>(($(self.$jk,)*), mapping)
             }
         }
     };

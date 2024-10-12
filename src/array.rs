@@ -12,7 +12,7 @@ use crate::expression::Expression;
 use crate::index::SliceIndex;
 use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
-use crate::shape::{ConstShape, IntoShape, Shape};
+use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
 use crate::tensor::Tensor;
 use crate::traits::{Apply, FromExpression, IntoExpression};
@@ -25,16 +25,16 @@ pub struct Array<T, S: ConstShape>(pub S::Inner<T>);
 
 impl<T, S: ConstShape> Array<T, S> {
     /// Creates an array from the given element.
-    pub fn from_elem<I: IntoShape<IntoShape = S>>(shape: I, elem: T) -> Self
+    pub fn from_elem(elem: T) -> Self
     where
         T: Clone,
     {
-        Self::from_expr(expr::from_elem(shape, elem))
+        Self::from_expr(expr::from_elem(S::default(), elem))
     }
 
     /// Creates an array with the results from the given function.
-    pub fn from_fn<I: IntoShape<IntoShape = S>, F: FnMut(S::Dims) -> T>(shape: I, f: F) -> Self {
-        Self::from_expr(expr::from_fn(shape, f))
+    pub fn from_fn<F: FnMut(&[usize]) -> T>(f: F) -> Self {
+        Self::from_expr(expr::from_fn(S::default(), f))
     }
 
     /// Converts an array with a single element into the contained value.
@@ -45,7 +45,7 @@ impl<T, S: ConstShape> Array<T, S> {
     pub fn into_scalar(self) -> T {
         assert!(self.len() == 1, "invalid length");
 
-        self.into_shape(()).0
+        self.into_shape::<()>().0
     }
 
     /// Converts the array into a reshaped array, which must have the same length.
@@ -53,11 +53,8 @@ impl<T, S: ConstShape> Array<T, S> {
     /// # Panics
     ///
     /// Panics if the array length is changed.
-    pub fn into_shape<I>(self, shape: I) -> Array<T, I::IntoShape>
-    where
-        I: IntoShape<IntoShape: ConstShape>,
-    {
-        assert!(shape.into_shape().len() == self.len(), "length must not change");
+    pub fn into_shape<I: ConstShape>(self) -> Array<T, I> {
+        assert!(I::default().len() == self.len(), "length must not change");
 
         let me = ManuallyDrop::new(self);
 
@@ -75,7 +72,7 @@ impl<T, S: ConstShape> Array<T, S> {
             index: usize,
         }
 
-        impl<'a, T, S: ConstShape> Drop for DropGuard<'a, T, S> {
+        impl<T, S: ConstShape> Drop for DropGuard<'_, T, S> {
             fn drop(&mut self) {
                 let ptr = self.array.as_mut_ptr() as *mut T;
 
@@ -85,7 +82,8 @@ impl<T, S: ConstShape> Array<T, S> {
             }
         }
 
-        assert!(expr.dims()[..] == S::default().dims()[..], "invalid shape");
+        // Ensure that the shape is valid.
+        _ = expr.shape().with_dims(|dims| S::from_dims(dims));
 
         let mut array = MaybeUninit::uninit();
         let mut guard = DropGuard { array: &mut array, index: 0 };

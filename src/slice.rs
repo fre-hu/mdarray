@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use std::marker::{PhantomData, PhantomPinned};
 use std::mem;
 use std::ops::{Index, IndexMut};
+use std::ptr::NonNull;
 
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{AxisExpr, AxisExprMut, Lanes, LanesMut, Map, Zip};
@@ -17,7 +18,7 @@ use crate::iter::Iter;
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
-use crate::shape::{IntoShape, Rank, Shape};
+use crate::shape::{DynRank, IntoShape, Rank, Shape};
 use crate::tensor::Tensor;
 #[cfg(not(feature = "nightly"))]
 use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
@@ -26,7 +27,7 @@ use crate::traits::{Apply, IntoCloned, IntoExpression};
 use crate::view::{View, ViewMut};
 
 /// Multidimensional array slice.
-pub struct Slice<T, S: Shape, L: Layout = Dense> {
+pub struct Slice<T, S: Shape = DynRank, L: Layout = Dense> {
     phantom: PhantomData<(T, S, L)>,
     #[cfg(not(feature = "nightly"))]
     _pinned: PhantomPinned,
@@ -72,7 +73,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns an expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the outermost dimension, the resulting array views have the same
+    /// When iterating over the first dimension, the resulting array views have the same
     /// layout as the input. Otherwise, the resulting array views have strided layout.
     ///
     /// # Panics
@@ -87,7 +88,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a mutable expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the outermost dimension, the resulting array views have the same
+    /// When iterating over the first dimension, the resulting array views have the same
     /// layout as the input. Otherwise, the resulting array views have strided layout.
     ///
     /// # Panics
@@ -117,19 +118,14 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         self.mapping().dim(index)
     }
 
-    /// Returns the number of elements in each dimension.
-    pub fn dims(&self) -> S::Dims {
-        self.mapping().dims()
-    }
-
     /// Returns an expression over the array slice.
     pub fn expr(&self) -> View<T, S, L> {
-        unsafe { View::new_unchecked(self.as_ptr(), self.mapping()) }
+        unsafe { View::new_unchecked(self.as_ptr(), self.mapping().clone()) }
     }
 
     /// Returns a mutable expression over the array slice.
     pub fn expr_mut(&mut self) -> ViewMut<T, S, L> {
-        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), self.mapping()) }
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), self.mapping().clone()) }
     }
 
     /// Fills the array slice with elements by cloning `value`.
@@ -151,7 +147,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the array layout is not uniformly strided.
     pub fn flatten(&self) -> View<T, (Dyn,), L> {
-        self.expr().into_flattened()
+        self.reshape([self.len()])
     }
 
     /// Returns a mutable one-dimensional array view over the array slice.
@@ -160,7 +156,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the array layout is not uniformly strided.
     pub fn flatten_mut(&mut self) -> ViewMut<T, (Dyn,), L> {
-        self.expr_mut().into_flattened()
+        self.reshape_mut([self.len()])
     }
 
     /// Returns a reference to an element or a subslice, without doing bounds checking.
@@ -204,7 +200,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns an expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the innermost dimension is specified, the resulting array views have the same layout
+    /// If the last dimension is specified, the resulting array views have the same layout
     /// as the input. For other dimensions, the resulting array views have strided layout.
     ///
     /// # Panics
@@ -220,7 +216,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the innermost dimension is specified, the resulting array views have the same layout
+    /// If the last dimension is specified, the resulting array views have the same layout
     /// as the input. For other dimensions, the resulting array views have strided layout.
     ///
     /// # Panics
@@ -239,17 +235,17 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Returns the array layout mapping.
-    pub fn mapping(&self) -> L::Mapping<S> {
+    pub fn mapping(&self) -> &L::Mapping<S> {
         if mem::size_of::<S>() > 0 {
             RawSlice::from_slice(self).mapping()
         } else {
-            L::Mapping::default()
+            unsafe { &*NonNull::dangling().as_ptr() }
         }
     }
 
-    /// Returns an expression that gives array views iterating over the outermost dimension.
+    /// Returns an expression that gives array views iterating over the first dimension.
     ///
-    /// Iterating over the outermost dimension results in array views with the same layout
+    /// Iterating over the first dimension results in array views with the same layout
     /// as the input.
     ///
     /// # Panics
@@ -259,9 +255,9 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         AxisExpr::new(self)
     }
 
-    /// Returns a mutable expression that gives array views iterating over the outermost dimension.
+    /// Returns a mutable expression that gives array views iterating over the first dimension.
     ///
-    /// Iterating over the outermost dimension results in array views with the same layout
+    /// Iterating over the first dimension results in array views with the same layout
     /// as the input.
     ///
     /// # Panics
@@ -273,7 +269,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns the array rank, i.e. the number of dimensions.
     pub fn rank(&self) -> usize {
-        S::RANK
+        self.mapping().rank()
     }
 
     /// Returns a remapped array view of the array slice.
@@ -282,7 +278,9 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
     pub fn remap<M: Layout>(&self) -> View<T, S, M> {
-        self.expr().into_mapping()
+        let mapping = M::Mapping::remap(self.mapping());
+
+        unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
 
     /// Returns a mutable remapped array view of the array slice.
@@ -291,17 +289,23 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
     pub fn remap_mut<M: Layout>(&mut self) -> ViewMut<T, S, M> {
-        self.expr_mut().into_mapping()
+        let mapping = M::Mapping::remap(self.mapping());
+
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
 
     /// Returns a reordered array view of the array slice.
     pub fn reorder(&self) -> View<T, S::Reverse, S::Layout<L>> {
-        self.expr().into_reordered()
+        let mapping = Mapping::reorder(self.mapping());
+
+        unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
 
     /// Returns a mutable reordered array view of the array slice.
     pub fn reorder_mut(&mut self) -> ViewMut<T, S::Reverse, S::Layout<L>> {
-        self.expr_mut().into_reordered()
+        let mapping = Mapping::reorder(self.mapping());
+
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
 
     /// Returns a reshaped array view of the array slice.
@@ -310,7 +314,9 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
     pub fn reshape<I: IntoShape>(&self, shape: I) -> View<T, I::IntoShape, L> {
-        self.expr().into_shape(shape)
+        let mapping = Mapping::reshape(self.mapping(), shape.into_shape());
+
+        unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
 
     /// Returns a mutable reshaped array view of the array slice.
@@ -319,15 +325,17 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
     pub fn reshape_mut<I: IntoShape>(&mut self, shape: I) -> ViewMut<T, I::IntoShape, L> {
-        self.expr_mut().into_shape(shape)
+        let mapping = Mapping::reshape(self.mapping(), shape.into_shape());
+
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
 
     /// Returns the array shape.
-    pub fn shape(&self) -> S {
+    pub fn shape(&self) -> &S {
         self.mapping().shape()
     }
 
-    /// Divides an array slice into two at an index along the outermost dimension.
+    /// Divides an array slice into two at an index along the first dimension.
     ///
     /// # Panics
     ///
@@ -340,10 +348,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         View<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
         View<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
     ) {
-        self.expr().into_split_at(mid)
+        self.split_axis_at::<0>(mid)
     }
 
-    /// Divides a mutable array slice into two at an index along the outermost dimension.
+    /// Divides a mutable array slice into two at an index along the first dimension.
     ///
     /// # Panics
     ///
@@ -356,7 +364,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         ViewMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
         ViewMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
     ) {
-        self.expr_mut().into_split_at(mid)
+        self.split_axis_at_mut::<0>(mid)
     }
 
     /// Divides an array slice into two at an index along the specified dimension.
@@ -375,7 +383,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     where
         Nth<N>: Axis,
     {
-        self.expr().into_split_axis_at(mid)
+        unsafe { View::split_axis_at::<Nth<N>>(self.as_ptr(), self.mapping(), mid) }
     }
 
     /// Divides a mutable array slice into two at an index along the specified dimension.
@@ -394,7 +402,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     where
         Nth<N>: Axis,
     {
-        self.expr_mut().into_split_axis_at(mid)
+        unsafe { ViewMut::split_axis_at::<Nth<N>>(self.as_mut_ptr(), self.mapping(), mid) }
     }
 
     /// Returns the distance between elements in the specified dimension.
@@ -404,11 +412,6 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Panics if the dimension is out of bounds.
     pub fn stride(&self, index: usize) -> isize {
         self.mapping().stride(index)
-    }
-
-    /// Returns the distance between elements in each dimension.
-    pub fn strides(&self) -> S::Strides {
-        self.mapping().strides()
     }
 
     /// Copies the array slice into a new array.
@@ -453,6 +456,20 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         T: Clone,
     {
         self.to_tensor_in(alloc).into_vec()
+    }
+}
+
+impl<T, L: Layout> Slice<T, DynRank, L> {
+    /// Returns the number of elements in each dimension.
+    pub fn dims(&self) -> &[usize] {
+        self.mapping().dims()
+    }
+}
+
+impl<T, S: Shape> Slice<T, S, Strided> {
+    /// Returns the distance between elements in each dimension.
+    pub fn strides(&self) -> &[isize] {
+        self.mapping().strides()
     }
 }
 
@@ -711,8 +728,8 @@ impl<T, S: Shape> AsRef<[T]> for Slice<T, S> {
 
 impl<T: Debug, S: Shape, L: Layout> Debug for Slice<T, S, L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        if S::RANK == 0 {
-            self[S::Dims::default()].fmt(f)
+        if self.rank() == 0 {
+            self[[]].fmt(f)
         } else {
             f.debug_list().entries(self.outer_expr()).finish()
         }
@@ -721,7 +738,7 @@ impl<T: Debug, S: Shape, L: Layout> Debug for Slice<T, S, L> {
 
 impl<T: Hash, S: Shape, L: Layout> Hash for Slice<T, S, L> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        for i in 0..S::RANK {
+        for i in 0..self.rank() {
             #[cfg(not(feature = "nightly"))]
             state.write_usize(self.dim(i));
             #[cfg(feature = "nightly")]
@@ -802,7 +819,7 @@ impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
 fn contains<T: PartialEq, S: Shape, L: Layout>(this: &Slice<T, S, L>, value: &T) -> bool {
     if L::IS_DENSE {
         this.remap()[..].contains(value)
-    } else if S::RANK < 2 {
+    } else if this.rank() < 2 {
         this.iter().any(|x| x == value)
     } else {
         this.outer_expr().into_iter().any(|x| x.contains(value))

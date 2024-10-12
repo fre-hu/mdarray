@@ -1,10 +1,12 @@
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::slice;
 
-use crate::dim::{Const, Dim, Dims, Dyn, Strides};
+use crate::dim::{Const, Dim, Dims, Dyn};
 use crate::layout::{Layout, Strided};
 
 /// Array shape trait.
-pub trait Shape: Copy + Debug + Default + Send + Sync {
+pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
     /// First dimension.
     type Head: Dim;
 
@@ -21,107 +23,122 @@ pub trait Shape: Copy + Debug + Default + Send + Sync {
     type Prepend<D: Dim>: Shape<Reverse = <Self::Reverse as Shape>::Append<D>>;
 
     /// Merge each dimension pair, where constant size is preferred over dynamic.
+    /// The result has dynamic rank if at least one of the inputs has dynamic rank.
     type Merge<S: Shape>: Shape;
 
-    /// Select layout `L` or `Strided` for rank 0-1 or >1 respectively.
+    /// Select layout `L` for rank 0-1, or `Strided` for rank >1 or dynamic.
     type Layout<L: Layout>: Layout;
 
-    /// Array dimensions type.
-    type Dims: Dims;
+    #[doc(hidden)]
+    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync>: Dims<T>;
 
-    /// Array strides type.
-    type Strides: Strides;
-
-    /// Array rank, i.e. the number of dimensions.
-    const RANK: usize;
-
-    /// Returns the number of elements in each dimension.
-    fn dims(self) -> Self::Dims;
-
-    /// Creates an array shape with the given dimensions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the dimensions are not matching constant-sized dimensions.
-    fn from_dims(dims: Self::Dims) -> Self;
+    /// Array rank if known statically, or `None` if dynamic.
+    const RANK: Option<usize>;
 
     /// Returns the number of elements in the specified dimension.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    fn dim(self, index: usize) -> usize {
-        assert!(index < Self::RANK, "invalid dimension");
+    fn dim(&self, index: usize) -> usize {
+        assert!(index < self.rank(), "invalid dimension");
 
-        self.dims()[index]
+        self.with_dims(|dims| dims[index])
+    }
+
+    /// Creates an array shape with the given dimensions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimensions are not matching static rank or constant-sized dimensions.
+    fn from_dims(dims: &[usize]) -> Self {
+        let mut shape = Self::new(dims.len());
+
+        shape.with_mut_dims(|dst| dst.copy_from_slice(dims));
+        shape
     }
 
     /// Returns `true` if the array contains no elements.
-    fn is_empty(self) -> bool {
+    fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the number of elements in the array.
-    fn len(self) -> usize {
-        self.dims()[..].iter().product()
+    fn len(&self) -> usize {
+        self.with_dims(|dims| dims.iter().product())
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
-    fn rank(self) -> usize {
-        Self::RANK
+    fn rank(&self) -> usize {
+        self.with_dims(|dims| dims.len())
     }
 
     #[doc(hidden)]
-    fn checked_len(self) -> Option<usize> {
-        self.dims()[..].iter().try_fold(1usize, |acc, &x| acc.checked_mul(x))
+    fn new(rank: usize) -> Self;
+
+    #[doc(hidden)]
+    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, f: F) -> T;
+
+    #[doc(hidden)]
+    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, f: F) -> T;
+
+    #[doc(hidden)]
+    fn checked_len(&self) -> Option<usize> {
+        self.with_dims(|dims| dims.iter().try_fold(1usize, |acc, &x| acc.checked_mul(x)))
     }
 
     #[doc(hidden)]
-    fn prepend_dim<S: Shape>(self, size: usize) -> S {
-        assert!(S::RANK == Self::RANK + 1, "invalid rank");
+    fn prepend_dim<S: Shape>(&self, size: usize) -> S {
+        let mut shape = S::new(self.rank() + 1);
 
-        let mut dims = S::Dims::default();
+        shape.with_mut_dims(|dims| {
+            dims[0] = size;
+            self.with_dims(|src| dims[1..].copy_from_slice(src));
+        });
 
-        dims[0] = size;
-        dims[1..].copy_from_slice(&self.dims()[..]);
-
-        S::from_dims(dims)
+        shape
     }
 
     #[doc(hidden)]
-    fn remove_dim<S: Shape>(self, index: usize) -> S {
-        assert!(S::RANK + 1 == Self::RANK, "invalid rank");
-        assert!(index < Self::RANK, "invalid dimension");
+    fn remove_dim<S: Shape>(&self, index: usize) -> S {
+        assert!(index < self.rank(), "invalid dimension");
 
-        let mut dims = S::Dims::default();
+        let mut shape = S::new(self.rank() - 1);
 
-        dims[..index].copy_from_slice(&self.dims()[..index]);
-        dims[index..].copy_from_slice(&self.dims()[index + 1..]);
+        shape.with_mut_dims(|dims| {
+            self.with_dims(|src| {
+                dims[..index].copy_from_slice(&src[..index]);
+                dims[index..].copy_from_slice(&src[index + 1..]);
+            });
+        });
 
-        S::from_dims(dims)
+        shape
     }
 
     #[doc(hidden)]
-    fn resize_dim<S: Shape>(self, index: usize, new_size: usize) -> S {
-        assert!(S::RANK == Self::RANK, "invalid rank");
-        assert!(index < Self::RANK, "invalid dimension");
+    fn resize_dim<S: Shape>(&self, index: usize, new_size: usize) -> S {
+        assert!(index < self.rank(), "invalid dimension");
 
-        let mut dims = S::Dims::default();
+        let mut shape = S::new(self.rank());
 
-        dims[..].copy_from_slice(&self.dims()[..]);
-        dims[index] = new_size;
+        shape.with_mut_dims(|dims| {
+            self.with_dims(|src| dims[..].copy_from_slice(src));
+            dims[index] = new_size;
+        });
 
-        S::from_dims(dims)
+        shape
     }
 
     #[doc(hidden)]
-    fn reverse(self) -> Self::Reverse {
-        let mut dims = <Self::Reverse as Shape>::Dims::default();
+    fn reverse(&self) -> Self::Reverse {
+        let mut shape = Self::Reverse::new(self.rank());
 
-        dims[..].copy_from_slice(&self.dims()[..]);
-        dims[..].reverse();
+        shape.with_mut_dims(|dims| {
+            self.with_dims(|src| dims.copy_from_slice(src));
+            dims.reverse();
+        });
 
-        Shape::from_dims(dims)
+        shape
     }
 }
 
@@ -140,8 +157,126 @@ pub trait IntoShape {
     fn into_shape(self) -> Self::IntoShape;
 }
 
+/// Array shape type with dynamic rank.
+///
+/// If the rank is 0 or 1, no heap allocation is necessary. The default value
+/// will have rank 1 and contain no elements.
+pub enum DynRank {
+    /// Shape variant with dynamic rank.
+    Dyn(Box<[usize]>),
+    /// Shape variant with rank 1.
+    One(usize),
+}
+
 /// Array shape type with dynamically-sized dimensions.
 pub type Rank<const N: usize> = <[usize; N] as IntoShape>::IntoShape;
+
+impl DynRank {
+    /// Returns the number of elements in each dimension.
+    pub fn dims(&self) -> &[usize] {
+        match self {
+            Self::Dyn(dims) => dims,
+            Self::One(size) => slice::from_ref(size),
+        }
+    }
+}
+
+impl Clone for DynRank {
+    fn clone(&self) -> Self {
+        match self {
+            DynRank::One(dim) => DynRank::One(*dim),
+            DynRank::Dyn(dims) => {
+                if dims.len() == 1 {
+                    DynRank::One(dims[0])
+                } else {
+                    DynRank::Dyn(dims.clone())
+                }
+            }
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        if let DynRank::Dyn(dims) = self {
+            if let DynRank::Dyn(src) = source {
+                if dims.len() == src.len() {
+                    dims.clone_from_slice(src);
+
+                    return;
+                }
+            }
+        }
+
+        *self = source.clone();
+    }
+}
+
+impl Debug for DynRank {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.with_dims(|dims| f.debug_tuple("DynRank").field(&dims).finish())
+    }
+}
+
+impl Default for DynRank {
+    fn default() -> Self {
+        Self::One(0)
+    }
+}
+
+impl Eq for DynRank {}
+
+impl Hash for DynRank {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.with_dims(|dims| dims.hash(state))
+    }
+}
+
+impl PartialEq for DynRank {
+    fn eq(&self, other: &Self) -> bool {
+        self.with_dims(|dims| other.with_dims(|other| dims == other))
+    }
+}
+
+impl Shape for DynRank {
+    type Head = Dyn;
+    type Tail = Self;
+    type Reverse = Self;
+
+    type Append<D: Dim> = Self;
+    type Prepend<D: Dim> = Self;
+
+    type Merge<S: Shape> = Self;
+    type Layout<L: Layout> = Strided;
+
+    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = Box<[T]>;
+
+    const RANK: Option<usize> = None;
+
+    fn new(rank: usize) -> Self {
+        if rank == 1 {
+            DynRank::One(0)
+        } else {
+            DynRank::Dyn(Dims::new(rank))
+        }
+    }
+
+    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+        let dims = match self {
+            Self::Dyn(dims) => dims,
+            Self::One(size) => slice::from_ref(size),
+        };
+
+        f(dims)
+    }
+
+    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+        let dims = match self {
+            Self::Dyn(dims) => dims,
+            Self::One(size) => slice::from_mut(size),
+        };
+
+        f(dims)
+    }
+}
 
 impl Shape for () {
     type Head = Dyn;
@@ -154,16 +289,21 @@ impl Shape for () {
     type Merge<S: Shape> = S;
     type Layout<L: Layout> = L;
 
-    type Dims = [usize; 0];
-    type Strides = [isize; 0];
+    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 0];
 
-    const RANK: usize = 0;
+    const RANK: Option<usize> = Some(0);
 
-    fn dims(self) -> [usize; 0] {
-        []
+    fn new(rank: usize) {
+        assert!(rank == 0, "invalid rank");
     }
 
-    fn from_dims(_: [usize; 0]) -> Self {}
+    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+        f(&[])
+    }
+
+    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+        f(&mut [])
+    }
 }
 
 impl<X: Dim> Shape for (X,) {
@@ -177,17 +317,27 @@ impl<X: Dim> Shape for (X,) {
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
     type Layout<L: Layout> = L;
 
-    type Dims = [usize; 1];
-    type Strides = [isize; 1];
+    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 1];
 
-    const RANK: usize = 1;
+    const RANK: Option<usize> = Some(1);
 
-    fn dims(self) -> [usize; 1] {
-        [self.0.size()]
+    fn new(rank: usize) -> Self {
+        assert!(rank == 1, "invalid rank");
+
+        Self::default()
     }
 
-    fn from_dims(dims: [usize; 1]) -> Self {
-        (X::from_size(dims[0]),)
+    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+        f(&[self.0.size()])
+    }
+
+    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+        let mut dims = [self.0.size()];
+        let value = f(&mut dims);
+
+        *self = (X::from_size(dims[0]),);
+
+        value
     }
 }
 
@@ -205,17 +355,27 @@ macro_rules! impl_shape {
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
             type Layout<L: Layout> = Strided;
 
-            type Dims = [usize; $n];
-            type Strides = [isize; $n];
+            type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; $n];
 
-            const RANK: usize = $n;
+            const RANK: Option<usize> = Some($n);
 
-            fn dims(self) -> [usize; $n] {
-                [self.0.size() $(,self.$jk.size())+]
+            fn new(rank: usize) -> Self {
+                assert!(rank == $n, "invalid rank");
+
+                Self::default()
             }
 
-            fn from_dims(dims: [usize; $n]) -> Self {
-                (X::from_size(dims[0]) $(,$yz::from_size(dims[$jk]))+)
+            fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+                f(&[self.0.size() $(,self.$jk.size())+])
+            }
+
+            fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+                let mut dims = [self.0.size() $(,self.$jk.size())+];
+                let value = f(&mut dims);
+
+                *self = (X::from_size(dims[0]) $(,$yz::from_size(dims[$jk]))+);
+
+                value
             }
         }
     };
@@ -251,13 +411,37 @@ impl<S: Shape> IntoShape for S {
     }
 }
 
+impl IntoShape for &[usize] {
+    type IntoShape = DynRank;
+
+    fn into_shape(self) -> DynRank {
+        DynRank::from_dims(self)
+    }
+}
+
+impl IntoShape for Box<[usize]> {
+    type IntoShape = DynRank;
+
+    fn into_shape(self) -> DynRank {
+        DynRank::Dyn(self)
+    }
+}
+
+impl IntoShape for Vec<usize> {
+    type IntoShape = DynRank;
+
+    fn into_shape(self) -> DynRank {
+        DynRank::Dyn(self.into())
+    }
+}
+
 macro_rules! impl_into_shape {
     ($n:tt, $shape:ty) => {
         impl IntoShape for [usize; $n] {
             type IntoShape = $shape;
 
             fn into_shape(self) -> Self::IntoShape {
-                Self::IntoShape::from_dims(self)
+                Self::IntoShape::from_dims(&self)
             }
         }
     };
