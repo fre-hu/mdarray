@@ -43,7 +43,7 @@ pub trait ViewIndex {
     type Outer<L: Layout>: Layout;
 
     #[doc(hidden)]
-    const RANK: usize = 0;
+    const RANK: usize;
 
     #[doc(hidden)]
     fn view_index<S: Shape, M: Mapping>(

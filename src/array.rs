@@ -223,12 +223,16 @@ impl<T, S: ConstShape> Deref for Array<T, S> {
     type Target = Slice<T, S>;
 
     fn deref(&self) -> &Self::Target {
+        _ = S::default().checked_len().expect("invalid length");
+
         unsafe { &*(self as *const Self as *const Slice<T, S>) }
     }
 }
 
 impl<T, S: ConstShape> DerefMut for Array<T, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        _ = S::default().checked_len().expect("invalid length");
+
         unsafe { &mut *(self as *mut Self as *mut Slice<T, S>) }
     }
 }
@@ -326,6 +330,8 @@ impl<T, S: ConstShape> IntoExpression for Array<T, S> {
     type IntoExpr = IntoExpr<Array<ManuallyDrop<T>, S>>;
 
     fn into_expr(self) -> Self::IntoExpr {
+        _ = S::default().checked_len().expect("invalid length");
+
         let me = ManuallyDrop::new(self);
 
         unsafe { IntoExpr::new(mem::transmute_copy(&me)) }

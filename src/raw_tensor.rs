@@ -59,7 +59,11 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
     }
 
     pub(crate) fn capacity(&self) -> usize {
-        self.capacity
+        if mem::size_of::<T>() > 0 {
+            self.capacity
+        } else {
+            usize::MAX
+        }
     }
 
     #[cfg(not(feature = "nightly"))]
