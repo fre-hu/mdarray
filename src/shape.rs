@@ -16,17 +16,17 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
     /// Shape with the reverse ordering of dimensions.
     type Reverse: Shape<Reverse = Self>;
 
-    /// Append the dimension to the shape.
-    type Append<D: Dim>: Shape<Reverse = <Self::Reverse as Shape>::Prepend<D>>;
-
     /// Prepend the dimension to the shape.
-    type Prepend<D: Dim>: Shape<Reverse = <Self::Reverse as Shape>::Append<D>>;
+    type Prepend<D: Dim>: Shape;
+
+    /// Concatenate the other shape to the shape.
+    type Concat<S: Shape>: Shape;
 
     /// Merge each dimension pair, where constant size is preferred over dynamic.
     /// The result has dynamic rank if at least one of the inputs has dynamic rank.
     type Merge<S: Shape>: Shape;
 
-    /// Select layout `L` for rank 0-1, or `Strided` for rank >1 or dynamic.
+    /// Select layout `L` for rank 0, or `Strided` for rank >0 or dynamic.
     type Layout<L: Layout>: Layout;
 
     #[doc(hidden)]
@@ -241,12 +241,11 @@ impl Shape for DynRank {
     type Tail = Self;
     type Reverse = Self;
 
-    type Append<D: Dim> = Self;
     type Prepend<D: Dim> = Self;
-
+    type Concat<S: Shape> = Self;
     type Merge<S: Shape> = Self;
-    type Layout<L: Layout> = Strided;
 
+    type Layout<L: Layout> = Strided;
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = Box<[T]>;
 
     const RANK: Option<usize> = None;
@@ -283,12 +282,11 @@ impl Shape for () {
     type Tail = ();
     type Reverse = ();
 
-    type Append<D: Dim> = (D,);
     type Prepend<D: Dim> = (D,);
-
+    type Concat<S: Shape> = S;
     type Merge<S: Shape> = S;
-    type Layout<L: Layout> = L;
 
+    type Layout<L: Layout> = L;
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 0];
 
     const RANK: Option<usize> = Some(0);
@@ -311,12 +309,11 @@ impl<X: Dim> Shape for (X,) {
     type Tail = ();
     type Reverse = (X,);
 
-    type Append<D: Dim> = (X, D);
     type Prepend<D: Dim> = (D, X);
-
+    type Concat<S: Shape> = S::Prepend<X>;
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
-    type Layout<L: Layout> = L;
 
+    type Layout<L: Layout> = Strided;
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 1];
 
     const RANK: Option<usize> = Some(1);
@@ -342,19 +339,18 @@ impl<X: Dim> Shape for (X,) {
 }
 
 macro_rules! impl_shape {
-    ($n:tt, ($($jk:tt),*), ($($yz:tt),*), $append:tt, $prepend:tt) => {
+    ($n:tt, ($($jk:tt),*), ($($yz:tt),*), $prepend:tt) => {
         impl<X: Dim, $($yz: Dim,)+> Shape for (X, $($yz,)+) {
             type Head = X;
             type Tail = ($($yz,)+);
-            type Reverse = <<Self::Tail as Shape>::Reverse as Shape>::Append<X>;
+            type Reverse = <<Self::Tail as Shape>::Reverse as Shape>::Concat<(X,)>;
 
-            type Append<D: Dim> = $append;
             type Prepend<D: Dim> = $prepend;
-
+            type Concat<S: Shape> = <<Self::Tail as Shape>::Concat<S> as Shape>::Prepend<X>;
             type Merge<S: Shape> =
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
-            type Layout<L: Layout> = Strided;
 
+            type Layout<L: Layout> = Strided;
             type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; $n];
 
             const RANK: Option<usize> = Some($n);
@@ -381,11 +377,11 @@ macro_rules! impl_shape {
     };
 }
 
-impl_shape!(2, (1), (Y), (X, Y, D), (D, X, Y));
-impl_shape!(3, (1, 2), (Y, Z), (X, Y, Z, D), (D, X, Y, Z));
-impl_shape!(4, (1, 2, 3), (Y, Z, W), (X, Y, Z, W, D), (D, X, Y, Z, W));
-impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (X, Y, Z, W, U, D), (D, X, Y, Z, W, U));
-impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), (Y, Z, W, U, V, D), (D, X, Y, Z, W, U));
+impl_shape!(2, (1), (Y), (D, X, Y));
+impl_shape!(3, (1, 2), (Y, Z), (D, X, Y, Z));
+impl_shape!(4, (1, 2, 3), (Y, Z, W), (D, X, Y, Z, W));
+impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (D, X, Y, Z, W, U));
+impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), DynRank);
 
 macro_rules! impl_const_shape {
     (($($xyz:tt),*), $inner:ty) => {

@@ -1,27 +1,18 @@
 use crate::dim::{Dim, Dyn};
-use crate::layout::{Layout, Strided};
+use crate::layout::Layout;
 use crate::mapping::{DenseMapping, Mapping};
 use crate::shape::Shape;
 
-/// Array axis trait, for subarray types when removing or resizing dimensions.
+/// Array axis trait, for subarray shapes.
 pub trait Axis {
     /// Corresponding dimension.
     type Dim<S: Shape>: Dim;
 
-    /// Shape for the other dimensions.
-    type Other<S: Shape>: Shape;
+    /// Shape for the previous dimensions excluding the current dimension.
+    type Init<S: Shape>: Shape;
 
-    /// Insert the dimension into the shape.
-    type Insert<D: Dim, S: Shape>: Shape;
-
-    /// Replace the dimension in the shape.
-    type Replace<D: Dim, S: Shape>: Shape;
-
-    /// Layout when removing the other dimensions.
-    type Keep<S: Shape, L: Layout>: Layout;
-
-    /// Layout when removing or resizing the dimension.
-    type Split<S: Shape, L: Layout>: Layout;
+    /// Shape for the next dimensions excluding the current dimension.
+    type Rest<S: Shape>: Shape;
 
     #[doc(hidden)]
     fn index(rank: usize) -> usize;
@@ -29,7 +20,7 @@ pub trait Axis {
     #[doc(hidden)]
     fn keep<M: Mapping>(
         mapping: &M,
-    ) -> <Self::Keep<M::Shape, M::Layout> as Layout>::Mapping<(Self::Dim<M::Shape>,)> {
+    ) -> <Keep<Self, M::Shape, M::Layout> as Layout>::Mapping<(Self::Dim<M::Shape>,)> {
         let index = Self::index(mapping.rank());
 
         Mapping::prepend_dim(&DenseMapping::new(()), mapping.dim(index), mapping.stride(index))
@@ -38,7 +29,7 @@ pub trait Axis {
     #[doc(hidden)]
     fn remove<M: Mapping>(
         mapping: &M,
-    ) -> <Self::Split<M::Shape, M::Layout> as Layout>::Mapping<Self::Other<M::Shape>> {
+    ) -> <Split<Self, M::Shape, M::Layout> as Layout>::Mapping<Remove<Self, M::Shape>> {
         Mapping::remove_dim::<M>(mapping, Self::index(mapping.rank()))
     }
 
@@ -46,7 +37,7 @@ pub trait Axis {
     fn resize<M: Mapping>(
         mapping: &M,
         new_size: usize,
-    ) -> <Self::Split<M::Shape, M::Layout> as Layout>::Mapping<Self::Replace<Dyn, M::Shape>> {
+    ) -> <Split<Self, M::Shape, M::Layout> as Layout>::Mapping<Resize<Self, M::Shape>> {
         Mapping::resize_dim::<M>(mapping, Self::index(mapping.rank()), new_size)
     }
 }
@@ -54,12 +45,25 @@ pub trait Axis {
 /// Axis type for the N:th dimension.
 pub struct Nth<const N: usize>;
 
+/// Shape when removing the dimension for the specified axis.
+pub type Remove<A, S> = <<A as Axis>::Init<S> as Shape>::Concat<<A as Axis>::Rest<S>>;
+
+/// Shape when resizing the dimension for the specified axis.
+pub type Resize<A, S> =
+    <<A as Axis>::Init<S> as Shape>::Concat<<<A as Axis>::Rest<S> as Shape>::Prepend<Dyn>>;
+
+/// Layout when keeping the dimension for the specified axis.
+pub type Keep<A, S, L> = <<A as Axis>::Rest<S> as Shape>::Layout<L>;
+
+/// Layout when removing or resizing the dimension for the specified axis.
+pub type Split<A, S, L> = <<A as Axis>::Init<S> as Shape>::Layout<L>;
+
 //
-// The tables below give the resulting layout depending on the rank and index.
+// The tables below give the resulting layout depending on the rank and axis.
 //
-// Keep<S, L>:
+// Keep<A, S, L>:
 //
-// Rank \ Index 0           1           2           3
+// Rank \ Axis  0           1           2           3
 // -------------------------------------------------------------
 // 1            L           -           -           -
 // 2            Strided     L           -           -
@@ -68,9 +72,9 @@ pub struct Nth<const N: usize>;
 // ...
 // DynRank      Strided     Strided     Strided     Strided
 //
-// Split<S, L>:
+// Split<A, S, L>:
 //
-// Rank \ Index 0           1           2           3
+// Rank \ Axis  0           1           2           3
 // -------------------------------------------------------------
 // 1            L           -           -           -
 // 2            L           Strided     -           -
@@ -82,13 +86,9 @@ pub struct Nth<const N: usize>;
 
 impl Axis for Nth<0> {
     type Dim<S: Shape> = S::Head;
-    type Other<S: Shape> = S::Tail;
 
-    type Insert<D: Dim, S: Shape> = S::Prepend<D>;
-    type Replace<D: Dim, S: Shape> = <S::Tail as Shape>::Prepend<D>;
-
-    type Keep<S: Shape, L: Layout> = S::Layout<L>;
-    type Split<S: Shape, L: Layout> = L;
+    type Init<S: Shape> = ();
+    type Rest<S: Shape> = S::Tail;
 
     fn index(rank: usize) -> usize {
         assert!(rank > 0, "invalid dimension");
@@ -97,39 +97,14 @@ impl Axis for Nth<0> {
     }
 }
 
-impl Axis for Nth<1> {
-    type Dim<S: Shape> = <S::Tail as Shape>::Head;
-    type Other<S: Shape> = <<S::Tail as Shape>::Tail as Shape>::Prepend<S::Head>;
-
-    type Insert<D: Dim, S: Shape> = <<S::Tail as Shape>::Prepend<D> as Shape>::Prepend<S::Head>;
-    type Replace<D: Dim, S: Shape> =
-        <<<S::Tail as Shape>::Tail as Shape>::Prepend<D> as Shape>::Prepend<S::Head>;
-
-    type Keep<S: Shape, L: Layout> = <S::Tail as Shape>::Layout<L>;
-    type Split<S: Shape, L: Layout> = Strided;
-
-    fn index(rank: usize) -> usize {
-        assert!(rank > 1, "invalid dimension");
-
-        1
-    }
-}
-
 macro_rules! impl_axis {
     (($($n:tt),*), ($($k:tt),*)) => {
         $(
             impl Axis for Nth<$n> {
                 type Dim<S: Shape> = <Nth<$k> as Axis>::Dim<S::Tail>;
-                type Other<S: Shape> =
-                    <<Nth<$k> as Axis>::Other<S::Tail> as Shape>::Prepend<S::Head>;
 
-                type Insert<D: Dim, S: Shape> =
-                    <<Nth<$k> as Axis>::Insert<D, S::Tail> as Shape>::Prepend<S::Head>;
-                type Replace<D: Dim, S: Shape> =
-                    <<Nth<$k> as Axis>::Replace<D, S::Tail> as Shape>::Prepend<S::Head>;
-
-                type Keep<S: Shape, L: Layout> = <Nth<$k> as Axis>::Keep<S::Tail, L>;
-                type Split<S: Shape, L: Layout> = Strided;
+                type Init<S: Shape> = <<Nth<$k> as Axis>::Init<S::Tail> as Shape>::Prepend<S::Head>;
+                type Rest<S: Shape> = <Nth<$k> as Axis>::Rest<S::Tail>;
 
                 fn index(rank: usize) -> usize {
                     assert!(rank > $n, "invalid dimension");
@@ -141,4 +116,4 @@ macro_rules! impl_axis {
     };
 }
 
-impl_axis!((2, 3, 4, 5), (1, 2, 3, 4));
+impl_axis!((1, 2, 3, 4, 5), (0, 1, 2, 3, 4));

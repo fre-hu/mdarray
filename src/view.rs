@@ -8,7 +8,7 @@ use std::slice;
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
-use crate::index::{self, Axis, DimIndex, Nth, Permutation, SliceIndex, ViewIndex};
+use crate::index::{self, Axis, DimIndex, Nth, Permutation, Resize, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
@@ -53,7 +53,9 @@ macro_rules! impl_view {
             }
 
             /// Converts the array view into a reordered array view.
-            pub fn into_reordered($($mut)? self) -> $name<'a, T, S::Reverse, S::Layout<L>> {
+            pub fn into_reordered(
+                $($mut)? self
+            ) -> $name<'a, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
                 let mapping = Mapping::reorder(self.mapping());
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
@@ -82,10 +84,7 @@ macro_rules! impl_view {
             pub fn into_split_at(
                 self,
                 mid: usize,
-            ) -> (
-                $name<'a, T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-                $name<'a, T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-            ) {
+            ) -> ($name<'a, T, Resize<Nth<0>, S>, L>, $name<'a, T, Resize<Nth<0>, S>, L>) {
                 self.into_split_axis_at::<0>(mid)
             }
 
@@ -99,8 +98,8 @@ macro_rules! impl_view {
                 $($mut)? self,
                 mid: usize,
             ) -> (
-                $name<'a, T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
-                $name<'a, T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+                $name<'a, T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
+                $name<'a, T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
             )
             where
                 Nth<N>: Axis,
@@ -124,8 +123,8 @@ macro_rules! impl_view {
                 mapping: &L::Mapping<S>,
                 mid: usize
             ) -> (
-                $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
-                $name<'a, T, A::Replace<Dyn, S>, A::Split<S, L>>,
+                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
+                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
             ) {
                 let index = A::index(mapping.rank());
                 let size = mapping.dim(index);
@@ -338,12 +337,16 @@ macro_rules! impl_into_permuted {
             ) -> View<
                 'a,
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Const<$abc>,)+) as Permutation>::Layout<L>,
+                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
+                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
-                ($(Const<$abc>,)+): Permutation
+                ($(Nth<$abc>,)+): Permutation
             {
+                let index_mask = <($(Nth<$abc>,)+) as Permutation>::index_mask(self.rank());
+
+                assert!(index_mask == !(usize::MAX << self.rank()), "invalid permutation");
+
                 let dims = [$(self.dim($abc)),+];
                 let strides = [$(self.stride($abc)),+];
 
@@ -360,12 +363,16 @@ macro_rules! impl_into_permuted {
             ) -> ViewMut<
                 'a,
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Const<$abc>,)+) as Permutation>::Layout<L>,
+                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
+                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
-                ($(Const<$abc>,)+): Permutation
+                ($(Nth<$abc>,)+): Permutation
             {
+                let index_mask = <($(Nth<$abc>,)+) as Permutation>::index_mask(self.rank());
+
+                assert!(index_mask == !(usize::MAX << self.rank()), "invalid permutation");
+
                 let dims = [$(self.dim($abc)),+];
                 let strides = [$(self.stride($abc)),+];
 

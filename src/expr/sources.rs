@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter, Result};
 
 use crate::expr::expression::Expression;
 use crate::expr::iter::Iter;
-use crate::index::Axis;
+use crate::index::{Axis, Keep, Remove, Split};
 use crate::layout::Layout;
 use crate::mapping::Mapping;
 use crate::shape::{IntoShape, Shape};
@@ -12,14 +12,14 @@ use crate::view::{View, ViewMut};
 /// Array axis expression.
 pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
-    keep: <A::Keep<S, L> as Layout>::Mapping<(A::Dim<S>,)>,
+    keep: <Keep<A, S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
 }
 
 /// Mutable array axis expression.
 pub struct AxisExprMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
-    keep: <A::Keep<S, L> as Layout>::Mapping<(A::Dim<S>,)>,
+    keep: <Keep<A, S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
 }
 
@@ -53,14 +53,14 @@ pub struct FromFn<S: Shape, F> {
 /// Array lanes expression.
 pub struct Lanes<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
-    remove: <A::Split<S, L> as Layout>::Mapping<A::Other<S>>,
+    remove: <Split<A, S, L> as Layout>::Mapping<Remove<A, S>>,
     offset: isize,
 }
 
 /// Mutable array lanes expression.
 pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
-    remove: <A::Split<S, L> as Layout>::Mapping<A::Other<S>>,
+    remove: <Split<A, S, L> as Layout>::Mapping<Remove<A, S>>,
     offset: isize,
 }
 
@@ -186,7 +186,7 @@ macro_rules! impl_axis_expr {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
-            type Item = $expr<'a, T, A::Other<S>, A::Split<S, L>>;
+            type Item = $expr<'a, T, Remove<A, S>, Split<A, S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {
@@ -426,7 +426,7 @@ macro_rules! impl_lanes {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
-            type Shape = A::Other<S>;
+            type Shape = Remove<A, S>;
 
             const IS_REPEATABLE: bool = $repeatable;
 
@@ -445,9 +445,9 @@ macro_rules! impl_lanes {
             }
 
             fn inner_rank(&self) -> usize {
-                if A::Split::<S, L>::IS_DENSE {
+                if Split::<A, S, L>::IS_DENSE {
                     // For static rank 0, the inner stride is 0 so we allow inner rank >0.
-                    if A::Other::<S>::RANK == Some(0) { usize::MAX } else { self.remove.rank() }
+                    if Remove::<A, S>::RANK == Some(0) { usize::MAX } else { self.remove.rank() }
                 } else {
                     // For rank 0, the inner stride is always 0 so we can allow inner rank >0.
                     if self.remove.rank() > 0 { 1 } else { usize::MAX }
@@ -464,7 +464,7 @@ macro_rules! impl_lanes {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
-            type Item = $expr<'a, T, (A::Dim<S>,), A::Keep<S, L>>;
+            type Item = $expr<'a, T, (A::Dim<S>,), Keep<A, S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {

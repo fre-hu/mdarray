@@ -7,13 +7,13 @@ use std::mem;
 use std::ops::{Index, IndexMut};
 use std::ptr::NonNull;
 
-use crate::dim::{Const, Dim, Dyn};
+use crate::dim::{Dim, Dyn};
 #[cfg(not(feature = "nightly"))]
 use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 #[cfg(feature = "nightly")]
 use crate::expr::{Apply, Expression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
-use crate::index::{Axis, DimIndex, Nth, Permutation, SliceIndex, ViewIndex};
+use crate::index::{Axis, DimIndex, Nth, Permutation, Resize, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
@@ -282,14 +282,14 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Returns a reordered array view of the array slice.
-    pub fn reorder(&self) -> View<T, S::Reverse, S::Layout<L>> {
+    pub fn reorder(&self) -> View<T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::reorder(self.mapping());
 
         unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
 
     /// Returns a mutable reordered array view of the array slice.
-    pub fn reorder_mut(&mut self) -> ViewMut<T, S::Reverse, S::Layout<L>> {
+    pub fn reorder_mut(&mut self) -> ViewMut<T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::reorder(self.mapping());
 
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
@@ -331,10 +331,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at(
         &self,
         mid: usize,
-    ) -> (
-        View<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-        View<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-    ) {
+    ) -> (View<T, Resize<Nth<0>, S>, L>, View<T, Resize<Nth<0>, S>, L>) {
         self.split_axis_at::<0>(mid)
     }
 
@@ -347,10 +344,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at_mut(
         &mut self,
         mid: usize,
-    ) -> (
-        ViewMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-        ViewMut<T, <Nth<0> as Axis>::Replace<Dyn, S>, L>,
-    ) {
+    ) -> (ViewMut<T, Resize<Nth<0>, S>, L>, ViewMut<T, Resize<Nth<0>, S>, L>) {
         self.split_axis_at_mut::<0>(mid)
     }
 
@@ -364,8 +358,8 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &self,
         mid: usize,
     ) -> (
-        View<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
-        View<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        View<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
+        View<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
     )
     where
         Nth<N>: Axis,
@@ -383,8 +377,8 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &mut self,
         mid: usize,
     ) -> (
-        ViewMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
-        ViewMut<T, <Nth<N> as Axis>::Replace<Dyn, S>, <Nth<N> as Axis>::Split<S, L>>,
+        ViewMut<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
+        ViewMut<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
     )
     where
         Nth<N>: Axis,
@@ -562,11 +556,11 @@ macro_rules! impl_permute {
                 &self
             ) -> View<
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Const<$abc>,)+) as Permutation>::Layout<L>,
+                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
+                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
-                ($(Const<$abc>,)+): Permutation
+                ($(Nth<$abc>,)+): Permutation
             {
                 self.expr().into_permuted()
             }
@@ -576,11 +570,11 @@ macro_rules! impl_permute {
                 &mut self
             ) -> ViewMut<
                 T,
-                <($(Const<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Const<$abc>,)+) as Permutation>::Layout<L>,
+                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
+                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
             >
             where
-                ($(Const<$abc>,)+): Permutation
+                ($(Nth<$abc>,)+): Permutation
             {
                 self.expr_mut().into_permuted()
             }
