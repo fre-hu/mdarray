@@ -2,10 +2,7 @@
 use std::alloc::{Allocator, Global};
 use std::fmt::{Debug, Formatter, Result};
 use std::hash::{Hash, Hasher};
-#[cfg(feature = "nightly")]
 use std::marker::PhantomData;
-#[cfg(not(feature = "nightly"))]
-use std::marker::{PhantomData, PhantomPinned};
 use std::mem;
 use std::ops::{Index, IndexMut};
 use std::ptr::NonNull;
@@ -29,19 +26,10 @@ use crate::view::{View, ViewMut};
 /// Multidimensional array slice.
 pub struct Slice<T, S: Shape = DynRank, L: Layout = Dense> {
     phantom: PhantomData<(T, S, L)>,
-    #[cfg(not(feature = "nightly"))]
-    _pinned: PhantomPinned,
-    #[cfg(feature = "nightly")]
-    _opaque: Opaque,
 }
 
 /// Multidimensional array slice with dynamically-sized dimensions.
 pub type DSlice<T, const N: usize, L = Dense> = Slice<T, Rank<N>, L>;
-
-#[cfg(feature = "nightly")]
-extern "C" {
-    type Opaque;
-}
 
 impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable pointer to the array buffer.
@@ -798,11 +786,6 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Slice<T, S, L> {
         self.iter_mut()
     }
 }
-
-#[cfg(feature = "nightly")]
-unsafe impl<T: Send, S: Shape, L: Layout> Send for Slice<T, S, L> {}
-#[cfg(feature = "nightly")]
-unsafe impl<T: Sync, S: Shape, L: Layout> Sync for Slice<T, S, L> {}
 
 impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
     type Owned = Tensor<T, S>;

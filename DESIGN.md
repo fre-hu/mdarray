@@ -23,14 +23,10 @@ The owned array type `Tensor` has the same metadata structure, which makes it
 possible to dereference from both the owned array and view types to a single
 reference type.
 
-The reference type is implemented as a zero sized type (ZST), or as an extern
-type with nightly features. What is important is to disallow mutation of the
-metadata, since otherwise one could modify the internal state of owned arrays
-creating undefined behavior. Internally in the `Slice` methods there is a type
-cast to the metadata structure to access its contents.
-
-It could be possible to use another solution in the future, e.g. unmovable types
-or more convenient pinned references if these become available.
+The reference type is implemented as a zero sized type (ZST), to disallow any
+mutation of the metadata. Otherwise one could modify the internal state of
+arrays, creating undefined behavior. Internally there are type casts to the
+metadata structure to access its contents.
 
 ## Fixed sized arrays
 
