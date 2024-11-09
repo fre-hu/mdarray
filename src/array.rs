@@ -5,17 +5,14 @@ use std::mem::{self, ManuallyDrop, MaybeUninit};
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::ptr;
 
-use crate::buffer::Buffer;
 use crate::dim::Const;
-use crate::expr::{self, IntoExpr, Map, Zip};
-use crate::expression::Expression;
+use crate::expr::{self, IntoExpr, Iter, Map, Zip};
+use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 use crate::index::SliceIndex;
-use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
 use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
 use crate::tensor::Tensor;
-use crate::traits::{Apply, FromExpression, IntoExpression};
 use crate::view::{View, ViewMut};
 
 /// Multidimensional array with constant-sized dimensions and inline allocation.
@@ -248,12 +245,6 @@ where
 {
     fn from(value: I) -> Self {
         Self::from_expr(value.into_expr().cloned())
-    }
-}
-
-impl<B: Buffer<Shape: ConstShape>> From<IntoExpr<B>> for Array<B::Item, B::Shape> {
-    fn from(value: IntoExpr<B>) -> Self {
-        Self::from_expr(value)
     }
 }
 

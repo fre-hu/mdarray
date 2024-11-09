@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter, Result};
 use std::iter::FusedIterator;
 
 use crate::dim::Dims;
-use crate::expression::Expression;
+use crate::expr::expression::Expression;
 use crate::shape::Shape;
 
 /// Iterator type for array expressions.

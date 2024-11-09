@@ -9,14 +9,12 @@ use std::ops::{
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::Allocator;
 use crate::array::Array;
-use crate::buffer::Buffer;
+use crate::expr::{Apply, Buffer, Expression, IntoExpression};
 use crate::expr::{Fill, FillWith, FromElem, FromFn, IntoExpr, Map};
-use crate::expression::Expression;
 use crate::layout::Layout;
 use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
 use crate::tensor::Tensor;
-use crate::traits::{Apply, IntoExpression};
 use crate::view::{View, ViewMut};
 
 /// Range constructed from a unit spaced range with the given step size.

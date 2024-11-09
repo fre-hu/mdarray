@@ -1,12 +1,15 @@
-use crate::expression::Expression;
-use crate::traits::IntoExpression;
-
 mod adapters;
+mod buffer;
+mod expression;
 mod into_expr;
+mod iter;
 mod sources;
 
 pub use adapters::{cloned, copied, enumerate, map, zip, Cloned, Copied, Enumerate, Map, Zip};
+pub use buffer::{Buffer, Drain};
+pub use expression::{Apply, Expression, FromExpression, IntoExpression};
 pub use into_expr::IntoExpr;
+pub use iter::Iter;
 pub use sources::{fill, fill_with, from_elem, from_fn, Fill, FillWith, FromElem, FromFn};
 pub use sources::{AxisExpr, AxisExprMut, Lanes, LanesMut};
 

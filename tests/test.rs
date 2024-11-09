@@ -23,10 +23,10 @@ use serde_test::{assert_tokens, Token};
 
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
-use mdarray::mapping::{DenseMapping, Mapping, StridedMapping};
+use mdarray::expr::{self, Apply, Expression, IntoExpression};
 use mdarray::{array, step, tensor, view, Array, DTensor, StepRange, Tensor, View, ViewMut};
-use mdarray::{expr, Apply, Expression, IntoCloned, IntoExpression};
 use mdarray::{Const, Dense, Dyn, DynRank, Layout, Rank, Shape, Strided};
+use mdarray::{DenseMapping, IntoCloned, Mapping, StridedMapping};
 
 macro_rules! to_slice {
     ($slice:expr) => {

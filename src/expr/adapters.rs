@@ -1,9 +1,8 @@
 use std::fmt::{Debug, Formatter, Result};
 
-use crate::expression::Expression;
-use crate::iter::Iter;
+use crate::expr::expression::{Expression, IntoExpression};
+use crate::expr::iter::Iter;
 use crate::shape::Shape;
-use crate::traits::IntoExpression;
 
 /// Expression that clones the elements of an underlying expression.
 #[derive(Clone, Debug)]
@@ -44,7 +43,7 @@ pub struct Zip<A: Expression, B: Expression> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, view, Tensor};
 ///
 /// let t = Tensor::from_expr(expr::cloned(view![0, 1, 2]));
 ///
@@ -59,7 +58,7 @@ pub fn cloned<'a, T: 'a + Clone, I: IntoExpression<Item = &'a T>>(expr: I) -> Cl
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, view, Tensor};
 ///
 /// let t = Tensor::from_expr(expr::copied(view![0, 1, 2]));
 ///
@@ -74,7 +73,7 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, view, Tensor};
 ///
 /// let t = Tensor::from_expr(expr::enumerate(view![1, 2, 3]));
 ///
@@ -89,7 +88,7 @@ pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, view, Tensor};
 ///
 /// let t = Tensor::from_expr(expr::map(view![0, 1, 2], |x| 2 * x));
 ///
@@ -108,7 +107,7 @@ pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, tensor, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, tensor, view, Tensor};
 ///
 /// let a = tensor![0, 1, 2];
 /// let b = tensor![3, 4, 5];

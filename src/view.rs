@@ -7,16 +7,13 @@ use std::slice;
 
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{Map, Zip};
-use crate::expression::Expression;
+use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
 use crate::index::{self, Axis, DimIndex, Nth, Permutation, SliceIndex, ViewIndex};
-use crate::iter::Iter;
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
 use crate::shape::{DynRank, IntoShape, Rank, Shape};
 use crate::slice::Slice;
-use crate::traits::{Apply, IntoExpression};
 
 /// Multidimensional array view.
 pub struct View<'a, T, S: Shape = DynRank, L: Layout = Dense> {

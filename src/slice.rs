@@ -8,19 +8,18 @@ use std::ops::{Index, IndexMut};
 use std::ptr::NonNull;
 
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{AxisExpr, AxisExprMut, Lanes, LanesMut, Map, Zip};
-use crate::expression::Expression;
+#[cfg(not(feature = "nightly"))]
+use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
+#[cfg(feature = "nightly")]
+use crate::expr::{Apply, Expression, IntoExpression};
+use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
 use crate::index::{Axis, DimIndex, Nth, Permutation, SliceIndex, ViewIndex};
-use crate::iter::Iter;
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
 use crate::shape::{DynRank, IntoShape, Rank, Shape};
 use crate::tensor::Tensor;
-#[cfg(not(feature = "nightly"))]
-use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
-#[cfg(feature = "nightly")]
-use crate::traits::{Apply, IntoCloned, IntoExpression};
+use crate::traits::IntoCloned;
 use crate::view::{View, ViewMut};
 
 /// Multidimensional array slice.

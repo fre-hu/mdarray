@@ -123,7 +123,7 @@
 //! avoided, and the compiler is able to vectorize the inner loop.
 //!
 //! ```
-//! use mdarray::{tensor, view, DSlice, Expression};
+//! use mdarray::{expr::Expression, tensor, view, DSlice};
 //!
 //! fn matmul(a: &DSlice<f64, 2>, b: &DSlice<f64, 2>, c: &mut DSlice<f64, 2>) {
 //!     for (mut ci, ai) in c.rows_mut().zip(a.rows()) {
@@ -156,24 +156,17 @@
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
-/// Array buffer module.
-pub mod buffer;
-
 /// Expression module, for multidimensional iteration.
 pub mod expr;
 
 /// Module for array slice and view indexing, and for array axis subarray types.
 pub mod index;
 
-/// Array layout mapping module.
-pub mod mapping;
-
 mod array;
 mod dim;
-mod expression;
-mod iter;
 mod layout;
 mod macros;
+mod mapping;
 mod ops;
 mod raw_slice;
 mod raw_tensor;
@@ -198,12 +191,11 @@ mod alloc {
 
 pub use array::Array;
 pub use dim::{Const, Dim, Dyn};
-pub use expression::Expression;
-pub use iter::Iter;
 pub use layout::{Dense, Layout, Strided};
+pub use mapping::{DenseMapping, Mapping, StridedMapping};
 pub use ops::{step, StepRange};
 pub use shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 pub use slice::{DSlice, Slice};
 pub use tensor::{DTensor, Tensor};
-pub use traits::{Apply, FromExpression, IntoCloned, IntoExpression};
+pub use traits::IntoCloned;
 pub use view::{View, ViewMut};

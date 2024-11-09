@@ -2,9 +2,9 @@ use std::fmt::{Debug, Formatter, Result};
 use std::mem::ManuallyDrop;
 use std::ptr;
 
-use crate::buffer::Buffer;
-use crate::expression::Expression;
-use crate::iter::Iter;
+use crate::expr::buffer::Buffer;
+use crate::expr::expression::Expression;
+use crate::expr::iter::Iter;
 use crate::slice::Slice;
 
 /// Expression that moves elements out of an array.

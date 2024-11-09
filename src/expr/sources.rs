@@ -1,8 +1,8 @@
 use std::fmt::{Debug, Formatter, Result};
 
-use crate::expression::Expression;
+use crate::expr::expression::Expression;
+use crate::expr::iter::Iter;
 use crate::index::Axis;
-use crate::iter::Iter;
 use crate::layout::Layout;
 use crate::mapping::Mapping;
 use crate::shape::{IntoShape, Shape};
@@ -103,7 +103,7 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, view, Tensor};
 ///
 /// let t = Tensor::from_expr(expr::from_elem([2, 3], 1));
 ///
@@ -118,7 +118,7 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::In
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, view, FromExpression, Tensor};
+/// use mdarray::{expr, expr::FromExpression, view, Tensor};
 ///
 /// let t = Tensor::from_expr(expr::from_fn([2, 3], |i| 3 * i[0] + i[1] + 1));
 ///

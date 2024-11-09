@@ -5,25 +5,22 @@ use std::collections::TryReserveError;
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem::{self, ManuallyDrop, MaybeUninit};
-use std::ops::RangeBounds;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
 use std::slice;
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::{Allocator, Global};
 use crate::array::Array;
-use crate::buffer::{Buffer, Drain};
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{self, IntoExpr, Map, Zip};
-use crate::expression::Expression;
+use crate::expr::{self, Drain, IntoExpr, Iter, Map, Zip};
+use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 use crate::index::SliceIndex;
-use crate::iter::Iter;
 use crate::layout::{Dense, Layout};
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_tensor::RawTensor;
 use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 use crate::slice::Slice;
-use crate::traits::{Apply, FromExpression, IntoCloned, IntoExpression};
+use crate::traits::IntoCloned;
 use crate::view::{View, ViewMut};
 
 #[cfg(not(feature = "nightly"))]
@@ -675,12 +672,6 @@ impl<'a, T: 'a + Clone, S: Shape, L: Layout, I: IntoExpression<IntoExpr = View<'
     }
 }
 
-impl<B: Buffer> From<IntoExpr<B>> for Tensor<B::Item, B::Shape> {
-    fn from(value: IntoExpr<B>) -> Self {
-        Self::from_expr(value)
-    }
-}
-
 impl<T, S: Shape, A: Allocator> From<Tensor<T, S, A>> for vec_t!(T, A) {
     fn from(value: Tensor<T, S, A>) -> Self {
         value.into_vec()
@@ -718,7 +709,6 @@ macro_rules! impl_from_array {
         }
 
         impl<T, $(const $xyz: usize),+> From<$array> for Tensor<T, Rank<$n>> {
-            #[cfg(not(feature = "nightly"))]
             fn from(value: $array) -> Self {
                 let mapping = DenseMapping::new(($(Dyn($xyz),)+));
                 let capacity = mapping.shape().checked_len().expect("invalid length");
@@ -726,16 +716,6 @@ macro_rules! impl_from_array {
                 let ptr = Box::into_raw(Box::new(value));
 
                 unsafe { Self::from_raw_parts(ptr.cast(), mapping, capacity) }
-            }
-
-            #[cfg(feature = "nightly")]
-            fn from(value: $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
-                let capacity = mapping.shape().checked_len().expect("invalid length");
-
-                let (ptr, alloc) = Box::into_raw_with_allocator(Box::new(value));
-
-                unsafe { Self::from_raw_parts_in(ptr.cast(), mapping, capacity, alloc) }
             }
         }
     };
