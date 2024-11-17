@@ -30,6 +30,32 @@ pub struct ViewMut<'a, T, S: Shape = DynRank, L: Layout = Dense> {
 macro_rules! impl_view {
     ($name:tt, $as_ptr:tt, $from_raw_parts:tt, $raw_mut:tt, {$($mut:tt)?}, $repeatable:tt) => {
         impl<'a, T, S: Shape, L: Layout> $name<'a, T, S, L> {
+            /// Converts the array view into a new array view for the given diagonal,
+            /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the rank is not equal to 2, or if the absolute index is larger
+            /// than the number of columns or rows.
+            pub fn into_diag($($mut)? self, index: isize) -> $name<'a, T, (Dyn,), Strided> {
+                assert!(self.rank() == 2, "invalid rank");
+
+                let (offset, len) = if index >= 0 {
+                    assert!(index as usize <= self.dim(1), "invalid diagonal");
+
+                    (index * self.stride(1), self.dim(0).min(self.dim(1) - (index as usize)))
+                } else {
+                    assert!(-index as usize <= self.dim(0), "invalid diagonal");
+
+                    (-index * self.stride(0), self.dim(1).min(self.dim(0) - (-index as usize)))
+                };
+
+                let count = if len > 0 { offset } else { 0 }; // Offset pointer if non-empty.
+                let mapping = StridedMapping::new((Dyn(len),), &[self.stride(0) + self.stride(1)]);
+
+                unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
+            }
+
             /// Converts the array view into a one-dimensional array view.
             ///
             /// # Panics
@@ -146,31 +172,6 @@ macro_rules! impl_view {
 
                     (left, right)
                 }
-            }
-        }
-
-        impl<'a, T, X: Dim, Y: Dim, L: Layout> $name<'a, T, (X, Y), L> {
-            /// Converts the array view into a new array view for the given diagonal,
-            /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
-            ///
-            /// # Panics
-            ///
-            /// Panics if the absolute index is larger than the number of columns or rows.
-            pub fn into_diag($($mut)? self, index: isize) -> $name<'a, T, (Dyn,), Strided> {
-                let (offset, len) = if index >= 0 {
-                    assert!(index as usize <= self.dim(1), "invalid diagonal");
-
-                    (index * self.stride(1), self.dim(0).min(self.dim(1) - (index as usize)))
-                } else {
-                    assert!(-index as usize <= self.dim(0), "invalid diagonal");
-
-                    (-index * self.stride(0), self.dim(1).min(self.dim(0) - (-index as usize)))
-                };
-
-                let count = if len > 0 { offset } else { 0 }; // Offset pointer if non-empty.
-                let mapping = StridedMapping::new((Dyn(len),), &[self.stride(0) + self.stride(1)]);
-
-                unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
             }
         }
 

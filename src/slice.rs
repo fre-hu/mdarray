@@ -88,12 +88,82 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         AxisExprMut::new(self)
     }
 
+    /// Returns an array view for the specified column.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    pub fn col(&self, index: usize) -> View<T, (S::Head,), Strided> {
+        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+
+        self.reshape(shape).into_view(.., index)
+    }
+
+    /// Returns a mutable array view for the specified column.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    pub fn col_mut(&mut self, index: usize) -> ViewMut<T, (S::Head,), Strided> {
+        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+
+        self.reshape_mut(shape).into_view(.., index)
+    }
+
+    /// Returns an expression that gives column views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2.
+    pub fn cols(&self) -> Lanes<T, S, L, Nth<0>> {
+        assert!(self.rank() == 2, "invalid rank");
+
+        Lanes::new(self)
+    }
+
+    /// Returns a mutable expression that gives column views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2.
+    pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Nth<0>> {
+        assert!(self.rank() == 2, "invalid rank");
+
+        LanesMut::new(self)
+    }
+
     /// Returns `true` if the array slice contains an element with the given value.
     pub fn contains(&self, x: &T) -> bool
     where
         T: PartialEq,
     {
         contains(self, x)
+    }
+
+    /// Returns an array view for the given diagonal of the array slice,
+    /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2, or if the absolute index is larger
+    /// than the number of columns or rows.
+    pub fn diag(&self, index: isize) -> View<T, (Dyn,), Strided> {
+        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+
+        self.reshape(shape).into_diag(index)
+    }
+
+    /// Returns a mutable array view for the given diagonal of the array slice,
+    /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2, or if the absolute index is larger
+    /// than the number of columns or rows.
+    pub fn diag_mut(&mut self, index: isize) -> ViewMut<T, (Dyn,), Strided> {
+        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+
+        self.reshape_mut(shape).into_diag(index)
     }
 
     /// Returns the number of elements in the specified dimension.
@@ -317,6 +387,50 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
 
+    /// Returns an array view for the specified row.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    pub fn row(&self, index: usize) -> View<T, (<S::Tail as Shape>::Head,), L> {
+        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+
+        self.reshape(shape).into_view(index, ..)
+    }
+
+    /// Returns a mutable array view for the specified row.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    pub fn row_mut(&mut self, index: usize) -> ViewMut<T, (<S::Tail as Shape>::Head,), L> {
+        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+
+        self.reshape_mut(shape).into_view(index, ..)
+    }
+
+    /// Returns an expression that gives row views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2.
+    pub fn rows(&self) -> Lanes<T, S, L, Nth<1>> {
+        assert!(self.rank() == 2, "invalid rank");
+
+        Lanes::new(self)
+    }
+
+    /// Returns a mutable expression that gives row views iterating over the other dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the rank is not equal to 2.
+    pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Nth<1>> {
+        assert!(self.rank() == 2, "invalid rank");
+
+        LanesMut::new(self)
+    }
+
     /// Returns the array shape.
     pub fn shape(&self) -> &S {
         self.mapping().shape()
@@ -451,100 +565,6 @@ impl<T, S: Shape> Slice<T, S, Strided> {
     /// Returns the distance between elements in each dimension.
     pub fn strides(&self) -> &[isize] {
         self.mapping().strides()
-    }
-}
-
-impl<T, X: Dim, Y: Dim, L: Layout> Slice<T, (X, Y), L> {
-    /// Returns an array view for the specified column.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of bounds.
-    pub fn col(&self, index: usize) -> View<T, (X,), Strided> {
-        self.view(.., index)
-    }
-
-    /// Returns a mutable array view for the specified column.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of bounds.
-    pub fn col_mut(&mut self, index: usize) -> ViewMut<T, (X,), Strided> {
-        self.view_mut(.., index)
-    }
-
-    /// Returns an expression that gives column views iterating over the other dimension.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 1.
-    pub fn cols(&self) -> Lanes<T, (X, Y), L, Nth<0>> {
-        Lanes::new(self)
-    }
-
-    /// Returns a mutable expression that gives column views iterating over the other dimension.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 1.
-    pub fn cols_mut(&mut self) -> LanesMut<T, (X, Y), L, Nth<0>> {
-        LanesMut::new(self)
-    }
-
-    /// Returns an array view for the given diagonal of the array slice,
-    /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag(&self, index: isize) -> View<T, (Dyn,), Strided> {
-        self.expr().into_diag(index)
-    }
-
-    /// Returns a mutable array view for the given diagonal of the array slice,
-    /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the absolute index is larger than the number of columns or rows.
-    pub fn diag_mut(&mut self, index: isize) -> ViewMut<T, (Dyn,), Strided> {
-        self.expr_mut().into_diag(index)
-    }
-
-    /// Returns an array view for the specified row.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of bounds.
-    pub fn row(&self, index: usize) -> View<T, (Y,), L> {
-        self.view(index, ..)
-    }
-
-    /// Returns a mutable array view for the specified row.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the index is out of bounds.
-    pub fn row_mut(&mut self, index: usize) -> ViewMut<T, (Y,), L> {
-        self.view_mut(index, ..)
-    }
-
-    /// Returns an expression that gives row views iterating over the other dimension.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 2.
-    pub fn rows(&self) -> Lanes<T, (X, Y), L, Nth<1>> {
-        Lanes::new(self)
-    }
-
-    /// Returns a mutable expression that gives row views iterating over the other dimension.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rank is not at least 2.
-    pub fn rows_mut(&mut self) -> LanesMut<T, (X, Y), L, Nth<1>> {
-        LanesMut::new(self)
     }
 }
 
