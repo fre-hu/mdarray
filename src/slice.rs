@@ -367,22 +367,40 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a reshaped array view of the array slice.
     ///
+    /// At most one dimension can have dynamic size `usize::MAX`, and is then inferred
+    /// from the other dimensions and the array length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mdarray::view;
+    ///
+    /// let v = view![[1, 2, 3], [4, 5, 6]];
+    ///
+    /// assert_eq!(v.reshape([!0, 2]), view![[1, 2], [3, 4], [5, 6]]);
+    /// ```
+    ///
     /// # Panics
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
     pub fn reshape<I: IntoShape>(&self, shape: I) -> View<T, I::IntoShape, L> {
-        let mapping = Mapping::reshape(self.mapping(), shape.into_shape());
+        let mapping = self.mapping().reshape(shape.into_shape());
 
         unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
 
     /// Returns a mutable reshaped array view of the array slice.
     ///
+    /// At most one dimension can have dynamic size `usize::MAX`, and is then inferred
+    /// from the other dimensions and the array length.
+    ///
+    /// See the `reshape` function above for examples.
+    ///
     /// # Panics
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
     pub fn reshape_mut<I: IntoShape>(&mut self, shape: I) -> ViewMut<T, I::IntoShape, L> {
-        let mapping = Mapping::reshape(self.mapping(), shape.into_shape());
+        let mapping = self.mapping().reshape(shape.into_shape());
 
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }

@@ -89,6 +89,19 @@ macro_rules! impl_view {
 
             /// Converts the array view into a reshaped array view.
             ///
+            /// At most one dimension can have dynamic size `usize::MAX`, and is then inferred
+            /// from the other dimensions and the array length.
+            ///
+            /// # Examples
+            ///
+            /// ```
+            /// use mdarray::view;
+            ///
+            /// let v = view![[1, 2, 3], [4, 5, 6]];
+            ///
+            /// assert_eq!(v.into_shape([!0, 2]), view![[1, 2], [3, 4], [5, 6]]);
+            /// ```
+            ///
             /// # Panics
             ///
             /// Panics if the array length is changed, or if the memory layout is not compatible.
@@ -96,7 +109,7 @@ macro_rules! impl_view {
                 $($mut)? self,
                 shape: I
             ) -> $name<'a, T, I::IntoShape, L> {
-                let mapping = Mapping::reshape(self.mapping(), shape.into_shape());
+                let mapping = self.mapping().reshape(shape.into_shape());
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }

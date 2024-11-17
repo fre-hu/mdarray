@@ -212,9 +212,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
     }
 
     fn reshape<T: Shape>(&self, new_shape: T) -> DenseMapping<T> {
-        assert!(new_shape.checked_len() == Some(self.len()), "length must not change");
-
-        DenseMapping::new(new_shape)
+        DenseMapping::new(self.shape.reshape(new_shape))
     }
 
     fn resize_dim<M: Mapping>(mapping: &M, index: usize, new_size: usize) -> Self {
@@ -360,8 +358,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
     }
 
     fn reshape<T: Shape>(&self, new_shape: T) -> StridedMapping<T> {
-        assert!(new_shape.checked_len() == Some(self.len()), "length must not change");
-
+        let new_shape = self.shape.reshape(new_shape);
         let mut new_strides = T::Dims::new(new_shape.rank());
 
         let mut old_len = 1usize;

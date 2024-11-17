@@ -116,6 +116,35 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
     }
 
     #[doc(hidden)]
+    fn reshape<S: Shape>(&self, mut new_shape: S) -> S {
+        let mut inferred = None;
+
+        new_shape.with_mut_dims(|dims| {
+            for i in 0..dims.len() {
+                if dims[i] == usize::MAX {
+                    assert!(inferred.is_none(), "at most one dimension can be inferred");
+
+                    dims[i] = 1;
+                    inferred = Some(i);
+                }
+            }
+        });
+
+        let old_len = self.len();
+        let new_len = new_shape.checked_len().expect("invalid length");
+
+        if let Some(i) = inferred {
+            assert!(old_len % new_len == 0, "length not divisible by the new dimensions");
+
+            new_shape.with_mut_dims(|dims| dims[i] = old_len / new_len);
+        } else {
+            assert!(new_len == old_len, "length must not change");
+        }
+
+        new_shape
+    }
+
+    #[doc(hidden)]
     fn resize_dim<S: Shape>(&self, index: usize, new_size: usize) -> S {
         assert!(index < self.rank(), "invalid dimension");
 

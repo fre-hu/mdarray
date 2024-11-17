@@ -212,6 +212,19 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
     /// Converts the array into a reshaped array, which must have the same length.
     ///
+    /// At most one dimension can have dynamic size `usize::MAX`, and is then inferred
+    /// from the other dimensions and the array length.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mdarray::{tensor, view};
+    ///
+    /// let t = tensor![[1, 2, 3], [4, 5, 6]];
+    ///
+    /// assert_eq!(t.into_shape([!0, 2]), view![[1, 2], [3, 4], [5, 6]]);
+    /// ```
+    ///
     /// # Panics
     ///
     /// Panics if the array length is changed.
