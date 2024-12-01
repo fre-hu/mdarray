@@ -71,7 +71,7 @@ pub trait Mapping: Clone + Debug + Default + Eq + Hash + Send + Sync {
     fn prepend_dim<M: Mapping>(mapping: &M, size: usize, stride: isize) -> Self;
 
     #[doc(hidden)]
-    fn remap<M: Mapping<Shape = Self::Shape>>(mapping: &M) -> Self;
+    fn remap<M: Mapping>(mapping: &M) -> Self;
 
     #[doc(hidden)]
     fn remove_dim<M: Mapping>(mapping: &M, index: usize) -> Self;
@@ -192,10 +192,10 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::new(mapping.shape().prepend_dim(size))
     }
 
-    fn remap<M: Mapping<Shape = S>>(mapping: &M) -> Self {
+    fn remap<M: Mapping>(mapping: &M) -> Self {
         assert!(mapping.is_contiguous(), "mapping not contiguous");
 
-        Self::new(mapping.shape().clone())
+        Self::new(mapping.shape().with_dims(Shape::from_dims))
     }
 
     fn remove_dim<M: Mapping>(mapping: &M, index: usize) -> Self {
@@ -325,12 +325,12 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().prepend_dim(size), strides }
     }
 
-    fn remap<M: Mapping<Shape = S>>(mapping: &M) -> Self {
+    fn remap<M: Mapping>(mapping: &M) -> Self {
         let mut strides = S::Dims::new(mapping.rank());
 
         mapping.for_each_stride(|i, stride| strides.as_mut()[i] = stride);
 
-        Self { shape: mapping.shape().clone(), strides }
+        Self { shape: mapping.shape().with_dims(Shape::from_dims), strides }
     }
 
     fn remove_dim<M: Mapping>(mapping: &M, index: usize) -> Self {

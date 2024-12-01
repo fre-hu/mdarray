@@ -42,7 +42,7 @@ macro_rules! array {
         $crate::Array::<_, (_, _)>::from([$([$($x),*]),+])
     );
     ($($x:expr),* $(,)?) => (
-        $crate::Array::<_, _>::from([$($x),*])
+        $crate::Array::<_, (_,)>::from([$($x),*])
     );
     ([[[[[$elem:expr; $i:expr]; $j:expr]; $k:expr]; $l:expr]; $m:expr]; $n:expr) => (
         $crate::Array::<_, (_, _, _, _, _, _)>::from([[[[[[$elem; $i]; $j]; $k]; $l]; $m]; $n])
@@ -60,7 +60,7 @@ macro_rules! array {
         $crate::Array::<_, (_, _)>::from([[$elem; $i]; $j])
     );
     ($elem:expr; $i:expr) => (
-        $crate::Array::<_, _>::from([$elem; $i])
+        $crate::Array::<_, (_,)>::from([$elem; $i])
     );
 }
 
@@ -72,11 +72,11 @@ macro_rules! array {
 /// - Create an array containing a given list of elements:
 ///
 /// ```
-/// use mdarray::{tensor, Tensor};
+/// use mdarray::{tensor, DTensor};
 ///
 /// let a = tensor![[1, 2, 3], [4, 5, 6]];
 ///
-/// assert_eq!(a, Tensor::from([[1, 2, 3], [4, 5, 6]]));
+/// assert_eq!(a, DTensor::<_, 2>::from([[1, 2, 3], [4, 5, 6]]));
 /// ```
 ///
 /// - Create an array from a given element and shape by cloning the element:
@@ -138,21 +138,21 @@ macro_rules! tensor {
 /// - Create an array view containing a given list of elements:
 ///
 /// ```
-/// use mdarray::{view, View};
+/// use mdarray::{view, DView};
 ///
 /// let a = view![[1, 2, 3], [4, 5, 6]];
 ///
-/// assert_eq!(a, View::from(&[[1, 2, 3], [4, 5, 6]]));
+/// assert_eq!(a, DView::<_, 2>::from(&[[1, 2, 3], [4, 5, 6]]));
 /// ```
 ///
 /// - Create an array view from a given element and shape:
 ///
 /// ```
-/// use mdarray::{view, View};
+/// use mdarray::{view, DView};
 ///
 /// let a = view![[1; 3]; 2];
 ///
-/// assert_eq!(a, View::from(&[[1; 3]; 2]));
+/// assert_eq!(a, DView::<_, 2>::from(&[[1; 3]; 2]));
 /// ```
 ///
 /// In the second form, the argument must be an array repeat expression with constant shape.

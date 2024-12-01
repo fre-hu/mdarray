@@ -7,7 +7,7 @@ use std::mem;
 use std::ops::{Index, IndexMut};
 use std::ptr::NonNull;
 
-use crate::dim::{Dim, Dyn};
+use crate::dim::{Const, Dim, Dyn};
 #[cfg(not(feature = "nightly"))]
 use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 #[cfg(feature = "nightly")]
@@ -334,8 +334,8 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
-    pub fn remap<M: Layout>(&self) -> View<T, S, M> {
-        let mapping = M::Mapping::remap(self.mapping());
+    pub fn remap<R: Shape, K: Layout>(&self) -> View<T, R, K> {
+        let mapping = Mapping::remap(self.mapping());
 
         unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
@@ -345,8 +345,8 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
-    pub fn remap_mut<M: Layout>(&mut self) -> ViewMut<T, S, M> {
-        let mapping = M::Mapping::remap(self.mapping());
+    pub fn remap_mut<R: Shape, K: Layout>(&mut self) -> ViewMut<T, R, K> {
+        let mapping = Mapping::remap(self.mapping());
 
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
@@ -727,7 +727,7 @@ impl<T, S: Shape, L: Layout> AsMut<Slice<T, S, L>> for Slice<T, S, L> {
     }
 }
 
-impl<T, S: Shape> AsMut<[T]> for Slice<T, S> {
+impl<T, D: Dim> AsMut<[T]> for Slice<T, (D,)> {
     fn as_mut(&mut self) -> &mut [T] {
         self.expr_mut().into()
     }
@@ -739,11 +739,34 @@ impl<T, S: Shape, L: Layout> AsRef<Slice<T, S, L>> for Slice<T, S, L> {
     }
 }
 
-impl<T, S: Shape> AsRef<[T]> for Slice<T, S> {
+impl<T, D: Dim> AsRef<[T]> for Slice<T, (D,)> {
     fn as_ref(&self) -> &[T] {
         self.expr().into()
     }
 }
+
+macro_rules! impl_as_mut_ref {
+    (($($xyz:tt),+), $array:tt) => {
+        impl<T, $(const $xyz: usize),+> AsMut<$array> for Slice<T, ($(Const<$xyz>,)+)> {
+            fn as_mut(&mut self) -> &mut $array {
+                unsafe { &mut *(self as *mut Self as *mut $array) }
+            }
+        }
+
+        impl<T, $(const $xyz: usize),+> AsRef<$array> for Slice<T, ($(Const<$xyz>,)+)> {
+            fn as_ref(&self) -> &$array {
+                unsafe { &*(self as *const Self as *const $array) }
+            }
+        }
+    };
+}
+
+impl_as_mut_ref!((X), [T; X]);
+impl_as_mut_ref!((X, Y), [[T; Y]; X]);
+impl_as_mut_ref!((X, Y, Z), [[[T; Z]; Y]; X]);
+impl_as_mut_ref!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
+impl_as_mut_ref!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
+impl_as_mut_ref!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
 
 impl<T: Debug, S: Shape, L: Layout> Debug for Slice<T, S, L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -832,7 +855,7 @@ impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
 
 fn contains<T: PartialEq, S: Shape, L: Layout>(this: &Slice<T, S, L>, value: &T) -> bool {
     if L::IS_DENSE {
-        this.remap()[..].contains(value)
+        this.remap::<S, _>()[..].contains(value)
     } else if this.rank() < 2 {
         this.iter().any(|x| x == value)
     } else {

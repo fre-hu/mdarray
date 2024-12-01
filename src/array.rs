@@ -174,21 +174,9 @@ macro_rules! impl_as_mut_ref {
             }
         }
 
-        impl<T, $(const $xyz: usize),+> AsMut<$array> for Array<T, ($(Const<$xyz>,)+)> {
-            fn as_mut(&mut self) -> &mut $array {
-                unsafe { &mut *(self as *mut Self as *mut $array) }
-            }
-        }
-
         impl<T, $(const $xyz: usize),+> AsRef<Array<T, ($(Const<$xyz>,)+)>> for $array {
             fn as_ref(&self) -> &Array<T, ($(Const<$xyz>,)+)> {
                 unsafe { &*(self as *const Self as *const Array<T, ($(Const<$xyz>,)+)>) }
-            }
-        }
-
-        impl<T, $(const $xyz: usize),+> AsRef<$array> for Array<T, ($(Const<$xyz>,)+)> {
-            fn as_ref(&self) -> &$array {
-                unsafe { &*(self as *const Self as *const $array) }
             }
         }
     };

@@ -16,6 +16,7 @@ use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
 use crate::tensor::Tensor;
 use crate::view::{View, ViewMut};
+use crate::{array, tensor};
 
 struct TensorVisitor<T, S: Shape> {
     phantom: PhantomData<(T, S)>,
@@ -92,7 +93,7 @@ impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
-            Ok(Array::from([value]).into_shape())
+            Ok(array![value].into_shape())
         }
     }
 }
@@ -108,7 +109,7 @@ impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Tensor<T, S> {
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
-            Ok(Tensor::from([value]).into_shape(S::default()))
+            Ok(tensor![value].into_shape(S::default()))
         }
     }
 }

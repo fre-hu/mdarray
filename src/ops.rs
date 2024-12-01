@@ -83,7 +83,7 @@ where
             where
                 U: PartialEq<V>,
             {
-                this.remap()[..].eq(&other.remap()[..])
+                this.remap::<S, _>()[..].eq(&other.remap::<T, _>()[..])
             }
 
             fn compare_strided<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(

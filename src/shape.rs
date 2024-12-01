@@ -182,7 +182,7 @@ pub trait IntoShape {
     /// Which kind of array shape are we turning this into?
     type IntoShape: Shape;
 
-    /// Creates array shape from a value.
+    /// Creates an array shape from a value.
     fn into_shape(self) -> Self::IntoShape;
 }
 

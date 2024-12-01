@@ -24,9 +24,12 @@ use serde_test::{assert_tokens, Token};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::expr::{self, Apply, Expression, IntoExpression};
-use mdarray::{array, step, tensor, view, Array, DTensor, StepRange, Tensor, View, ViewMut};
-use mdarray::{Const, Dense, Dyn, DynRank, Layout, Rank, Shape, Strided};
+use mdarray::{array, tensor, view, Array, DTensor, DView, DViewMut, Tensor, View, ViewMut};
+use mdarray::{step, Const, Dense, Dyn, DynRank, Layout, Rank, Shape, StepRange, Strided};
 use mdarray::{DenseMapping, IntoCloned, Mapping, StridedMapping};
+
+const U0: Const<0> = Const::<0>;
+const U1: Const<1> = Const::<1>;
 
 macro_rules! to_slice {
     ($slice:expr) => {
@@ -40,7 +43,7 @@ fn check_mapping<S: Shape, L: Layout, M: Mapping>(_: &M) {
 
 fn check_view<L: Layout>() {
     let a = DTensor::<i32, 2>::from([[0]]);
-    let a = a.remap::<L>();
+    let a = a.remap::<(Dyn, Dyn), L>();
 
     check_mapping::<Rank<0>, L, _>(a.view(0, 0).mapping());
     check_mapping::<Rank<1>, Strided, _>(a.view(.., 0).mapping());
@@ -112,8 +115,8 @@ fn test_base() {
     assert_eq!(a.view(2, 1, ..), View::from([1210, 1211, 1212, 1213, 1214].as_slice()));
     assert_eq!(b.view(2, 1, ..), ViewMut::from([1012, 1112, 1212].as_mut_slice()));
 
-    assert_eq!(a.view(1, 2..3, 3..), View::from(&[[1123, 1124]]));
-    assert_eq!(b.view(3.., 2..3, 1), ViewMut::from(&mut [[1123], [1124]]));
+    assert_eq!(a.view(1, 2..3, 3..), DView::<_, 2>::from(&[[1123, 1124]]));
+    assert_eq!(b.view(3.., 2..3, 1), DViewMut::<_, 2>::from(&mut [[1123], [1124]]));
 
     assert_eq!(Tensor::from_elem([3, 4, 5], 1)[..], [1; 60]);
 
@@ -190,6 +193,21 @@ fn test_base() {
     assert_eq!(r.flatten().iter().sum::<usize>(), 134040);
     assert_eq!(s[..].iter().sum::<usize>(), 134040);
 
+    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]].into_flat(), view![1, 2, 3, 4, 5, 6]);
+    assert_eq!(view![[1, 2, 3], [4, 5, 6]].into_flat(), view![1, 2, 3, 4, 5, 6]);
+
+    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]].into_dyn(), view![[1, 2, 3], [4, 5, 6]]);
+    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]].into_dyn().shape(), &DynRank::from_dims(&[2, 3]));
+
+    assert_eq!(view![[1, 2, 3], [4, 5, 6]].into_dyn(), view![[1, 2, 3], [4, 5, 6]]);
+    assert_eq!(view![[1, 2, 3], [4, 5, 6]].into_dyn().shape(), &DynRank::from_dims(&[2, 3]));
+
+    assert_eq!(tensor![[1, 2, 3]].into_mapping::<(Const<1>, Dyn)>(), view![[1, 2, 3]]);
+    assert_eq!(view![[1, 2, 3]].into_mapping::<(Dyn, Const<3>), Dense>(), view![[1, 2, 3]]);
+
+    assert_eq!(view![[1, 2, 3]].remap::<(Const<1>, Dyn), Dense>(), view![[1, 2, 3]]);
+    assert_eq!(tensor![[1, 2, 3]].remap_mut::<(Dyn, Const<3>), Dense>(), view![[1, 2, 3]]);
+
     r.clear();
 
     assert!(r.is_empty());
@@ -220,35 +238,35 @@ fn test_base() {
 
     assert_eq!(Tensor::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
-    let mut d = Tensor::from([[1, 2], [3, 4], [5, 6]]);
+    let mut d = DTensor::<_, 2>::from([[1, 2], [3, 4], [5, 6]]);
     let mut e = d.drain(1..2).eval::<Tensor<_, _>>();
 
-    assert_eq!(d, DTensor::<_, 2>::from(&array![[1, 2], [5, 6]]));
-    assert_eq!(e, Tensor::from(&[[3, 4]]));
+    assert_eq!(d, Tensor::from(&array![[1, 2], [5, 6]]));
+    assert_eq!(e, Tensor::<_, (Const<1>, Dyn)>::from(&[[3, 4]]));
 
-    assert_eq!(d, DTensor::<_, 2>::from(array![[1, 2], [5, 6]]));
-    assert_eq!(e, Tensor::from([[3, 4]]));
+    assert_eq!(d, Tensor::from(array![[1, 2], [5, 6]]));
+    assert_eq!(e, Tensor::<_, (Dyn, Const<2>)>::from([[3, 4]]));
 
-    let f1: Array<_, (Const<2>, Const<2>)> = TryFrom::try_from(tensor![[1, 2], [5, 6]]).unwrap();
+    let f1: [[_; 2]; 2] = TryFrom::try_from(tensor![[1, 2], [5, 6]]).unwrap();
     let f2: [[_; 2]; 1] = TryFrom::try_from(tensor![[3, 4]]).unwrap();
 
-    assert!(f1 == array![[1, 2], [5, 6]] && f2 == [[3, 4]]);
+    assert!(f1 == [[1, 2], [5, 6]] && f2 == [[3, 4]]);
 
-    assert_eq!(d, View::<_, Rank<2>>::from(&array![[1, 2], [5, 6]]));
-    assert_eq!(e, View::from(&[[3, 4]]));
+    assert_eq!(d, View::from(&array![[1, 2], [5, 6]]));
+    assert_eq!(e, View::<_, (Const<1>, Dyn)>::from(&[[3, 4]]));
 
-    assert_eq!(d, ViewMut::<_, Rank<2>>::from(&mut array![[1, 2], [5, 6]]));
-    assert_eq!(e, ViewMut::from(&mut [[3, 4]]));
+    assert_eq!(d, ViewMut::from(&mut array![[1, 2], [5, 6]]));
+    assert_eq!(e, ViewMut::<_, (Dyn, Const<2>)>::from(&mut [[3, 4]]));
 
-    let g1: &Array<_, (Const<2>, Const<2>)> = TryFrom::try_from(d.expr()).unwrap();
+    let g1: &[[_; 2]; 2] = TryFrom::try_from(d.expr()).unwrap();
     let g2: &[[_; 2]; 1] = TryFrom::try_from(e.expr()).unwrap();
 
-    assert!(*g1 == array![[1, 2], [5, 6]] && *g2 == [[3, 4]]);
+    assert!(*g1 == [[1, 2], [5, 6]] && *g2 == [[3, 4]]);
 
-    let g3: &mut Array<_, (Const<2>, Const<2>)> = TryFrom::try_from(d.expr_mut()).unwrap();
+    let g3: &mut [[_; 2]; 2] = TryFrom::try_from(d.expr_mut()).unwrap();
     let g4: &mut [[_; 2]; 1] = TryFrom::try_from(e.expr_mut()).unwrap();
 
-    assert!(*g3 == array![[1, 2], [5, 6]] && *g4 == [[3, 4]]);
+    assert!(*g3 == [[1, 2], [5, 6]] && *g4 == [[3, 4]]);
 
     assert_eq!(tensor![123].into_scalar(), Tensor::from_elem((), 123)[[]]);
 
@@ -351,12 +369,12 @@ fn test_expr() {
     assert_eq!(c, view![[2; 2]; 6]);
 
     let d = view![[(1, 5), (2, 6)], [(3, 5), (4, 6)]];
-    let e = [[(0, 1), (1, 1)], [(2, 1), (3, 1)], [(4, 1), (5, 1)]];
+    let e = tensor![[(0, 1), (1, 1)], [(2, 1), (3, 1)], [(4, 1), (5, 1)]];
 
     let f = view![[1, 2], [3, 4]];
 
     assert_eq!(expr::zip(&f, &view![5, 6]).map(|(x, y)| (*x, *y)).eval::<Tensor<_, _>>(), d);
-    assert_eq!(tensor![[1; 2]; 3].into_expr().enumerate().eval::<Tensor<_, _>>(), Tensor::from(e));
+    assert_eq!(tensor![[1; 2]; 3].into_expr().enumerate().eval::<Tensor<_, _>>(), e);
 
     assert_eq!(a.cols().eval::<Tensor<_, _>>(), view![view![1, 4], view![2, 5], view![3, 6]]);
     assert_eq!(a.cols_mut().eval::<Tensor<_, _>>(), view![view![1, 4], view![2, 5], view![3, 6]]);
@@ -390,6 +408,13 @@ fn test_index() {
 
 #[test]
 fn test_macros() {
+    let array1: Array<usize, _> = array![];
+    let array2: Array<usize, _> = array![[]];
+    let array3: Array<usize, _> = array![[[]]];
+    let array4: Array<usize, _> = array![[[[]]]];
+    let array5: Array<usize, _> = array![[[[[]]]]];
+    let array6: Array<usize, _> = array![[[[[[]]]]]];
+
     let tensor1: Tensor<usize, _> = tensor![];
     let tensor2: Tensor<usize, _> = tensor![[]];
     let tensor3: Tensor<usize, _> = tensor![[[]]];
@@ -403,6 +428,13 @@ fn test_macros() {
     let view4: View<usize, _> = view![[[[]]]];
     let view5: View<usize, _> = view![[[[[]]]]];
     let view6: View<usize, _> = view![[[[[[]]]]]];
+
+    assert_eq!(array1.shape(), &(U0,));
+    assert_eq!(array2.shape(), &(U1, U0,));
+    assert_eq!(array3.shape(), &(U1, U1, U0,));
+    assert_eq!(array4.shape(), &(U1, U1, U1, U0,));
+    assert_eq!(array5.shape(), &(U1, U1, U1, U1, U0,));
+    assert_eq!(array6.shape(), &(U1, U1, U1, U1, U1, U0,));
 
     assert_eq!(tensor1.shape(), &(Dyn(0),));
     assert_eq!(tensor2.shape(), &(Dyn(1), Dyn(0)));
@@ -418,33 +450,33 @@ fn test_macros() {
     assert_eq!(view5.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
     assert_eq!(view6.shape(), &(Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(1), Dyn(0)));
 
-    assert_eq!(tensor![1, 2, 3], Tensor::from([1, 2, 3]));
-    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]], Tensor::from([[1, 2, 3], [4, 5, 6]]));
-    assert_eq!(tensor![[[1, 2, 3], [4, 5, 6]]], Tensor::from([[[1, 2, 3], [4, 5, 6]]]));
-    assert_eq!(tensor![[[[1, 2, 3], [4, 5, 6]]]], Tensor::from([[[[1, 2, 3], [4, 5, 6]]]]));
-    assert_eq!(tensor![[[[[1, 2, 3], [4, 5, 6]]]]], Tensor::from([[[[[1, 2, 3], [4, 5, 6]]]]]));
-    assert_eq!(tensor![[[[[[1, 2, 3], [4, 5, 6]]]]]], Tensor::from([[[[[[1, 2, 3], [4, 5, 6]]]]]]));
+    assert_eq!(tensor![1, 2, 3], array![1, 2, 3]);
+    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]], array![[1, 2, 3], [4, 5, 6]]);
+    assert_eq!(tensor![[[1, 2, 3], [4, 5, 6]]], array![[[1, 2, 3], [4, 5, 6]]]);
+    assert_eq!(tensor![[[[1, 2, 3], [4, 5, 6]]]], array![[[[1, 2, 3], [4, 5, 6]]]]);
+    assert_eq!(tensor![[[[[1, 2, 3], [4, 5, 6]]]]], array![[[[[1, 2, 3], [4, 5, 6]]]]]);
+    assert_eq!(tensor![[[[[[1, 2, 3], [4, 5, 6]]]]]], array![[[[[[1, 2, 3], [4, 5, 6]]]]]]);
 
-    assert_eq!(view![1, 2, 3], View::from(&[1, 2, 3]));
-    assert_eq!(view![[1, 2, 3], [4, 5, 6]], View::from(&[[1, 2, 3], [4, 5, 6]]));
-    assert_eq!(view![[[1, 2, 3], [4, 5, 6]]], View::from(&[[[1, 2, 3], [4, 5, 6]]]));
-    assert_eq!(view![[[[1, 2, 3], [4, 5, 6]]]], View::from(&[[[[1, 2, 3], [4, 5, 6]]]]));
-    assert_eq!(view![[[[[1, 2, 3], [4, 5, 6]]]]], View::from(&[[[[[1, 2, 3], [4, 5, 6]]]]]));
-    assert_eq!(view![[[[[[1, 2, 3], [4, 5, 6]]]]]], View::from(&[[[[[[1, 2, 3], [4, 5, 6]]]]]]));
+    assert_eq!(view![1, 2, 3], array![1, 2, 3]);
+    assert_eq!(view![[1, 2, 3], [4, 5, 6]], array![[1, 2, 3], [4, 5, 6]]);
+    assert_eq!(view![[[1, 2, 3], [4, 5, 6]]], array![[[1, 2, 3], [4, 5, 6]]]);
+    assert_eq!(view![[[[1, 2, 3], [4, 5, 6]]]], array![[[[1, 2, 3], [4, 5, 6]]]]);
+    assert_eq!(view![[[[[1, 2, 3], [4, 5, 6]]]]], array![[[[[1, 2, 3], [4, 5, 6]]]]]);
+    assert_eq!(view![[[[[[1, 2, 3], [4, 5, 6]]]]]], array![[[[[[1, 2, 3], [4, 5, 6]]]]]]);
 
-    assert_eq!(tensor![0; 1], Tensor::from_elem([1], 0));
-    assert_eq!(tensor![[0; 1]; 2], Tensor::from_elem([2, 1], 0));
-    assert_eq!(tensor![[[0; 1]; 2]; 3], Tensor::from_elem([3, 2, 1], 0));
-    assert_eq!(tensor![[[[0; 1]; 2]; 3]; 4], Tensor::from_elem([4, 3, 2, 1], 0));
-    assert_eq!(tensor![[[[[0; 1]; 2]; 3]; 4]; 5], Tensor::from_elem([5, 4, 3, 2, 1], 0));
-    assert_eq!(tensor![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], Tensor::from_elem([6, 5, 4, 3, 2, 1], 0));
+    assert_eq!(tensor![0; 1], array![0; 1]);
+    assert_eq!(tensor![[0; 1]; 2], array![[0; 1]; 2]);
+    assert_eq!(tensor![[[0; 1]; 2]; 3], array![[[0; 1]; 2]; 3]);
+    assert_eq!(tensor![[[[0; 1]; 2]; 3]; 4], array![[[[0; 1]; 2]; 3]; 4]);
+    assert_eq!(tensor![[[[[0; 1]; 2]; 3]; 4]; 5], array![[[[[0; 1]; 2]; 3]; 4]; 5]);
+    assert_eq!(tensor![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], array![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6]);
 
-    assert_eq!(view![0; 1], View::from(&[0; 1]));
-    assert_eq!(view![[0; 1]; 2], View::from(&[[0; 1]; 2]));
-    assert_eq!(view![[[0; 1]; 2]; 3], View::from(&[[[0; 1]; 2]; 3]));
-    assert_eq!(view![[[[0; 1]; 2]; 3]; 4], View::from(&[[[[0; 1]; 2]; 3]; 4]));
-    assert_eq!(view![[[[[0; 1]; 2]; 3]; 4]; 5], View::from(&[[[[[0; 1]; 2]; 3]; 4]; 5]));
-    assert_eq!(view![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], View::from(&[[[[[[0; 1]; 2]; 3]; 4]; 5]; 6]));
+    assert_eq!(view![0; 1], array![0; 1]);
+    assert_eq!(view![[0; 1]; 2], array![[0; 1]; 2]);
+    assert_eq!(view![[[0; 1]; 2]; 3], array![[[0; 1]; 2]; 3]);
+    assert_eq!(view![[[[0; 1]; 2]; 3]; 4], array![[[[0; 1]; 2]; 3]; 4]);
+    assert_eq!(view![[[[[0; 1]; 2]; 3]; 4]; 5], array![[[[[0; 1]; 2]; 3]; 4]; 5]);
+    assert_eq!(view![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6], array![[[[[[0; 1]; 2]; 3]; 4]; 5]; 6]);
 }
 
 #[test]
@@ -482,7 +514,7 @@ fn test_ops() {
     *a -= &b;
     *a -= b.expr();
 
-    assert_eq!(a, Tensor::from([[-37, -32, -27], [-22, -17, -12]]));
+    assert_eq!(a, tensor![[-37, -32, -27], [-22, -17, -12]]);
 
     a = a - expr::fill(1);
     a = a - &b;
@@ -492,7 +524,7 @@ fn test_ops() {
     a = &b - a;
     a = b.expr() - a;
 
-    assert_eq!(a, Tensor::from([[57, 50, 43], [36, 29, 22]]));
+    assert_eq!(a, tensor![[57, 50, 43], [36, 29, 22]]);
 
     let mut a = a.into_shape([2, 3].as_slice());
 
@@ -501,7 +533,7 @@ fn test_ops() {
     a = (a.expr() - &b).eval();
     a = (a.expr() - b.expr()).eval();
 
-    assert_eq!(a, Tensor::from([[21, 18, 15], [12, 9, 6]]));
+    assert_eq!(a, tensor![[21, 18, 15], [12, 9, 6]]);
 
     a = (&a - expr::fill(1)).eval();
     a = (a.expr() - expr::fill(1)).eval();
@@ -509,13 +541,13 @@ fn test_ops() {
     a = (expr::fill(1) - &a).eval();
     a = (expr::fill(1) - a.expr()).eval();
 
-    assert_eq!(a, Tensor::from([[19, 16, 13], [10, 7, 4]]));
+    assert_eq!(a, tensor![[19, 16, 13], [10, 7, 4]]);
 
     a = -a;
     a = (-&a).eval();
     a = (-a.expr()).eval();
 
-    assert_eq!(a, Tensor::from([[-19, -16, -13], [-10, -7, -4]]));
+    assert_eq!(a, tensor![[-19, -16, -13], [-10, -7, -4]]);
 
     assert!(a == a && *a == a && a == *a && *a == *a);
     assert!(a == a.expr() && a.expr() == a && a.expr() == a.expr());
@@ -525,7 +557,7 @@ fn test_ops() {
     let c = expr::fill_with(|| 1usize) + expr::from_elem([3, 2], 4);
     let c = c + expr::from_fn([3, 2], |x| x[0] + x[1]);
 
-    assert_eq!(c.eval::<Tensor::<_, _>>(), Tensor::from([[5, 6], [6, 7], [7, 8]]));
+    assert_eq!(c.eval::<Tensor::<_, _>>(), tensor![[5, 6], [6, 7], [7, 8]]);
 }
 
 #[cfg(feature = "serde")]

@@ -185,9 +185,25 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         Self::from_parts(Vec::from_raw_parts_in(ptr, mapping.len(), capacity, alloc), mapping)
     }
 
+    /// Converts the array into an array with dynamic rank.
+    pub fn into_dyn(self) -> Tensor<T, DynRank, A> {
+        self.into_mapping()
+    }
+
     /// Converts the array into a one-dimensional array.
-    pub fn into_flattened(self) -> Tensor<T, (Dyn,), A> {
+    pub fn into_flat(self) -> Tensor<T, (Dyn,), A> {
         self.into_vec().into()
+    }
+
+    /// Converts the array into a remapped array.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the shape is not matching static rank or constant-sized dimensions.
+    pub fn into_mapping<R: Shape>(self) -> Tensor<T, R, A> {
+        let (vec, mapping) = self.tensor.into_parts();
+
+        unsafe { Tensor::from_parts(vec, Mapping::remap(&mapping)) }
     }
 
     /// Decomposes an array into its raw components including the allocator.
@@ -685,8 +701,8 @@ impl<'a, T: 'a + Clone, S: Shape, L: Layout, I: IntoExpression<IntoExpr = View<'
     }
 }
 
-impl<T, S: Shape, A: Allocator> From<Tensor<T, S, A>> for vec_t!(T, A) {
-    fn from(value: Tensor<T, S, A>) -> Self {
+impl<T, D: Dim, A: Allocator> From<Tensor<T, (D,), A>> for vec_t!(T, A) {
+    fn from(value: Tensor<T, (D,), A>) -> Self {
         value.into_vec()
     }
 }
@@ -700,30 +716,20 @@ impl<T, A: Allocator> From<vec_t!(T, A)> for Tensor<T, (Dyn,), A> {
 }
 
 macro_rules! impl_from_array {
-    ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        impl<T: Clone, $(const $xyz: usize),+> From<&Array<T, ($(Const<$xyz>,)+)>>
-            for Tensor<T, Rank<$n>>
+    (($($xyz:tt),+), ($($abc:tt),+), $array:tt) => {
+        impl<T: Clone $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<&$array>
+            for Tensor<T, ($($xyz,)+)>
         {
-            fn from(value: &Array<T, ($(Const<$xyz>,)+)>) -> Self {
-                Self::from(&value.0)
-            }
-        }
-
-        impl<T: Clone, $(const $xyz: usize),+> From<&$array> for Tensor<T, Rank<$n>> {
             fn from(value: &$array) -> Self {
                 Self::from_expr(View::from(value).cloned())
             }
         }
 
-        impl<T, $(const $xyz: usize),+> From<Array<T, ($(Const<$xyz>,)+)>> for Tensor<T, Rank<$n>> {
-            fn from(value: Array<T, ($(Const<$xyz>,)+)>) -> Self {
-                Tensor::from(value.0)
-            }
-        }
-
-        impl<T, $(const $xyz: usize),+> From<$array> for Tensor<T, Rank<$n>> {
+        impl<T $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<$array>
+            for Tensor<T, ($($xyz,)+)>
+        {
             fn from(value: $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
+                let mapping = DenseMapping::new(($($xyz::from(Const::<$abc>),)+));
                 let capacity = mapping.shape().checked_len().expect("invalid length");
 
                 let ptr = Box::into_raw(Box::new(value));
@@ -734,12 +740,12 @@ macro_rules! impl_from_array {
     };
 }
 
-impl_from_array!(1, (X), [T; X]);
-impl_from_array!(2, (X, Y), [[T; Y]; X]);
-impl_from_array!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
-impl_from_array!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
-impl_from_array!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
-impl_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
+impl_from_array!((X), (A), [T; A]);
+impl_from_array!((X, Y), (A, B), [[T; B]; A]);
+impl_from_array!((X, Y, Z), (A, B, C), [[[T; C]; B]; A]);
+impl_from_array!((X, Y, Z, W), (A, B, C, D), [[[[T; D]; C]; B]; A]);
+impl_from_array!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A]);
+impl_from_array!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);
 
 impl<T, S: Shape> FromExpression<T, S> for Tensor<T, S> {
     #[cfg(not(feature = "nightly"))]
@@ -852,22 +858,12 @@ impl<T, S: Shape, A: Allocator> IntoIterator for Tensor<T, S, A> {
 }
 
 macro_rules! impl_try_from_array {
-    ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        impl<T: Clone, $(const $xyz: usize),+> TryFrom<Tensor<T, Rank<$n>>>
-            for Array<T, ($(Const<$xyz>,)+)>
-        {
-            type Error = Tensor<T, Rank<$n>>;
+    (($($xyz:tt),+), ($($abc:tt),+), $array:tt) => {
+        impl<T $(,$xyz: Dim)+ $(,const $abc: usize)+> TryFrom<Tensor<T, ($($xyz,)+)>> for $array {
+            type Error = Tensor<T, ($($xyz,)+)>;
 
-            fn try_from(value: Tensor<T, Rank<$n>>) -> Result<Self, Self::Error> {
-                Ok(Array(TryFrom::try_from(value)?))
-            }
-        }
-
-        impl<T: Clone, $(const $xyz: usize),+> TryFrom<Tensor<T, Rank<$n>>> for $array {
-            type Error = Tensor<T, Rank<$n>>;
-
-            fn try_from(value: Tensor<T, Rank<$n>>) -> Result<Self, Self::Error> {
-                if value.shape() == &($(Dyn($xyz),)+) {
+            fn try_from(value: Tensor<T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
+                if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
                     let mut vec = value.into_vec();
 
                     unsafe {
@@ -883,9 +879,9 @@ macro_rules! impl_try_from_array {
     };
 }
 
-impl_try_from_array!(1, (X), [T; X]);
-impl_try_from_array!(2, (X, Y), [[T; Y]; X]);
-impl_try_from_array!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
-impl_try_from_array!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
-impl_try_from_array!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
-impl_try_from_array!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
+impl_try_from_array!((X), (A), [T; A]);
+impl_try_from_array!((X, Y), (A, B), [[T; B]; A]);
+impl_try_from_array!((X, Y, Z), (A, B, C), [[[T; C]; B]; A]);
+impl_try_from_array!((X, Y, Z, W), (A, B, C, D), [[[[T; D]; C]; B]; A]);
+impl_try_from_array!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A]);
+impl_try_from_array!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);

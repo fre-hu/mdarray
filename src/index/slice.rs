@@ -116,19 +116,19 @@ macro_rules! impl_slice_index {
             type Output = [T];
 
             unsafe fn get_unchecked(self, slice: &Slice<T, S>) -> &[T] {
-                AsRef::<[T]>::as_ref(slice).get_unchecked(self)
+                <&[T]>::from(slice.flatten()).get_unchecked(self)
             }
 
             unsafe fn get_unchecked_mut(self, slice: &mut Slice<T, S>) -> &mut [T] {
-                AsMut::<[T]>::as_mut(slice).get_unchecked_mut(self)
+                <&mut [T]>::from(slice.flatten_mut()).get_unchecked_mut(self)
             }
 
             fn index(self, slice: &Slice<T, S>) -> &[T] {
-                AsRef::<[T]>::as_ref(slice).index(self)
+                <&[T]>::from(slice.flatten()).index(self)
             }
 
             fn index_mut(self, slice: &mut Slice<T, S>) -> &mut [T] {
-                AsMut::<[T]>::as_mut(slice).index_mut(self)
+                <&mut [T]>::from(slice.flatten_mut()).index_mut(self)
             }
         }
     };

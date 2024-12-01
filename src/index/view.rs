@@ -62,7 +62,7 @@ impl DimIndex for usize {
         tail: I,
         mapping: &M,
     ) -> (isize, <J::Layout<M::Layout> as Layout>::Mapping<J::Shape<S>>) {
-        let (offset, inner) = tail.view_index(mapping);
+        let (offset, inner) = tail.view_index::<S, M>(mapping);
 
         let size = mapping.dim(mapping.rank() - 1 - I::RANK);
         let stride = mapping.stride(mapping.rank() - 1 - I::RANK);

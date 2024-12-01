@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::slice;
 
-use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
 use crate::index::{self, Axis, DimIndex, Nth, Permutation, Resize, SliceIndex, Split, ViewIndex};
@@ -26,6 +25,12 @@ pub struct ViewMut<'a, T, S: Shape = DynRank, L: Layout = Dense> {
     slice: RawSlice<T, S, L>,
     phantom: PhantomData<&'a mut T>,
 }
+
+/// Multidimensional array view with dynamically-sized dimensions.
+pub type DView<'a, T, const N: usize, L = Dense> = View<'a, T, Rank<N>, L>;
+
+/// Mutable multidimensional array view with dynamically-sized dimensions.
+pub type DViewMut<'a, T, const N: usize, L = Dense> = ViewMut<'a, T, Rank<N>, L>;
 
 macro_rules! impl_view {
     ($name:tt, $as_ptr:tt, $from_raw_parts:tt, $raw_mut:tt, {$($mut:tt)?}, $repeatable:tt) => {
@@ -56,12 +61,17 @@ macro_rules! impl_view {
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
             }
 
+            /// Converts the array view into an array view with dynamic rank.
+            pub fn into_dyn(self) -> $name<'a, T, DynRank, L> {
+                self.into_mapping()
+            }
+
             /// Converts the array view into a one-dimensional array view.
             ///
             /// # Panics
             ///
             /// Panics if the array layout is not uniformly strided.
-            pub fn into_flattened(self) -> $name<'a, T, (Dyn,), L> {
+            pub fn into_flat(self) -> $name<'a, T, (Dyn,), L> {
                 let len = self.len();
 
                 self.into_shape([len])
@@ -71,9 +81,10 @@ macro_rules! impl_view {
             ///
             /// # Panics
             ///
-            /// Panics if the memory layout is not compatible with the new array layout.
-            pub fn into_mapping<M: Layout>($($mut)? self) -> $name<'a, T, S, M> {
-                let mapping = M::Mapping::remap(self.mapping());
+            /// Panics if the shape is not matching static rank or constant-sized dimensions,
+            /// or if the memory layout is not compatible with the new array layout.
+            pub fn into_mapping<R: Shape, K: Layout>($($mut)? self) -> $name<'a, T, R, K> {
+                let mapping = Mapping::remap(self.mapping());
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
@@ -290,8 +301,8 @@ macro_rules! impl_view {
             }
         }
 
-        impl<'a, T, S: Shape> From<$name<'a, T, S>> for &'a $($mut)? [T] {
-            fn from($($mut)? value: $name<T, S>) -> Self {
+        impl<'a, T, D: Dim> From<$name<'a, T, (D,)>> for &'a $($mut)? [T] {
+            fn from($($mut)? value: $name<T, (D,)>) -> Self {
                 unsafe { slice::$from_raw_parts(value.$as_ptr(), value.len()) }
             }
         }
@@ -361,10 +372,10 @@ macro_rules! impl_into_permuted {
 
                 assert!(index_mask == !(usize::MAX << self.rank()), "invalid permutation");
 
-                let dims = [$(self.dim($abc)),+];
+                let shape = ($(Dyn(self.dim($abc)),)+);
                 let strides = [$(self.stride($abc)),+];
 
-                let mapping = StridedMapping::new(Shape::from_dims(&dims), &strides);
+                let mapping = StridedMapping::new(shape, &strides);
 
                 unsafe { View::new_unchecked(self.as_ptr(), Mapping::remap(&mapping)) }
             }
@@ -387,10 +398,10 @@ macro_rules! impl_into_permuted {
 
                 assert!(index_mask == !(usize::MAX << self.rank()), "invalid permutation");
 
-                let dims = [$(self.dim($abc)),+];
+                let shape = ($(Dyn(self.dim($abc)),)+);
                 let strides = [$(self.stride($abc)),+];
 
-                let mapping = StridedMapping::new(Shape::from_dims(&dims), &strides);
+                let mapping = StridedMapping::new(shape, &strides);
 
                 unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), Mapping::remap(&mapping)) }
             }
@@ -515,18 +526,12 @@ impl<T, S: Shape, L: Layout> DerefMut for ViewMut<'_, T, S, L> {
 }
 
 macro_rules! impl_from_array_ref {
-    ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        impl<'a, T, $(const $xyz: usize),+> From<&'a Array<T, ($(Const<$xyz>,)+)>>
-            for View<'a, T, Rank<$n>>
+    (($($xyz:tt),+), ($($abc:tt),+), $array:tt) => {
+        impl<'a, T $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<&'a $array>
+            for View<'a, T, ($($xyz,)+)>
         {
-            fn from(value: &'a Array<T, ($(Const<$xyz>,)+)>) -> Self {
-                Self::from(&value.0)
-            }
-        }
-
-        impl<'a, T, $(const $xyz: usize),+> From<&'a $array> for View<'a, T, Rank<$n>> {
             fn from(value: &'a $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
+                let mapping = DenseMapping::new(($($xyz::from(Const::<$abc>),)+));
 
                 _ = mapping.shape().checked_len().expect("invalid length");
 
@@ -534,17 +539,11 @@ macro_rules! impl_from_array_ref {
             }
         }
 
-        impl<'a, T, $(const $xyz: usize),+> From<&'a mut Array<T, ($(Const<$xyz>,)+)>>
-            for ViewMut<'a, T, Rank<$n>>
+        impl<'a, T $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<&'a mut $array>
+            for ViewMut<'a, T, ($($xyz,)+)>
         {
-            fn from(value: &'a mut Array<T, ($(Const<$xyz>,)+)>) -> Self {
-                Self::from(&mut value.0)
-            }
-        }
-
-        impl<'a, T, $(const $xyz: usize),+> From<&'a mut $array> for ViewMut<'a, T, Rank<$n>> {
             fn from(value: &'a mut $array) -> Self {
-                let mapping = DenseMapping::new(($(Dyn($xyz),)+));
+                let mapping = DenseMapping::new(($($xyz::from(Const::<$abc>),)+));
 
                 _ = mapping.shape().checked_len().expect("invalid length");
 
@@ -554,12 +553,12 @@ macro_rules! impl_from_array_ref {
     };
 }
 
-impl_from_array_ref!(1, (X), [T; X]);
-impl_from_array_ref!(2, (X, Y), [[T; Y]; X]);
-impl_from_array_ref!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
-impl_from_array_ref!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
-impl_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
-impl_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
+impl_from_array_ref!((X), (A), [T; A]);
+impl_from_array_ref!((X, Y), (A, B), [[T; B]; A]);
+impl_from_array_ref!((X, Y, Z), (A, B, C), [[[T; C]; B]; A]);
+impl_from_array_ref!((X, Y, Z, W), (A, B, C, D), [[[[T; D]; C]; B]; A]);
+impl_from_array_ref!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A]);
+impl_from_array_ref!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);
 
 impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> IndexMut<I> for ViewMut<'_, T, S, L> {
     fn index_mut(&mut self, index: I) -> &mut I::Output {
@@ -592,22 +591,14 @@ unsafe impl<T: Send, S: Shape, L: Layout> Send for ViewMut<'_, T, S, L> {}
 unsafe impl<T: Sync, S: Shape, L: Layout> Sync for ViewMut<'_, T, S, L> {}
 
 macro_rules! impl_try_from_array_ref {
-    ($n:tt, ($($xyz:tt),+), $array:tt) => {
-        impl<'a, T, $(const $xyz: usize),+> TryFrom<View<'a, T, Rank<$n>>>
-            for &'a Array<T, ($(Const<$xyz>,)+)>
+    (($($xyz:tt),+), ($($abc:tt),+), $array:tt) => {
+        impl<'a, T $(,$xyz: Dim)+ $(,const $abc: usize)+> TryFrom<View<'a, T, ($($xyz,)+)>>
+            for &'a $array
         {
-            type Error = View<'a, T, Rank<$n>>;
+            type Error = View<'a, T, ($($xyz,)+)>;
 
-            fn try_from(value: View<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
-                Ok(<&'a $array>::try_from(value)?.as_ref())
-            }
-        }
-
-        impl<'a, T, $(const $xyz: usize),+> TryFrom<View<'a, T, Rank<$n>>> for &'a $array {
-            type Error = View<'a, T, Rank<$n>>;
-
-            fn try_from(value: View<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
-                if value.shape() == &($(Dyn($xyz),)+) {
+            fn try_from(value: View<'a, T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
+                if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
                     Ok(unsafe { &*value.as_ptr().cast() })
                 } else {
                     Err(value)
@@ -615,21 +606,13 @@ macro_rules! impl_try_from_array_ref {
             }
         }
 
-        impl<'a, T, $(const $xyz: usize),+> TryFrom<ViewMut<'a, T, Rank<$n>>>
-            for &'a mut Array<T, ($(Const<$xyz>,)+)>
+        impl<'a, T $(,$xyz: Dim)+ $(,const $abc: usize)+> TryFrom<ViewMut<'a, T, ($($xyz,)+)>>
+            for &'a mut $array
         {
-            type Error = ViewMut<'a, T, Rank<$n>>;
+            type Error = ViewMut<'a, T, ($($xyz,)+)>;
 
-            fn try_from(value: ViewMut<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
-                Ok(<&'a mut $array>::try_from(value)?.as_mut())
-            }
-        }
-
-        impl<'a, T, $(const $xyz: usize),+> TryFrom<ViewMut<'a, T, Rank<$n>>> for &'a mut $array {
-            type Error = ViewMut<'a, T, Rank<$n>>;
-
-            fn try_from(mut value: ViewMut<'a, T, Rank<$n>>) -> Result<Self, Self::Error> {
-                if value.shape() == &($(Dyn($xyz),)+) {
+            fn try_from(mut value: ViewMut<'a, T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
+                if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
                     Ok(unsafe { &mut *value.as_mut_ptr().cast() })
                 } else {
                     Err(value)
@@ -639,9 +622,9 @@ macro_rules! impl_try_from_array_ref {
     };
 }
 
-impl_try_from_array_ref!(1, (X), [T; X]);
-impl_try_from_array_ref!(2, (X, Y), [[T; Y]; X]);
-impl_try_from_array_ref!(3, (X, Y, Z), [[[T; Z]; Y]; X]);
-impl_try_from_array_ref!(4, (X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
-impl_try_from_array_ref!(5, (X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
-impl_try_from_array_ref!(6, (X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
+impl_try_from_array_ref!((X), (A), [T; A]);
+impl_try_from_array_ref!((X, Y), (A, B), [[T; B]; A]);
+impl_try_from_array_ref!((X, Y, Z), (A, B, C), [[[T; C]; B]; A]);
+impl_try_from_array_ref!((X, Y, Z, W), (A, B, C, D), [[[[T; D]; C]; B]; A]);
+impl_try_from_array_ref!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A]);
+impl_try_from_array_ref!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);

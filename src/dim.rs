@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter, Result};
+use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 
 /// Array dimension trait.
@@ -45,7 +45,7 @@ pub struct Const<const N: usize>;
 pub struct Dyn(pub usize);
 
 impl<const N: usize> Debug for Const<N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Const").field(&N).finish()
     }
 }
@@ -99,5 +99,23 @@ impl_dims!(0, 1, 2, 3, 4, 5, 6);
 impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for Box<[T]> {
     fn new(len: usize) -> Self {
         vec![T::default(); len].into()
+    }
+}
+
+impl<const N: usize> From<Const<N>> for Dyn {
+    fn from(_: Const<N>) -> Self {
+        Dyn(N)
+    }
+}
+
+impl<const N: usize> TryFrom<Dyn> for Const<N> {
+    type Error = Dyn;
+
+    fn try_from(value: Dyn) -> Result<Self, Self::Error> {
+        if value.size() == N {
+            Ok(Self)
+        } else {
+            Err(value)
+        }
     }
 }
