@@ -68,6 +68,9 @@ pub trait Mapping: Clone + Debug + Default + Eq + Hash + Send + Sync {
     fn linear_offset(&self, index: usize) -> isize;
 
     #[doc(hidden)]
+    fn permute<M: Mapping>(mapping: &M, perm: &[usize]) -> Self;
+
+    #[doc(hidden)]
     fn prepend_dim<M: Mapping>(mapping: &M, size: usize, stride: isize) -> Self;
 
     #[doc(hidden)]
@@ -183,6 +186,16 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         debug_assert!(index < self.len(), "index out of bounds");
 
         index as isize
+    }
+
+    fn permute<M: Mapping>(mapping: &M, perm: &[usize]) -> Self {
+        assert!(perm.len() == mapping.rank(), "invalid permutation");
+
+        for i in 0..mapping.rank() {
+            assert!(perm[i] == i, "invalid permutation");
+        }
+
+        Self::remap(mapping)
     }
 
     fn prepend_dim<M: Mapping>(mapping: &M, size: usize, stride: isize) -> Self {
@@ -314,6 +327,40 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         }
 
         offset
+    }
+
+    fn permute<M: Mapping>(mapping: &M, perm: &[usize]) -> Self {
+        assert!(perm.len() == mapping.rank(), "invalid permutation");
+
+        let mut index_mask = 0;
+
+        for i in 0..mapping.rank() {
+            assert!(perm[i] < mapping.rank(), "invalid permutation");
+
+            index_mask |= 1 << perm[i];
+        }
+
+        assert!(index_mask == !(usize::MAX << mapping.rank()), "invalid permutation");
+
+        let mut shape = S::new(mapping.rank());
+        let mut strides = S::Dims::new(mapping.rank());
+
+        shape.with_mut_dims(|dims| {
+            // Calculate inverse permutation
+            for i in 0..mapping.rank() {
+                dims[perm[i]] = i;
+            }
+
+            // Permute strides
+            mapping.for_each_stride(|i, stride| strides.as_mut()[dims[i]] = stride);
+
+            // Permute shape
+            for i in 0..mapping.rank() {
+                dims[i] = mapping.dim(perm[i]);
+            }
+        });
+
+        Self { shape, strides }
     }
 
     fn prepend_dim<M: Mapping>(mapping: &M, size: usize, stride: isize) -> Self {

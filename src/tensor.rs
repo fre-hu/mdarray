@@ -403,7 +403,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
         expr.clone_into_vec(&mut vec);
 
-        unsafe { Tensor::from_parts(vec, DenseMapping::new(shape)) }
+        unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     #[cfg(feature = "nightly")]
@@ -416,7 +416,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
         expr.clone_into_vec(&mut vec);
 
-        unsafe { Tensor::from_parts(vec, DenseMapping::new(shape)) }
+        unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
     }
 
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
@@ -675,7 +675,7 @@ impl<T, A: Allocator> Extend<T> for Tensor<T, (Dyn,), A> {
         unsafe {
             self.tensor.with_mut_parts(|vec, mapping| {
                 vec.extend(iter);
-                *mapping = DenseMapping::new((Dyn(vec.len()),));
+                *mapping = DenseMapping::new((vec.len(),));
             });
         }
     }
@@ -709,7 +709,7 @@ impl<T, D: Dim, A: Allocator> From<Tensor<T, (D,), A>> for vec_t!(T, A) {
 
 impl<T, A: Allocator> From<vec_t!(T, A)> for Tensor<T, (Dyn,), A> {
     fn from(value: vec_t!(T, A)) -> Self {
-        let mapping = DenseMapping::new((Dyn(value.len()),));
+        let mapping = DenseMapping::new((value.len(),));
 
         unsafe { Self::from_parts(value, mapping) }
     }

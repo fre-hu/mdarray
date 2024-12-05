@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 
 /// Array dimension trait.
-pub trait Dim: Copy + Debug + Default + Eq + Hash + Send + Sync {
+pub trait Dim: Copy + Debug + Default + Eq + Hash + Ord + Send + Sync {
     /// Merge dimensions, where constant size is preferred over dynamic.
     type Merge<D: Dim>: Dim;
 
@@ -37,12 +37,11 @@ pub trait Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync>:
 }
 
 /// Type-level constant.
-#[derive(Clone, Copy, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Const<const N: usize>;
 
 /// Dynamically-sized dimension type.
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-pub struct Dyn(pub usize);
+pub type Dyn = usize;
 
 impl<const N: usize> Debug for Const<N> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -72,11 +71,11 @@ impl Dim for Dyn {
     const SIZE: Option<usize> = None;
 
     fn from_size(size: usize) -> Self {
-        Self(size)
+        size
     }
 
     fn size(self) -> usize {
-        self.0
+        self
     }
 }
 
@@ -104,7 +103,7 @@ impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for Box<[T]> {
 
 impl<const N: usize> From<Const<N>> for Dyn {
     fn from(_: Const<N>) -> Self {
-        Dyn(N)
+        N
     }
 }
 

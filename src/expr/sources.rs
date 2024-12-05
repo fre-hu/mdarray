@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter, Result};
 
 use crate::expr::expression::Expression;
 use crate::expr::iter::Iter;
-use crate::index::{Axis, Keep, Remove, Split};
+use crate::index::{Axis, Keep, Split};
 use crate::layout::Layout;
 use crate::mapping::Mapping;
 use crate::shape::{IntoShape, Shape};
@@ -12,6 +12,7 @@ use crate::view::{View, ViewMut};
 /// Array axis expression.
 pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
+    axis: A,
     keep: <Keep<A, S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
 }
@@ -19,6 +20,7 @@ pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
 /// Mutable array axis expression.
 pub struct AxisExprMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
+    axis: A,
     keep: <Keep<A, S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
 }
@@ -53,14 +55,16 @@ pub struct FromFn<S: Shape, F> {
 /// Array lanes expression.
 pub struct Lanes<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
-    remove: <Split<A, S, L> as Layout>::Mapping<Remove<A, S>>,
+    axis: A,
+    remove: <Split<A, S, L> as Layout>::Mapping<A::Other<S>>,
     offset: isize,
 }
 
 /// Mutable array lanes expression.
 pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
-    remove: <Split<A, S, L> as Layout>::Mapping<Remove<A, S>>,
+    axis: A,
+    remove: <Split<A, S, L> as Layout>::Mapping<A::Other<S>>,
     offset: isize,
 }
 
@@ -136,16 +140,17 @@ macro_rules! impl_axis_expr {
         impl<'a, T, S: Shape, L: Layout, A: Axis> $name<'a, T, S, L, A> {
             pub(crate) fn new(
                 slice: &'a $($mut)? Slice<T, S, L>,
+                axis: A,
             ) -> Self {
-                let keep = A::keep(slice.mapping());
+                let keep = axis.keep(slice.mapping());
 
-                Self { slice, keep, offset: 0 }
+                Self { slice, axis, keep, offset: 0 }
             }
         }
 
         impl<'a, T: Debug, S: Shape, L: Layout, A: Axis> Debug for $name<'a, T, S, L, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                let index = A::index(self.slice.rank());
+                let index = self.axis.index(self.slice.rank());
 
                 f.debug_tuple(stringify!($name)).field(&index).field(&self.slice).finish()
             }
@@ -163,7 +168,7 @@ macro_rules! impl_axis_expr {
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
                 let offset = self.offset + self.keep.inner_stride() * index as isize;
 
-                let mapping = A::remove(self.slice.mapping());
+                let mapping = self.axis.remove(self.slice.mapping());
                 let len = mapping.shape().checked_len().expect("invalid length");
 
                 // If the view is empty, we must not offset the pointer.
@@ -186,7 +191,7 @@ macro_rules! impl_axis_expr {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
-            type Item = $expr<'a, T, Remove<A, S>, Split<A, S, L>>;
+            type Item = $expr<'a, T, A::Other<S>, Split<A, S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {
@@ -201,11 +206,12 @@ impl_axis_expr!(AxisExprMut, ViewMut, as_mut_ptr, {mut}, false);
 
 impl<T, S: Shape, L: Layout, A: Axis> Clone for AxisExpr<'_, T, S, L, A> {
     fn clone(&self) -> Self {
-        Self { slice: self.slice, keep: self.keep.clone(), offset: self.offset }
+        Self { slice: self.slice, axis: self.axis, keep: self.keep.clone(), offset: self.offset }
     }
 
     fn clone_from(&mut self, source: &Self) {
         self.slice = source.slice;
+        self.axis = source.axis;
         self.keep.clone_from(&source.keep);
         self.offset = source.offset;
     }
@@ -407,26 +413,27 @@ macro_rules! impl_lanes {
         impl<'a, T, S: Shape, L: Layout, A: Axis> $name<'a, T, S, L, A> {
             pub(crate) fn new(
                 slice: &'a $($mut)? Slice<T, S, L>,
+                axis: A,
             ) -> Self {
-                let remove = A::remove(slice.mapping());
+                let remove = axis.remove(slice.mapping());
 
                 // Ensure that the subarray is valid.
                 _ = remove.shape().checked_len().expect("invalid length");
 
-                Self { slice, remove, offset: 0 }
+                Self { slice, axis, remove, offset: 0 }
             }
         }
 
         impl<'a, T: Debug, S: Shape, L: Layout, A: Axis> Debug for $name<'a, T, S, L, A> {
             fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-                let index = A::index(self.slice.rank());
+                let index = self.axis.index(self.slice.rank());
 
                 f.debug_tuple(stringify!($name)).field(&index).field(&self.slice).finish()
             }
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
-            type Shape = Remove<A, S>;
+            type Shape = A::Other<S>;
 
             const IS_REPEATABLE: bool = $repeatable;
 
@@ -436,7 +443,7 @@ macro_rules! impl_lanes {
 
             unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
                 let offset = self.remove.inner_stride() * index as isize;
-                let mapping = A::keep(self.slice.mapping());
+                let mapping = self.axis.keep(self.slice.mapping());
 
                 // If the view is empty, we must not offset the pointer.
                 let count = if mapping.is_empty() { 0 } else { offset };
@@ -447,7 +454,7 @@ macro_rules! impl_lanes {
             fn inner_rank(&self) -> usize {
                 if Split::<A, S, L>::IS_DENSE {
                     // For static rank 0, the inner stride is 0 so we allow inner rank >0.
-                    if Remove::<A, S>::RANK == Some(0) { usize::MAX } else { self.remove.rank() }
+                    if A::Other::<S>::RANK == Some(0) { usize::MAX } else { self.remove.rank() }
                 } else {
                     // For rank 0, the inner stride is always 0 so we can allow inner rank >0.
                     if self.remove.rank() > 0 { 1 } else { usize::MAX }
@@ -479,11 +486,17 @@ impl_lanes!(LanesMut, ViewMut, as_mut_ptr, {mut}, false);
 
 impl<T, S: Shape, L: Layout, A: Axis> Clone for Lanes<'_, T, S, L, A> {
     fn clone(&self) -> Self {
-        Self { slice: self.slice, remove: self.remove.clone(), offset: self.offset }
+        Self {
+            slice: self.slice,
+            axis: self.axis,
+            remove: self.remove.clone(),
+            offset: self.offset,
+        }
     }
 
     fn clone_from(&mut self, source: &Self) {
         self.slice = source.slice;
+        self.axis = source.axis;
         self.remove.clone_from(&source.remove);
         self.offset = source.offset;
     }

@@ -1,6 +1,6 @@
 use crate::index::axis::{Axis, Keep};
-use crate::layout::Layout;
-use crate::shape::Shape;
+use crate::layout::{Layout, Strided};
+use crate::shape::{DynRank, Shape};
 
 /// Array permutation trait, for array types after permutation of dimensions.
 pub trait Permutation {
@@ -9,22 +9,15 @@ pub trait Permutation {
 
     /// Layout after permuting dimensions.
     type Layout<L: Layout>: Layout;
-
-    #[doc(hidden)]
-    fn index_mask(rank: usize) -> usize;
 }
 
 impl<X: Axis> Permutation for (X,) {
     type Shape<S: Shape> = (X::Dim<S>,);
     type Layout<L: Layout> = L;
-
-    fn index_mask(rank: usize) -> usize {
-        1 << X::index(rank)
-    }
 }
 
 macro_rules! impl_permutation {
-    (($($xy:tt),+), $z:tt) => {
+    (($($ij:tt),+), $k:tt, ($($xy:tt),+), $z:tt) => {
         impl<$($xy: Axis,)+ $z: Axis> Permutation for ($($xy,)+ $z)
         where
             ($($xy,)+): Permutation
@@ -33,16 +26,17 @@ macro_rules! impl_permutation {
                 <<($($xy,)+) as Permutation>::Shape<S> as Shape>::Concat<($z::Dim<S>,)>;
             type Layout<L: Layout> =
                 Keep<$z, Self::Shape<()>, <($($xy,)+) as Permutation>::Layout<L>>;
-
-            fn index_mask(rank: usize) -> usize {
-                <($($xy,)+) as Permutation>::index_mask(rank) | (1 << $z::index(rank))
-            }
         }
     };
 }
 
-impl_permutation!((X), Y);
-impl_permutation!((X, Y), Z);
-impl_permutation!((X, Y, Z), W);
-impl_permutation!((X, Y, Z, W), U);
-impl_permutation!((X, Y, Z, W, U), V);
+impl_permutation!((0), 1, (X), Y);
+impl_permutation!((0, 1), 2, (X, Y), Z);
+impl_permutation!((0, 1, 2), 3, (X, Y, Z), W);
+impl_permutation!((0, 1, 2, 3), 4, (X, Y, Z, W), U);
+impl_permutation!((0, 1, 2, 3, 4), 5, (X, Y, Z, W, U), V);
+
+impl Permutation for DynRank {
+    type Shape<S: Shape> = S::Dyn;
+    type Layout<L: Layout> = Strided;
+}

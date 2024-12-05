@@ -13,7 +13,7 @@ use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 #[cfg(feature = "nightly")]
 use crate::expr::{Apply, Expression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
-use crate::index::{Axis, DimIndex, Nth, Permutation, Resize, SliceIndex, Split, ViewIndex};
+use crate::index::{Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
@@ -60,32 +60,28 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns an expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the first dimension, the resulting array views have the same
-    /// layout as the input. Otherwise, the resulting array views have strided layout.
+    /// If the dimension to be iterated over is know at compile time, the resulting array
+    /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
+    /// dimension the resulting array views have the same layout as the input.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn axis_expr<const N: usize>(&self) -> AxisExpr<T, S, L, Nth<N>>
-    where
-        Nth<N>: Axis,
-    {
-        AxisExpr::new(self)
+    pub fn axis_expr<A: Axis>(&self, axis: A) -> AxisExpr<T, S, L, A> {
+        AxisExpr::new(self, axis)
     }
 
     /// Returns a mutable expression that gives array views iterating over the specified dimension.
     ///
-    /// When iterating over the first dimension, the resulting array views have the same
-    /// layout as the input. Otherwise, the resulting array views have strided layout.
+    /// If the dimension to be iterated over is know at compile time, the resulting array
+    /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
+    /// dimension the resulting array views have the same layout as the input.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn axis_expr_mut<const N: usize>(&mut self) -> AxisExprMut<T, S, L, Nth<N>>
-    where
-        Nth<N>: Axis,
-    {
-        AxisExprMut::new(self)
+    pub fn axis_expr_mut<A: Axis>(&mut self, axis: A) -> AxisExprMut<T, S, L, A> {
+        AxisExprMut::new(self, axis)
     }
 
     /// Returns an array view for the specified column.
@@ -115,10 +111,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2.
-    pub fn cols(&self) -> Lanes<T, S, L, Nth<0>> {
+    pub fn cols(&self) -> Lanes<T, S, L, Const<0>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        Lanes::new(self)
+        Lanes::new(self, Const::<0>)
     }
 
     /// Returns a mutable expression that gives column views iterating over the other dimension.
@@ -126,10 +122,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2.
-    pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Nth<0>> {
+    pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Const<0>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        LanesMut::new(self)
+        LanesMut::new(self, Const::<0>)
     }
 
     /// Returns `true` if the array slice contains an element with the given value.
@@ -234,6 +230,40 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         index.get_unchecked_mut(self)
     }
 
+    /// Returns an array view after indexing the specified dimension.
+    ///
+    /// If the dimension to be indexed is know at compile time, the resulting array shape
+    /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
+    /// the resulting array view has the same layout as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimension or the index is out of bounds.
+    pub fn index_axis<A: Axis>(
+        &self,
+        axis: A,
+        index: usize,
+    ) -> View<T, A::Other<S>, Split<A, S, L>> {
+        unsafe { View::index_axis(self.as_ptr(), self.mapping(), axis, index) }
+    }
+
+    /// Returns a mutable array view after indexing the specified dimension.
+    ///
+    /// If the dimension to be indexed is know at compile time, the resulting array shape
+    /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
+    /// the resulting array view has the same layout as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimension or the index is out of bounds.
+    pub fn index_axis_mut<A: Axis>(
+        &mut self,
+        axis: A,
+        index: usize,
+    ) -> ViewMut<T, A::Other<S>, Split<A, S, L>> {
+        unsafe { ViewMut::index_axis(self.as_mut_ptr(), self.mapping(), axis, index) }
+    }
+
     /// Returns `true` if the array strides are consistent with contiguous memory layout.
     pub fn is_contiguous(&self) -> bool {
         self.mapping().is_contiguous()
@@ -257,33 +287,29 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns an expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the last dimension is specified, the resulting array views have the same layout
-    /// as the input. For other dimensions, the resulting array views have strided layout.
+    /// If the dimension to give array views over is know at compile time, the resulting
+    /// shape will maintain a constant-sized dimension. Furthermore, if it is the last
+    /// dimension the resulting array views have the same layout as the input.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn lanes<const N: usize>(&self) -> Lanes<T, S, L, Nth<N>>
-    where
-        Nth<N>: Axis,
-    {
-        Lanes::new(self)
+    pub fn lanes<A: Axis>(&self, axis: A) -> Lanes<T, S, L, A> {
+        Lanes::new(self, axis)
     }
 
     /// Returns a mutable expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the last dimension is specified, the resulting array views have the same layout
-    /// as the input. For other dimensions, the resulting array views have strided layout.
+    /// If the dimension to give array views over is know at compile time, the resulting
+    /// shape will maintain a constant-sized dimension. Furthermore, if it is the last
+    /// dimension the resulting array views have the same layout as the input.
     ///
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
-    pub fn lanes_mut<const N: usize>(&mut self) -> LanesMut<T, S, L, Nth<N>>
-    where
-        Nth<N>: Axis,
-    {
-        LanesMut::new(self)
+    pub fn lanes_mut<A: Axis>(&mut self, axis: A) -> LanesMut<T, S, L, A> {
+        LanesMut::new(self, axis)
     }
 
     /// Returns the number of elements in the array.
@@ -308,8 +334,8 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_expr(&self) -> AxisExpr<T, S, L, Nth<0>> {
-        AxisExpr::new(self)
+    pub fn outer_expr(&self) -> AxisExpr<T, S, L, Const<0>> {
+        AxisExpr::new(self, Const::<0>)
     }
 
     /// Returns a mutable expression that gives array views iterating over the first dimension.
@@ -320,8 +346,44 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
-    pub fn outer_expr_mut(&mut self) -> AxisExprMut<T, S, L, Nth<0>> {
-        AxisExprMut::new(self)
+    pub fn outer_expr_mut(&mut self) -> AxisExprMut<T, S, L, Const<0>> {
+        AxisExprMut::new(self, Const::<0>)
+    }
+
+    /// Returns an array view with the dimensions permuted.
+    ///
+    /// If the permutation is an identity permutation and known at compile time, the
+    /// resulting array view has the same layout as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the permutation is not valid.
+    pub fn permute<I: IntoShape<IntoShape: Permutation>>(
+        &self,
+        perm: I,
+    ) -> View<T, <I::IntoShape as Permutation>::Shape<S>, <I::IntoShape as Permutation>::Layout<L>>
+    {
+        let mapping = perm.into_dims(|dims| Mapping::permute(self.mapping(), dims));
+
+        unsafe { View::new_unchecked(self.as_ptr(), mapping) }
+    }
+
+    /// Returns a mutable array view with the dimensions permuted.
+    ///
+    /// If the permutation is an identity permutation and known at compile time, the
+    /// resulting array view has the same layout as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the permutation is not valid.
+    pub fn permute_mut<I: IntoShape<IntoShape: Permutation>>(
+        &mut self,
+        perm: I,
+    ) -> ViewMut<T, <I::IntoShape as Permutation>::Shape<S>, <I::IntoShape as Permutation>::Layout<L>>
+    {
+        let mapping = perm.into_dims(|dims| Mapping::permute(self.mapping(), dims));
+
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
@@ -432,10 +494,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2.
-    pub fn rows(&self) -> Lanes<T, S, L, Nth<1>> {
+    pub fn rows(&self) -> Lanes<T, S, L, Const<1>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        Lanes::new(self)
+        Lanes::new(self, Const::<1>)
     }
 
     /// Returns a mutable expression that gives row views iterating over the other dimension.
@@ -443,10 +505,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2.
-    pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Nth<1>> {
+    pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Const<1>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        LanesMut::new(self)
+        LanesMut::new(self, Const::<1>)
     }
 
     /// Returns the array shape.
@@ -463,8 +525,11 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at(
         &self,
         mid: usize,
-    ) -> (View<T, Resize<Nth<0>, S>, L>, View<T, Resize<Nth<0>, S>, L>) {
-        self.split_axis_at::<0>(mid)
+    ) -> (
+        View<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
+        View<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
+    ) {
+        self.split_axis_at(Const::<0>, mid)
     }
 
     /// Divides a mutable array slice into two at an index along the first dimension.
@@ -476,46 +541,51 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at_mut(
         &mut self,
         mid: usize,
-    ) -> (ViewMut<T, Resize<Nth<0>, S>, L>, ViewMut<T, Resize<Nth<0>, S>, L>) {
-        self.split_axis_at_mut::<0>(mid)
+    ) -> (
+        ViewMut<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
+        ViewMut<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
+    ) {
+        self.split_axis_at_mut(Const::<0>, mid)
     }
 
     /// Divides an array slice into two at an index along the specified dimension.
     ///
+    /// If the dimension to be divided is know at compile time, the resulting array
+    /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
+    /// dimension the resulting array views have the same layout as the input.
+    ///
     /// # Panics
     ///
     /// Panics if the split point is larger than the number of elements in that dimension,
     /// or if the dimension is out of bounds.
-    pub fn split_axis_at<const N: usize>(
+    pub fn split_axis_at<A: Axis>(
         &self,
+        axis: A,
         mid: usize,
-    ) -> (
-        View<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
-        View<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
-    )
-    where
-        Nth<N>: Axis,
+    ) -> (View<T, A::Replace<Dyn, S>, Split<A, S, L>>, View<T, A::Replace<Dyn, S>, Split<A, S, L>>)
     {
-        unsafe { View::split_axis_at::<Nth<N>>(self.as_ptr(), self.mapping(), mid) }
+        unsafe { View::split_axis_at(self.as_ptr(), self.mapping(), axis, mid) }
     }
 
     /// Divides a mutable array slice into two at an index along the specified dimension.
     ///
+    /// If the dimension to be divided is know at compile time, the resulting array
+    /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
+    /// dimension the resulting array views have the same layout as the input.
+    ///
     /// # Panics
     ///
     /// Panics if the split point is larger than the number of elements in that dimension,
     /// or if the dimension is out of bounds.
-    pub fn split_axis_at_mut<const N: usize>(
+    pub fn split_axis_at_mut<A: Axis>(
         &mut self,
+        axis: A,
         mid: usize,
     ) -> (
-        ViewMut<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
-        ViewMut<T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
-    )
-    where
-        Nth<N>: Axis,
-    {
-        unsafe { ViewMut::split_axis_at::<Nth<N>>(self.as_mut_ptr(), self.mapping(), mid) }
+        ViewMut<T, A::Replace<Dyn, S>, Split<A, S, L>>,
+        ViewMut<T, A::Replace<Dyn, S>, Split<A, S, L>>,
+    ) {
+        unsafe { ViewMut::split_axis_at(self.as_mut_ptr(), self.mapping(), axis, mid) }
     }
 
     /// Returns the distance between elements in the specified dimension.
@@ -585,47 +655,6 @@ impl<T, S: Shape> Slice<T, S, Strided> {
         self.mapping().strides()
     }
 }
-
-macro_rules! impl_permute {
-    (($($xyz:tt),+), ($($abc:tt),*)) => {
-        impl<T, $($xyz: Dim,)+ L: Layout> Slice<T, ($($xyz,)+), L> {
-            /// Returns an array view with the dimensions permuted.
-            pub fn permute<$(const $abc: usize),+>(
-                &self
-            ) -> View<
-                T,
-                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
-            >
-            where
-                ($(Nth<$abc>,)+): Permutation
-            {
-                self.expr().into_permuted()
-            }
-
-            /// Returns a mutable array view with the dimensions permuted.
-            pub fn permute_mut<$(const $abc: usize),+>(
-                &mut self
-            ) -> ViewMut<
-                T,
-                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
-            >
-            where
-                ($(Nth<$abc>,)+): Permutation
-            {
-                self.expr_mut().into_permuted()
-            }
-        }
-    };
-}
-
-impl_permute!((X), (A));
-impl_permute!((X, Y), (A, B));
-impl_permute!((X, Y, Z), (A, B, C));
-impl_permute!((X, Y, Z, W), (A, B, C, D));
-impl_permute!((X, Y, Z, W, U), (A, B, C, D, E));
-impl_permute!((X, Y, Z, W, U, V), (A, B, C, D, E, F));
 
 macro_rules! impl_view {
     (($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
@@ -721,8 +750,8 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut Slice<T, S, L> {
     }
 }
 
-impl<T, S: Shape, L: Layout> AsMut<Slice<T, S, L>> for Slice<T, S, L> {
-    fn as_mut(&mut self) -> &mut Slice<T, S, L> {
+impl<T, S: Shape, L: Layout> AsMut<Self> for Slice<T, S, L> {
+    fn as_mut(&mut self) -> &mut Self {
         self
     }
 }
@@ -733,8 +762,8 @@ impl<T, D: Dim> AsMut<[T]> for Slice<T, (D,)> {
     }
 }
 
-impl<T, S: Shape, L: Layout> AsRef<Slice<T, S, L>> for Slice<T, S, L> {
-    fn as_ref(&self) -> &Slice<T, S, L> {
+impl<T, S: Shape, L: Layout> AsRef<Self> for Slice<T, S, L> {
+    fn as_ref(&self) -> &Self {
         self
     }
 }

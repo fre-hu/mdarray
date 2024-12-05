@@ -6,7 +6,8 @@ use std::ptr;
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::{Allocator, Global};
 use crate::array::Array;
-use crate::index::{Axis, Nth};
+use crate::dim::Const;
+use crate::index::Axis;
 use crate::mapping::Mapping;
 use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
@@ -41,7 +42,7 @@ impl<'a, T, S: Shape, A: Allocator> Drain<'a, T, S, A> {
         assert!(start <= end && end <= tensor.dim(0), "invalid range");
 
         let new_size = tensor.dim(0) - (end - start);
-        let tail = <Nth<0> as Axis>::resize(tensor.mapping(), new_size - start).len();
+        let tail = Axis::resize(Const::<0>, tensor.mapping(), new_size - start).len();
 
         // Shrink the array, to be safe in case Drain is leaked.
         unsafe {

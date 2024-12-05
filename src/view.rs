@@ -7,7 +7,7 @@ use std::slice;
 
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
-use crate::index::{self, Axis, DimIndex, Nth, Permutation, Resize, SliceIndex, Split, ViewIndex};
+use crate::index::{self, Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
@@ -56,7 +56,7 @@ macro_rules! impl_view {
                 };
 
                 let count = if len > 0 { offset } else { 0 }; // Offset pointer if non-empty.
-                let mapping = StridedMapping::new((Dyn(len),), &[self.stride(0) + self.stride(1)]);
+                let mapping = StridedMapping::new((len,), &[self.stride(0) + self.stride(1)]);
 
                 unsafe { $name::new_unchecked(self.$as_ptr().offset(count), mapping) }
             }
@@ -77,6 +77,23 @@ macro_rules! impl_view {
                 self.into_shape([len])
             }
 
+            /// Converts the array view into a new array view indexing the specified dimension.
+            ///
+            /// If the dimension to be indexed is know at compile time, the resulting array shape
+            /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
+            /// the resulting array view has the same layout as the input.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the dimension or the index is out of bounds.
+            pub fn into_index_axis<A: Axis>(
+                $($mut)? self,
+                axis: A,
+                index: usize,
+            ) -> $name<'a, T, A::Other<S>, Split<A, S, L>> {
+                unsafe { Self::index_axis(self.$as_ptr(), self.mapping(), axis, index) }
+            }
+
             /// Converts the array view into a remapped array view.
             ///
             /// # Panics
@@ -85,6 +102,28 @@ macro_rules! impl_view {
             /// or if the memory layout is not compatible with the new array layout.
             pub fn into_mapping<R: Shape, K: Layout>($($mut)? self) -> $name<'a, T, R, K> {
                 let mapping = Mapping::remap(self.mapping());
+
+                unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
+            }
+
+            /// Converts the array view into a new array view with the dimensions permuted.
+            ///
+            /// If the permutation is an identity permutation and known at compile time, the
+            /// resulting array view has the same layout as the input.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the permutation is not valid.
+            pub fn into_permuted<I: IntoShape<IntoShape: Permutation>>(
+                $($mut)? self,
+                perm: I,
+            ) -> $name<
+                'a,
+                T,
+                <I::IntoShape as Permutation>::Shape<S>,
+                <I::IntoShape as Permutation>::Layout<L>,
+            > {
+                let mapping = perm.into_dims(|dims| Mapping::permute(self.mapping(), dims));
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
@@ -134,27 +173,32 @@ macro_rules! impl_view {
             pub fn into_split_at(
                 self,
                 mid: usize,
-            ) -> ($name<'a, T, Resize<Nth<0>, S>, L>, $name<'a, T, Resize<Nth<0>, S>, L>) {
-                self.into_split_axis_at::<0>(mid)
+            ) -> (
+                $name<'a, T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
+                $name<'a, T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
+            ) {
+                self.into_split_axis_at(Const::<0>, mid)
             }
 
             /// Divides the array view into two at an index along the specified dimension.
+            ///
+            /// If the dimension to be divided is know at compile time, the resulting array
+            /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
+            /// dimension the resulting array views have the same layout as the input.
             ///
             /// # Panics
             ///
             /// Panics if the split point is larger than the number of elements in that dimension,
             /// or if the dimension is out of bounds.
-            pub fn into_split_axis_at<const N: usize>(
+            pub fn into_split_axis_at<A: Axis>(
                 $($mut)? self,
+                axis: A,
                 mid: usize,
             ) -> (
-                $name<'a, T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
-                $name<'a, T, Resize<Nth<N>, S>, Split<Nth<N>, S, L>>,
-            )
-            where
-                Nth<N>: Axis,
-            {
-                unsafe { Self::split_axis_at::<Nth<N>>(self.$as_ptr(), self.mapping(), mid) }
+                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
+            ) {
+                unsafe { Self::split_axis_at(self.$as_ptr(), self.mapping(), axis, mid) }
             }
 
             /// Creates an array view from a raw pointer and layout.
@@ -168,33 +212,55 @@ macro_rules! impl_view {
                 Self { slice, phantom: PhantomData }
             }
 
+            pub(crate) unsafe fn index_axis<A: Axis>(
+                ptr: *$raw_mut T,
+                mapping: &L::Mapping<S>,
+                axis: A,
+                index: usize,
+            ) -> $name<'a, T, A::Other<S>, Split<A, S, L>> {
+                let size = mapping.dim(axis.index(mapping.rank()));
+
+                if index >= size {
+                    index::panic_bounds_check(index, size);
+                }
+
+                let new_mapping = axis.remove(mapping);
+
+                // Calculate offset for the new view if non-empty.
+                let offset = mapping.stride(axis.index(mapping.rank())) * index as isize;
+                let count = if new_mapping.is_empty() { 0 } else { offset };
+
+                unsafe { $name::new_unchecked(ptr.offset(count), new_mapping) }
+            }
+
             pub(crate) unsafe fn split_axis_at<A: Axis>(
                 ptr: *$raw_mut T,
                 mapping: &L::Mapping<S>,
-                mid: usize
+                axis: A,
+                mid: usize,
             ) -> (
-                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
-                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
+                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
             ) {
-                let index = A::index(mapping.rank());
+                let index = axis.index(mapping.rank());
                 let size = mapping.dim(index);
 
                 if mid > size {
                     index::panic_bounds_check(mid, size);
                 }
 
-                let left_mapping = A::resize(mapping, mid);
-                let right_mapping = A::resize(mapping, size - mid);
+                let first_mapping = axis.resize(mapping, mid);
+                let second_mapping = axis.resize(mapping, size - mid);
 
                 // Calculate offset for the second view if non-empty.
                 let offset = mapping.stride(index) * mid as isize;
-                let count = if right_mapping.is_empty() { 0 } else { offset };
+                let count = if second_mapping.is_empty() { 0 } else { offset };
 
                 unsafe {
-                    let left = $name::new_unchecked(ptr, left_mapping);
-                    let right = $name::new_unchecked(ptr.offset(count), right_mapping);
+                    let first = $name::new_unchecked(ptr, first_mapping);
+                    let second = $name::new_unchecked(ptr.offset(count), second_mapping);
 
-                    (left, right)
+                    (first, second)
                 }
             }
         }
@@ -295,7 +361,7 @@ macro_rules! impl_view {
 
         impl<'a, T> From<&'a $($mut)? [T]> for $name<'a, T, (Dyn,)> {
             fn from(value: &'a $($mut)? [T]) -> Self {
-                let mapping = DenseMapping::new((Dyn(value.len()),));
+                let mapping = DenseMapping::new((value.len(),));
 
                 unsafe { Self::new_unchecked(value.$as_ptr(), mapping) }
             }
@@ -352,69 +418,6 @@ macro_rules! impl_view {
 
 impl_view!(View, as_ptr, from_raw_parts, const, {}, true);
 impl_view!(ViewMut, as_mut_ptr, from_raw_parts_mut, mut, {mut}, false);
-
-macro_rules! impl_into_permuted {
-    ($n:tt, ($($xyz:tt),+), ($($abc:tt),+)) => {
-        impl<'a, T, $($xyz: Dim,)+ L: Layout> View<'a, T, ($($xyz,)+), L> {
-            /// Converts the array view into a new array view with the dimensions permuted.
-            pub fn into_permuted<$(const $abc: usize),+>(
-                self
-            ) -> View<
-                'a,
-                T,
-                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
-            >
-            where
-                ($(Nth<$abc>,)+): Permutation
-            {
-                let index_mask = <($(Nth<$abc>,)+) as Permutation>::index_mask(self.rank());
-
-                assert!(index_mask == !(usize::MAX << self.rank()), "invalid permutation");
-
-                let shape = ($(Dyn(self.dim($abc)),)+);
-                let strides = [$(self.stride($abc)),+];
-
-                let mapping = StridedMapping::new(shape, &strides);
-
-                unsafe { View::new_unchecked(self.as_ptr(), Mapping::remap(&mapping)) }
-            }
-        }
-
-        impl<'a, T, $($xyz: Dim,)+ L: Layout> ViewMut<'a, T, ($($xyz,)+), L> {
-            /// Converts the array view into a new array view with the dimensions permuted.
-            pub fn into_permuted<$(const $abc: usize),+>(
-                mut self
-            ) -> ViewMut<
-                'a,
-                T,
-                <($(Nth<$abc>,)+) as Permutation>::Shape<($($xyz,)+)>,
-                <($(Nth<$abc>,)+) as Permutation>::Layout<L>,
-            >
-            where
-                ($(Nth<$abc>,)+): Permutation
-            {
-                let index_mask = <($(Nth<$abc>,)+) as Permutation>::index_mask(self.rank());
-
-                assert!(index_mask == !(usize::MAX << self.rank()), "invalid permutation");
-
-                let shape = ($(Dyn(self.dim($abc)),)+);
-                let strides = [$(self.stride($abc)),+];
-
-                let mapping = StridedMapping::new(shape, &strides);
-
-                unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), Mapping::remap(&mapping)) }
-            }
-        }
-    };
-}
-
-impl_into_permuted!(1, (X), (A));
-impl_into_permuted!(2, (X, Y), (A, B));
-impl_into_permuted!(3, (X, Y, Z), (A, B, C));
-impl_into_permuted!(4, (X, Y, Z, W), (A, B, C, D));
-impl_into_permuted!(5, (X, Y, Z, W, U), (A, B, C, D, E));
-impl_into_permuted!(6, (X, Y, Z, W, U, V), (A, B, C, D, E, F));
 
 macro_rules! impl_into_view {
     ($n:tt, ($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {

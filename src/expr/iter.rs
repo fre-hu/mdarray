@@ -49,10 +49,10 @@ impl<E: Expression> Iter<E> {
                 self.outer_index.as_mut()[i] += 1;
 
                 return true;
-            } else {
-                self.expr.reset_dim(i, self.outer_index.as_ref()[i]);
-                self.outer_index.as_mut()[i] = 0;
             }
+
+            self.expr.reset_dim(i, self.outer_index.as_ref()[i]);
+            self.outer_index.as_mut()[i] = 0;
         }
 
         self.outer_index.as_mut().fill(0); // Ensure that following calls return false.

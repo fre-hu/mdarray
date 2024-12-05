@@ -22,6 +22,9 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
     /// Concatenate the other shape to the shape.
     type Concat<S: Shape>: Shape;
 
+    /// Corresponding shape with dynamically-sized dimensions.
+    type Dyn: Shape;
+
     /// Merge each dimension pair, where constant size is preferred over dynamic.
     /// The result has dynamic rank if at least one of the inputs has dynamic rank.
     type Merge<S: Shape>: Shape;
@@ -77,10 +80,10 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
     fn new(rank: usize) -> Self;
 
     #[doc(hidden)]
-    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, f: F) -> T;
+    fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T;
 
     #[doc(hidden)]
-    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, f: F) -> T;
+    fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T;
 
     #[doc(hidden)]
     fn checked_len(&self) -> Option<usize> {
@@ -184,6 +187,9 @@ pub trait IntoShape {
 
     /// Creates an array shape from a value.
     fn into_shape(self) -> Self::IntoShape;
+
+    #[doc(hidden)]
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T;
 }
 
 /// Array shape type with dynamic rank.
@@ -213,20 +219,20 @@ impl DynRank {
 impl Clone for DynRank {
     fn clone(&self) -> Self {
         match self {
-            DynRank::One(dim) => DynRank::One(*dim),
-            DynRank::Dyn(dims) => {
+            Self::One(dim) => Self::One(*dim),
+            Self::Dyn(dims) => {
                 if dims.len() == 1 {
-                    DynRank::One(dims[0])
+                    Self::One(dims[0])
                 } else {
-                    DynRank::Dyn(dims.clone())
+                    Self::Dyn(dims.clone())
                 }
             }
         }
     }
 
     fn clone_from(&mut self, source: &Self) {
-        if let DynRank::Dyn(dims) = self {
-            if let DynRank::Dyn(src) = source {
+        if let Self::Dyn(dims) = self {
+            if let Self::Dyn(src) = source {
                 if dims.len() == src.len() {
                     dims.clone_from_slice(src);
 
@@ -272,6 +278,8 @@ impl Shape for DynRank {
 
     type Prepend<D: Dim> = Self;
     type Concat<S: Shape> = Self;
+
+    type Dyn = Self;
     type Merge<S: Shape> = Self;
 
     type Layout<L: Layout> = Strided;
@@ -281,13 +289,13 @@ impl Shape for DynRank {
 
     fn new(rank: usize) -> Self {
         if rank == 1 {
-            DynRank::One(0)
+            Self::One(0)
         } else {
-            DynRank::Dyn(Dims::new(rank))
+            Self::Dyn(Dims::new(rank))
         }
     }
 
-    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+    fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         let dims = match self {
             Self::Dyn(dims) => dims,
             Self::One(size) => slice::from_ref(size),
@@ -296,7 +304,7 @@ impl Shape for DynRank {
         f(dims)
     }
 
-    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+    fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         let dims = match self {
             Self::Dyn(dims) => dims,
             Self::One(size) => slice::from_mut(size),
@@ -308,11 +316,13 @@ impl Shape for DynRank {
 
 impl Shape for () {
     type Head = Dyn;
-    type Tail = ();
-    type Reverse = ();
+    type Tail = Self;
+    type Reverse = Self;
 
     type Prepend<D: Dim> = (D,);
     type Concat<S: Shape> = S;
+
+    type Dyn = Self;
     type Merge<S: Shape> = S;
 
     type Layout<L: Layout> = L;
@@ -324,11 +334,11 @@ impl Shape for () {
         assert!(rank == 0, "invalid rank");
     }
 
-    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+    fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         f(&[])
     }
 
-    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+    fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         f(&mut [])
     }
 }
@@ -336,10 +346,12 @@ impl Shape for () {
 impl<X: Dim> Shape for (X,) {
     type Head = X;
     type Tail = ();
-    type Reverse = (X,);
+    type Reverse = Self;
 
     type Prepend<D: Dim> = (D, X);
     type Concat<S: Shape> = S::Prepend<X>;
+
+    type Dyn = (Dyn,);
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
 
     type Layout<L: Layout> = Strided;
@@ -353,11 +365,11 @@ impl<X: Dim> Shape for (X,) {
         Self::default()
     }
 
-    fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+    fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         f(&[self.0.size()])
     }
 
-    fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+    fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         let mut dims = [self.0.size()];
         let value = f(&mut dims);
 
@@ -376,6 +388,8 @@ macro_rules! impl_shape {
 
             type Prepend<D: Dim> = $prepend;
             type Concat<S: Shape> = <<Self::Tail as Shape>::Concat<S> as Shape>::Prepend<X>;
+
+            type Dyn = <Self::Tail as Shape>::Prepend<Dyn>;
             type Merge<S: Shape> =
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
 
@@ -390,11 +404,11 @@ macro_rules! impl_shape {
                 Self::default()
             }
 
-            fn with_dims<T, F: FnMut(&[usize]) -> T>(&self, mut f: F) -> T {
+            fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
                 f(&[self.0.size() $(,self.$jk.size())+])
             }
 
-            fn with_mut_dims<T, F: FnMut(&mut [usize]) -> T>(&mut self, mut f: F) -> T {
+            fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
                 let mut dims = [self.0.size() $(,self.$jk.size())+];
                 let value = f(&mut dims);
 
@@ -434,6 +448,10 @@ impl<S: Shape> IntoShape for S {
     fn into_shape(self) -> S {
         self
     }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        self.with_dims(f)
+    }
 }
 
 impl IntoShape for &[usize] {
@@ -441,6 +459,10 @@ impl IntoShape for &[usize] {
 
     fn into_shape(self) -> DynRank {
         DynRank::from_dims(self)
+    }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        f(self)
     }
 }
 
@@ -450,6 +472,34 @@ impl IntoShape for Box<[usize]> {
     fn into_shape(self) -> DynRank {
         DynRank::Dyn(self)
     }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        f(&self)
+    }
+}
+
+impl<const N: usize> IntoShape for Const<N> {
+    type IntoShape = (Self,);
+
+    fn into_shape(self) -> Self::IntoShape {
+        (self,)
+    }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        f(&[N])
+    }
+}
+
+impl IntoShape for Dyn {
+    type IntoShape = (Self,);
+
+    fn into_shape(self) -> Self::IntoShape {
+        (self,)
+    }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        f(&[self])
+    }
 }
 
 impl IntoShape for Vec<usize> {
@@ -457,6 +507,10 @@ impl IntoShape for Vec<usize> {
 
     fn into_shape(self) -> DynRank {
         DynRank::Dyn(self.into())
+    }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        f(&self)
     }
 }
 
@@ -467,6 +521,10 @@ macro_rules! impl_into_shape {
 
             fn into_shape(self) -> Self::IntoShape {
                 Self::IntoShape::from_dims(&self)
+            }
+
+            fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+                f(&self)
             }
         }
     };
