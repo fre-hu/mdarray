@@ -16,7 +16,7 @@ impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
     }
 
     pub(crate) fn as_mut_slice(&mut self) -> &mut Slice<T, S, L> {
-        if mem::size_of::<S>() > 0 {
+        if mem::size_of::<L::Mapping<S>>() > 0 {
             unsafe { &mut *(self as *mut Self as *mut Slice<T, S, L>) }
         } else {
             unsafe { &mut *(self.ptr.as_ptr() as *mut Slice<T, S, L>) }
@@ -28,7 +28,7 @@ impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
     }
 
     pub(crate) fn as_slice(&self) -> &Slice<T, S, L> {
-        if mem::size_of::<S>() > 0 {
+        if mem::size_of::<L::Mapping<S>>() > 0 {
             unsafe { &*(self as *const Self as *const Slice<T, S, L>) }
         } else {
             unsafe { &*(self.ptr.as_ptr() as *const Slice<T, S, L>) }
@@ -36,13 +36,13 @@ impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
     }
 
     pub(crate) fn from_mut_slice(slice: &mut Slice<T, S, L>) -> &mut Self {
-        assert!(mem::size_of::<S>() > 0, "ZST not allowed");
+        assert!(mem::size_of::<L::Mapping<S>>() > 0, "ZST not allowed");
 
         unsafe { &mut *(slice as *mut Slice<T, S, L> as *mut Self) }
     }
 
     pub(crate) fn from_slice(slice: &Slice<T, S, L>) -> &Self {
-        assert!(mem::size_of::<S>() > 0, "ZST not allowed");
+        assert!(mem::size_of::<L::Mapping<S>>() > 0, "ZST not allowed");
 
         unsafe { &*(slice as *const Slice<T, S, L> as *const Self) }
     }

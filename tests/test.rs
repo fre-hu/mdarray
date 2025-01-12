@@ -161,6 +161,9 @@ fn test_base() {
     assert_eq!(a.view(.., 2, ..), a.expr().into_index_axis(1, 2));
     assert_eq!(b.tensor(.., .., 1), b.expr_mut().into_dyn().into_index_axis(U2, 1));
 
+    assert_eq!(array![[1, 2, 3], [4, 5, 6]].array(1, ..), view![4, 5, 6]);
+    assert_eq!(array![[1, 2, 3], [4, 5, 6]].view(.., 1).to_array(), view![2, 5]);
+
     let mut r = a.clone().into_shape([5, 4, 3]);
     let mut s = b.clone();
 

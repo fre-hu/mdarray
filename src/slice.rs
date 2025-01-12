@@ -1,5 +1,5 @@
 #[cfg(feature = "nightly")]
-use std::alloc::{Allocator, Global};
+use std::alloc::Allocator;
 use std::fmt::{Debug, Formatter, Result};
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
@@ -7,17 +7,15 @@ use std::mem;
 use std::ops::{Index, IndexMut};
 use std::ptr::NonNull;
 
+use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
-#[cfg(not(feature = "nightly"))]
-use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
-#[cfg(feature = "nightly")]
 use crate::expr::{Apply, Expression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
 use crate::index::{Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
-use crate::shape::{DynRank, IntoShape, Rank, Shape};
+use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 use crate::tensor::Tensor;
 use crate::traits::IntoCloned;
 use crate::view::{View, ViewMut};
@@ -33,7 +31,7 @@ pub type DSlice<T, const N: usize, L = Dense> = Slice<T, Rank<N>, L>;
 impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable pointer to the array buffer.
     pub fn as_mut_ptr(&mut self) -> *mut T {
-        if mem::size_of::<S>() > 0 {
+        if mem::size_of::<L::Mapping<S>>() > 0 {
             RawSlice::from_mut_slice(self).as_mut_ptr()
         } else {
             self as *mut Self as *mut T
@@ -42,7 +40,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a raw pointer to the array buffer.
     pub fn as_ptr(&self) -> *const T {
-        if mem::size_of::<S>() > 0 {
+        if mem::size_of::<L::Mapping<S>>() > 0 {
             RawSlice::from_slice(self).as_ptr()
         } else {
             self as *const Self as *const T
@@ -319,7 +317,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns the array layout mapping.
     pub fn mapping(&self) -> &L::Mapping<S> {
-        if mem::size_of::<S>() > 0 {
+        if mem::size_of::<L::Mapping<S>>() > 0 {
             RawSlice::from_slice(self).mapping()
         } else {
             unsafe { &*NonNull::dangling().as_ptr() }
@@ -598,21 +596,20 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Copies the array slice into a new array.
-    #[cfg(not(feature = "nightly"))]
-    pub fn to_tensor(&self) -> Tensor<T, S>
+    pub fn to_array(&self) -> Array<T, S>
     where
         T: Clone,
+        S: ConstShape,
     {
-        Tensor::from_expr(self.expr().cloned())
+        Array::from(self)
     }
 
     /// Copies the array slice into a new array.
-    #[cfg(feature = "nightly")]
     pub fn to_tensor(&self) -> Tensor<T, S>
     where
         T: Clone,
     {
-        self.to_tensor_in(Global)
+        Tensor::from(self)
     }
 
     /// Copies the array slice into a new array with the specified allocator.
@@ -659,6 +656,22 @@ impl<T, S: Shape> Slice<T, S, Strided> {
 macro_rules! impl_view {
     (($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
         impl<T, $($xyz: Dim,)+ L: Layout> Slice<T, ($($xyz,)+), L> {
+            /// Copies the specified subarray into a new array.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            pub fn array<$($abc: DimIndex),+>(
+                &self,
+                $($idx: $abc),+
+            ) -> Array<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
+            where
+                T: Clone,
+                ($($abc,)+): ViewIndex<Shape<($($xyz,)+)>: ConstShape>,
+            {
+                self.view($($idx),+).to_array()
+            }
+
             /// Copies the specified subarray into a new array.
             ///
             /// # Panics
