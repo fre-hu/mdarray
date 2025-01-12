@@ -224,7 +224,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::new(mapping.shape().reverse())
     }
 
-    fn reshape<T: Shape>(&self, new_shape: T) -> DenseMapping<T> {
+    fn reshape<R: Shape>(&self, new_shape: R) -> DenseMapping<R> {
         DenseMapping::new(self.shape.reshape(new_shape))
     }
 
@@ -404,9 +404,9 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().reverse(), strides }
     }
 
-    fn reshape<T: Shape>(&self, new_shape: T) -> StridedMapping<T> {
+    fn reshape<R: Shape>(&self, new_shape: R) -> StridedMapping<R> {
         let new_shape = self.shape.reshape(new_shape);
-        let mut new_strides = T::Dims::new(new_shape.rank());
+        let mut new_strides = R::Dims::new(new_shape.rank());
 
         let mut old_len = 1usize;
         let mut new_len = 1usize;

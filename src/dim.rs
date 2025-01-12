@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 
 /// Array dimension trait.
-pub trait Dim: Copy + Debug + Default + Eq + Hash + Ord + Send + Sync {
+pub trait Dim: Copy + Debug + Default + Hash + Ord + Send + Sync {
     /// Merge dimensions, where constant size is preferred over dynamic.
     type Merge<D: Dim>: Dim;
 

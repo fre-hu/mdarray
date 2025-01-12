@@ -1,3 +1,5 @@
+//! Expression module, for multidimensional iteration.
+
 mod adapters;
 mod buffer;
 mod expression;
@@ -43,5 +45,5 @@ pub fn fold<T, I: IntoExpression, F: FnMut(T, I::Item) -> T>(expr: I, init: T, f
 /// assert_eq!(t, view![0, 2, 4]);
 /// ```
 pub fn for_each<I: IntoExpression, F: FnMut(I::Item)>(expr: I, f: F) {
-    expr.into_expr().for_each(f)
+    expr.into_expr().for_each(f);
 }

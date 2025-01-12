@@ -156,10 +156,7 @@
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
-/// Expression module, for multidimensional iteration.
 pub mod expr;
-
-/// Module for array slice and view indexing, and for array axis subarray types.
 pub mod index;
 
 mod array;

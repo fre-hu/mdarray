@@ -52,20 +52,20 @@ impl<T: Eq, S: Shape, A: Allocator> Eq for Tensor<T, S, A> {}
 impl<T: Eq, S: Shape, L: Layout> Eq for View<'_, T, S, L> {}
 impl<T: Eq, S: Shape, L: Layout> Eq for ViewMut<'_, T, S, L> {}
 
-impl<U, V, S: ConstShape, T: Shape, L: Layout, I: ?Sized> PartialEq<I> for Array<U, S>
+impl<T, U, S: ConstShape, R: Shape, L: Layout, I: ?Sized> PartialEq<I> for Array<T, S>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, L>>,
-    U: PartialEq<V>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, L>>,
+    T: PartialEq<U>,
 {
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
 }
 
-impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for Slice<U, S, L>
+impl<T, U, S: Shape, R: Shape, L: Layout, K: Layout, I: ?Sized> PartialEq<I> for Slice<T, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, M>>,
-    U: PartialEq<V>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
+    T: PartialEq<U>,
 {
     fn eq(&self, other: &I) -> bool {
         let other = other.into_expr();
@@ -76,22 +76,22 @@ where
             //
             // This is a workaround until const if is available, see #3582 and #122301.
 
-            fn compare_dense<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
-                this: &Slice<U, S, L>,
-                other: &Slice<V, T, M>,
+            fn compare_dense<T, U, S: Shape, R: Shape, L: Layout, K: Layout>(
+                this: &Slice<T, S, L>,
+                other: &Slice<U, R, K>,
             ) -> bool
             where
-                U: PartialEq<V>,
+                T: PartialEq<U>,
             {
-                this.remap::<S, _>()[..].eq(&other.remap::<T, _>()[..])
+                this.remap::<S, _>()[..].eq(&other.remap::<R, _>()[..])
             }
 
-            fn compare_strided<U, V, S: Shape, T: Shape, L: Layout, M: Layout>(
-                this: &Slice<U, S, L>,
-                other: &Slice<V, T, M>,
+            fn compare_strided<T, U, S: Shape, R: Shape, L: Layout, K: Layout>(
+                this: &Slice<T, S, L>,
+                other: &Slice<U, R, K>,
             ) -> bool
             where
-                U: PartialEq<V>,
+                T: PartialEq<U>,
             {
                 if this.rank() < 2 {
                     this.iter().eq(other)
@@ -101,7 +101,7 @@ where
             }
 
             let f = const {
-                if L::IS_DENSE && M::IS_DENSE {
+                if L::IS_DENSE && K::IS_DENSE {
                     compare_dense
                 } else {
                     compare_strided
@@ -115,31 +115,31 @@ where
     }
 }
 
-impl<U, V, S: Shape, T: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Tensor<U, S, A>
+impl<T, U, S: Shape, R: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Tensor<T, S, A>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, L>>,
-    U: PartialEq<V>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, L>>,
+    T: PartialEq<U>,
 {
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
 }
 
-impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I> for View<'_, U, S, L>
+impl<T, U, S: Shape, R: Shape, L: Layout, K: Layout, I: ?Sized> PartialEq<I> for View<'_, T, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, M>>,
-    U: PartialEq<V>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
+    T: PartialEq<U>,
 {
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
 }
 
-impl<U, V, S: Shape, T: Shape, L: Layout, M: Layout, I: ?Sized> PartialEq<I>
-    for ViewMut<'_, U, S, L>
+impl<T, U, S: Shape, R: Shape, L: Layout, K: Layout, I: ?Sized> PartialEq<I>
+    for ViewMut<'_, T, S, L>
 where
-    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, V, T, M>>,
-    U: PartialEq<V>,
+    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
+    T: PartialEq<U>,
 {
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)

@@ -325,12 +325,12 @@ impl<A: Expression + Debug, B: Expression + Debug> Debug for Zip<A, B> {
     }
 }
 
-impl<S: Shape, T: Shape, A, B> Expression for Zip<A, B>
+impl<S: Shape, R: Shape, A, B> Expression for Zip<A, B>
 where
     A: Expression<Shape = S>,
-    B: Expression<Shape = T>,
+    B: Expression<Shape = R>,
 {
-    type Shape = <<S::Reverse as Shape>::Merge<T::Reverse> as Shape>::Reverse;
+    type Shape = <<S::Reverse as Shape>::Merge<R::Reverse> as Shape>::Reverse;
 
     const IS_REPEATABLE: bool = A::IS_REPEATABLE && B::IS_REPEATABLE;
 

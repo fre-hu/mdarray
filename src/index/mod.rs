@@ -1,3 +1,5 @@
+//! Module for array slice and view indexing, and for array axis subarray types.
+
 mod axis;
 mod permutation;
 mod slice;
