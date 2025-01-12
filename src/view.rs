@@ -7,7 +7,7 @@ use std::slice;
 
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
-use crate::index::{self, Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
+use crate::index::{self, Axis, DimIndex, Permutation, Resize, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
@@ -90,7 +90,7 @@ macro_rules! impl_view {
                 $($mut)? self,
                 axis: A,
                 index: usize,
-            ) -> $name<'a, T, A::Other<S>, Split<A, S, L>> {
+            ) -> $name<'a, T, A::Remove<S>, Split<A, S, L>> {
                 unsafe { Self::index_axis(self.$as_ptr(), self.mapping(), axis, index) }
             }
 
@@ -173,10 +173,7 @@ macro_rules! impl_view {
             pub fn into_split_at(
                 self,
                 mid: usize,
-            ) -> (
-                $name<'a, T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
-                $name<'a, T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
-            ) {
+            ) -> ($name<'a, T, Resize<Const<0>, S>, L>, $name<'a, T, Resize<Const<0>, S>, L>) {
                 self.into_split_axis_at(Const::<0>, mid)
             }
 
@@ -195,8 +192,8 @@ macro_rules! impl_view {
                 axis: A,
                 mid: usize,
             ) -> (
-                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
-                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
+                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
+                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
             ) {
                 unsafe { Self::split_axis_at(self.$as_ptr(), self.mapping(), axis, mid) }
             }
@@ -217,7 +214,7 @@ macro_rules! impl_view {
                 mapping: &L::Mapping<S>,
                 axis: A,
                 index: usize,
-            ) -> $name<'a, T, A::Other<S>, Split<A, S, L>> {
+            ) -> $name<'a, T, A::Remove<S>, Split<A, S, L>> {
                 let size = mapping.dim(axis.index(mapping.rank()));
 
                 if index >= size {
@@ -239,8 +236,8 @@ macro_rules! impl_view {
                 axis: A,
                 mid: usize,
             ) -> (
-                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
-                $name<'a, T, A::Replace<Dyn, S>, Split<A, S, L>>,
+                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
+                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
             ) {
                 let index = axis.index(mapping.rank());
                 let size = mapping.dim(index);

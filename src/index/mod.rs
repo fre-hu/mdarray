@@ -5,7 +5,7 @@ mod permutation;
 mod slice;
 mod view;
 
-pub use axis::{Axis, Keep, Split};
+pub use axis::{Axis, Get, Keep, Resize, Split};
 pub use permutation::Permutation;
 pub use slice::SliceIndex;
 pub use view::{DimIndex, ViewIndex};

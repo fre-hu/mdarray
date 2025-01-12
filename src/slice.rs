@@ -11,7 +11,7 @@ use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
-use crate::index::{Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
+use crate::index::{Axis, DimIndex, Permutation, Resize, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
@@ -112,7 +112,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn cols(&self) -> Lanes<T, S, L, Const<0>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        Lanes::new(self, Const::<0>)
+        self.lanes(Const::<0>)
     }
 
     /// Returns a mutable expression that gives column views iterating over the other dimension.
@@ -123,7 +123,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Const<0>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        LanesMut::new(self, Const::<0>)
+        self.lanes_mut(Const::<0>)
     }
 
     /// Returns `true` if the array slice contains an element with the given value.
@@ -241,7 +241,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &self,
         axis: A,
         index: usize,
-    ) -> View<T, A::Other<S>, Split<A, S, L>> {
+    ) -> View<T, A::Remove<S>, Split<A, S, L>> {
         unsafe { View::index_axis(self.as_ptr(), self.mapping(), axis, index) }
     }
 
@@ -258,7 +258,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &mut self,
         axis: A,
         index: usize,
-    ) -> ViewMut<T, A::Other<S>, Split<A, S, L>> {
+    ) -> ViewMut<T, A::Remove<S>, Split<A, S, L>> {
         unsafe { ViewMut::index_axis(self.as_mut_ptr(), self.mapping(), axis, index) }
     }
 
@@ -333,7 +333,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not at least 1.
     pub fn outer_expr(&self) -> AxisExpr<T, S, L, Const<0>> {
-        AxisExpr::new(self, Const::<0>)
+        self.axis_expr(Const::<0>)
     }
 
     /// Returns a mutable expression that gives array views iterating over the first dimension.
@@ -345,7 +345,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not at least 1.
     pub fn outer_expr_mut(&mut self) -> AxisExprMut<T, S, L, Const<0>> {
-        AxisExprMut::new(self, Const::<0>)
+        self.axis_expr_mut(Const::<0>)
     }
 
     /// Returns an array view with the dimensions permuted.
@@ -495,7 +495,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn rows(&self) -> Lanes<T, S, L, Const<1>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        Lanes::new(self, Const::<1>)
+        self.lanes(Const::<1>)
     }
 
     /// Returns a mutable expression that gives row views iterating over the other dimension.
@@ -506,7 +506,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Const<1>> {
         assert!(self.rank() == 2, "invalid rank");
 
-        LanesMut::new(self, Const::<1>)
+        self.lanes_mut(Const::<1>)
     }
 
     /// Returns the array shape.
@@ -523,10 +523,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at(
         &self,
         mid: usize,
-    ) -> (
-        View<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
-        View<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
-    ) {
+    ) -> (View<T, Resize<Const<0>, S>, L>, View<T, Resize<Const<0>, S>, L>) {
         self.split_axis_at(Const::<0>, mid)
     }
 
@@ -539,10 +536,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at_mut(
         &mut self,
         mid: usize,
-    ) -> (
-        ViewMut<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
-        ViewMut<T, <Const<0> as Axis>::Replace<Dyn, S>, L>,
-    ) {
+    ) -> (ViewMut<T, Resize<Const<0>, S>, L>, ViewMut<T, Resize<Const<0>, S>, L>) {
         self.split_axis_at_mut(Const::<0>, mid)
     }
 
@@ -560,8 +554,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &self,
         axis: A,
         mid: usize,
-    ) -> (View<T, A::Replace<Dyn, S>, Split<A, S, L>>, View<T, A::Replace<Dyn, S>, Split<A, S, L>>)
-    {
+    ) -> (View<T, Resize<A, S>, Split<A, S, L>>, View<T, Resize<A, S>, Split<A, S, L>>) {
         unsafe { View::split_axis_at(self.as_ptr(), self.mapping(), axis, mid) }
     }
 
@@ -579,10 +572,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &mut self,
         axis: A,
         mid: usize,
-    ) -> (
-        ViewMut<T, A::Replace<Dyn, S>, Split<A, S, L>>,
-        ViewMut<T, A::Replace<Dyn, S>, Split<A, S, L>>,
-    ) {
+    ) -> (ViewMut<T, Resize<A, S>, Split<A, S, L>>, ViewMut<T, Resize<A, S>, Split<A, S, L>>) {
         unsafe { ViewMut::split_axis_at(self.as_mut_ptr(), self.mapping(), axis, mid) }
     }
 
