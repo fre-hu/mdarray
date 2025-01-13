@@ -351,7 +351,9 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns an array view with the dimensions permuted.
     ///
     /// If the permutation is an identity permutation and known at compile time, the
-    /// resulting array view has the same layout as the input.
+    /// resulting array view has the same layout as the input. For example, permuting
+    /// with `(Const::<0>, Const::<1>)` will maintain the layout while permuting with
+    /// `[0, 1]` gives strided layout.
     ///
     /// # Panics
     ///
@@ -369,7 +371,9 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable array view with the dimensions permuted.
     ///
     /// If the permutation is an identity permutation and known at compile time, the
-    /// resulting array view has the same layout as the input.
+    /// resulting array view has the same layout as the input. For example, permuting
+    /// with `(Const::<0>, Const::<1>)` will maintain the layout while permuting with
+    /// `[0, 1]` gives strided layout.
     ///
     /// # Panics
     ///
