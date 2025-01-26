@@ -461,11 +461,23 @@ impl<S: Shape> IntoShape for S {
     }
 }
 
+impl<const N: usize> IntoShape for &[usize; N] {
+    type IntoShape = DynRank;
+
+    fn into_shape(self) -> DynRank {
+        Shape::from_dims(self)
+    }
+
+    fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
+        f(self)
+    }
+}
+
 impl IntoShape for &[usize] {
     type IntoShape = DynRank;
 
     fn into_shape(self) -> DynRank {
-        DynRank::from_dims(self)
+        Shape::from_dims(self)
     }
 
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
@@ -527,7 +539,7 @@ macro_rules! impl_into_shape {
             type IntoShape = $shape;
 
             fn into_shape(self) -> Self::IntoShape {
-                Self::IntoShape::from_dims(&self)
+                Shape::from_dims(&self)
             }
 
             fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {

@@ -298,8 +298,8 @@ fn test_base() {
 
     assert_eq!(v.into_permuted((0, 1, 2)), view![[[1, 2, 3], [4, 5, 6]]]);
     assert_eq!(v.into_permuted((0, 2, 1)), view![[[1, 4], [2, 5], [3, 6]]]);
-    assert_eq!(v.into_permuted([1, 0, 2]), view![[[1, 2, 3]], [[4, 5, 6]]]);
-    assert_eq!(v.into_permuted([1, 2, 0]), view![[[1], [2], [3]], [[4], [5], [6]]]);
+    assert_eq!(v.into_permuted(&[1, 0, 2]), view![[[1, 2, 3]], [[4, 5, 6]]]);
+    assert_eq!(v.into_permuted(&[1, 2, 0]), view![[[1], [2], [3]], [[4], [5], [6]]]);
     assert_eq!(v.into_permuted(&[2, 0, 1][..]), view![[[1, 4]], [[2, 5]], [[3, 6]]]);
     assert_eq!(v.into_permuted(&[2, 1, 0][..]), view![[[1], [4]], [[2], [5]], [[3], [6]]]);
 
