@@ -216,7 +216,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// The index must be within bounds of the array slice.
     pub unsafe fn get_unchecked<I: SliceIndex<T, S, L>>(&self, index: I) -> &I::Output {
-        index.get_unchecked(self)
+        unsafe { index.get_unchecked(self) }
     }
 
     /// Returns a mutable reference to an element or a subslice, without doing bounds checking.
@@ -225,7 +225,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// The index must be within bounds of the array slice.
     pub unsafe fn get_unchecked_mut<I: SliceIndex<T, S, L>>(&mut self, index: I) -> &mut I::Output {
-        index.get_unchecked_mut(self)
+        unsafe { index.get_unchecked_mut(self) }
     }
 
     /// Returns an array view after indexing the specified dimension.

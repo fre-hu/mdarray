@@ -37,22 +37,24 @@ impl<E: Expression> Iter<E> {
     unsafe fn step_outer(&mut self) -> bool {
         let outer_rank = self.expr.rank().saturating_sub(self.expr.inner_rank());
 
-        // If the inner rank is >0, reset the last dimension when stepping outer dimensions.
-        // This is needed in the FromFn implementation.
-        if outer_rank < self.expr.rank() {
-            self.expr.reset_dim(self.expr.rank() - 1, 0);
-        }
-
-        for i in (0..outer_rank).rev() {
-            if self.outer_index.as_ref()[i] + 1 < self.outer_limit.as_ref()[i] {
-                self.expr.step_dim(i);
-                self.outer_index.as_mut()[i] += 1;
-
-                return true;
+        unsafe {
+            // If the inner rank is >0, reset the last dimension when stepping outer dimensions.
+            // This is needed in the FromFn implementation.
+            if outer_rank < self.expr.rank() {
+                self.expr.reset_dim(self.expr.rank() - 1, 0);
             }
 
-            self.expr.reset_dim(i, self.outer_index.as_ref()[i]);
-            self.outer_index.as_mut()[i] = 0;
+            for i in (0..outer_rank).rev() {
+                if self.outer_index.as_ref()[i] + 1 < self.outer_limit.as_ref()[i] {
+                    self.expr.step_dim(i);
+                    self.outer_index.as_mut()[i] += 1;
+
+                    return true;
+                }
+
+                self.expr.reset_dim(i, self.outer_index.as_ref()[i]);
+                self.outer_index.as_mut()[i] = 0;
+            }
         }
 
         self.outer_index.as_mut().fill(0); // Ensure that following calls return false.

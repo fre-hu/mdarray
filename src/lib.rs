@@ -191,7 +191,7 @@ pub use array::Array;
 pub use dim::{Const, Dim, Dyn};
 pub use layout::{Dense, Layout, Strided};
 pub use mapping::{DenseMapping, Mapping, StridedMapping};
-pub use ops::{step, StepRange};
+pub use ops::{StepRange, step};
 pub use shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 pub use slice::{DSlice, Slice};
 pub use tensor::{DTensor, Tensor};

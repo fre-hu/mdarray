@@ -175,11 +175,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
     fn inner_stride(&self) -> isize {
         // The inner stride should be a compile time constant with dense layout.
         // For static rank 0, we set it to 0 to allow inner rank >0 in iteration.
-        if S::RANK == Some(0) {
-            0
-        } else {
-            1
-        }
+        if S::RANK == Some(0) { 0 } else { 1 }
     }
 
     fn linear_offset(&self, index: usize) -> isize {
@@ -308,11 +304,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
     }
 
     fn inner_stride(&self) -> isize {
-        if self.rank() > 0 {
-            self.strides.as_ref()[self.rank() - 1]
-        } else {
-            0
-        }
+        if self.rank() > 0 { self.strides.as_ref()[self.rank() - 1] } else { 0 }
     }
 
     fn linear_offset(&self, index: usize) -> isize {

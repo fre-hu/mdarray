@@ -43,7 +43,7 @@ pub struct Zip<A: Expression, B: Expression> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, view, Tensor};
+/// use mdarray::{Tensor, expr, expr::FromExpression, view};
 ///
 /// let t = Tensor::from_expr(expr::cloned(view![0, 1, 2]));
 ///
@@ -58,7 +58,7 @@ pub fn cloned<'a, T: 'a + Clone, I: IntoExpression<Item = &'a T>>(expr: I) -> Cl
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, view, Tensor};
+/// use mdarray::{Tensor, expr, expr::FromExpression, view};
 ///
 /// let t = Tensor::from_expr(expr::copied(view![0, 1, 2]));
 ///
@@ -73,7 +73,7 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, view, Tensor};
+/// use mdarray::{Tensor, expr, expr::FromExpression, view};
 ///
 /// let t = Tensor::from_expr(expr::enumerate(view![1, 2, 3]));
 ///
@@ -88,7 +88,7 @@ pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, view, Tensor};
+/// use mdarray::{Tensor, expr, expr::FromExpression, view};
 ///
 /// let t = Tensor::from_expr(expr::map(view![0, 1, 2], |x| 2 * x));
 ///
@@ -107,7 +107,7 @@ pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, tensor, view, Tensor};
+/// use mdarray::{Tensor, expr, expr::FromExpression, tensor, view};
 ///
 /// let a = tensor![0, 1, 2];
 /// let b = tensor![3, 4, 5];
@@ -136,7 +136,7 @@ impl<'a, T: 'a + Clone, E: Expression<Item = &'a T>> Expression for Cloned<E> {
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
-        self.expr.get_unchecked(index).clone()
+        unsafe { self.expr.get_unchecked(index).clone() }
     }
 
     fn inner_rank(&self) -> usize {
@@ -144,11 +144,15 @@ impl<'a, T: 'a + Clone, E: Expression<Item = &'a T>> Expression for Cloned<E> {
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-        self.expr.reset_dim(index, count);
+        unsafe {
+            self.expr.reset_dim(index, count);
+        }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        self.expr.step_dim(index);
+        unsafe {
+            self.expr.step_dim(index);
+        }
     }
 }
 
@@ -177,7 +181,7 @@ impl<'a, T: 'a + Copy, E: Expression<Item = &'a T>> Expression for Copied<E> {
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
-        *self.expr.get_unchecked(index)
+        unsafe { *self.expr.get_unchecked(index) }
     }
 
     fn inner_rank(&self) -> usize {
@@ -185,11 +189,15 @@ impl<'a, T: 'a + Copy, E: Expression<Item = &'a T>> Expression for Copied<E> {
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-        self.expr.reset_dim(index, count);
+        unsafe {
+            self.expr.reset_dim(index, count);
+        }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        self.expr.step_dim(index);
+        unsafe {
+            self.expr.step_dim(index);
+        }
     }
 }
 
@@ -226,7 +234,7 @@ impl<E: Expression> Expression for Enumerate<E> {
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
         self.count += 1;
 
-        (self.count - 1, self.expr.get_unchecked(index))
+        unsafe { (self.count - 1, self.expr.get_unchecked(index)) }
     }
 
     fn inner_rank(&self) -> usize {
@@ -234,11 +242,15 @@ impl<E: Expression> Expression for Enumerate<E> {
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-        self.expr.reset_dim(index, count);
+        unsafe {
+            self.expr.reset_dim(index, count);
+        }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        self.expr.step_dim(index);
+        unsafe {
+            self.expr.step_dim(index);
+        }
     }
 }
 
@@ -273,7 +285,7 @@ impl<T, E: Expression, F: FnMut(E::Item) -> T> Expression for Map<E, F> {
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> T {
-        (self.f)(self.expr.get_unchecked(index))
+        unsafe { (self.f)(self.expr.get_unchecked(index)) }
     }
 
     fn inner_rank(&self) -> usize {
@@ -281,11 +293,15 @@ impl<T, E: Expression, F: FnMut(E::Item) -> T> Expression for Map<E, F> {
     }
 
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
-        self.expr.reset_dim(index, count);
+        unsafe {
+            self.expr.reset_dim(index, count);
+        }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
-        self.expr.step_dim(index);
+        unsafe {
+            self.expr.step_dim(index);
+        }
     }
 }
 
@@ -339,7 +355,7 @@ where
     }
 
     unsafe fn get_unchecked(&mut self, index: usize) -> Self::Item {
-        (self.a.get_unchecked(index), self.b.get_unchecked(index))
+        unsafe { (self.a.get_unchecked(index), self.b.get_unchecked(index)) }
     }
 
     fn inner_rank(&self) -> usize {
@@ -349,24 +365,28 @@ where
     unsafe fn reset_dim(&mut self, index: usize, count: usize) {
         let delta = self.shape.rank() - index;
 
-        if delta <= self.a.rank() {
-            self.a.reset_dim(self.a.rank() - delta, count);
-        }
+        unsafe {
+            if delta <= self.a.rank() {
+                self.a.reset_dim(self.a.rank() - delta, count);
+            }
 
-        if delta <= self.b.rank() {
-            self.b.reset_dim(self.b.rank() - delta, count);
+            if delta <= self.b.rank() {
+                self.b.reset_dim(self.b.rank() - delta, count);
+            }
         }
     }
 
     unsafe fn step_dim(&mut self, index: usize) {
         let delta = self.shape.rank() - index;
 
-        if delta <= self.a.rank() {
-            self.a.step_dim(self.a.rank() - delta);
-        }
+        unsafe {
+            if delta <= self.a.rank() {
+                self.a.step_dim(self.a.rank() - delta);
+            }
 
-        if delta <= self.b.rank() {
-            self.b.step_dim(self.b.rank() - delta);
+            if delta <= self.b.rank() {
+                self.b.step_dim(self.b.rank() - delta);
+            }
         }
     }
 }

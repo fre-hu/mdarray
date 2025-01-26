@@ -19,13 +19,13 @@ use std::hash::{Hash, Hasher};
 use std::ops::RangeFull;
 
 #[cfg(feature = "serde")]
-use serde_test::{assert_tokens, Token};
+use serde_test::{Token, assert_tokens};
 
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::expr::{self, Apply, Expression, IntoExpression};
-use mdarray::{array, tensor, view, Array, DTensor, DView, DViewMut, Tensor, View, ViewMut};
-use mdarray::{step, Const, Dense, Dyn, DynRank, Layout, Rank, Shape, StepRange, Strided};
+use mdarray::{Array, DTensor, DView, DViewMut, Tensor, View, ViewMut, array, tensor, view};
+use mdarray::{Const, Dense, Dyn, DynRank, Layout, Rank, Shape, StepRange, Strided, step};
 use mdarray::{DenseMapping, IntoCloned, Mapping, StridedMapping};
 
 type U0 = Const<0>;
@@ -583,77 +583,65 @@ fn test_serde() {
 
     assert_tokens(&Array::<i32, (U0, U3)>([]), &[Token::Seq { len: Some(0) }, Token::SeqEnd]);
 
-    assert_tokens(
-        &Array::<i32, (U3, U0)>([[], [], []]),
-        &[
-            Token::Seq { len: Some(3) },
-            Token::Seq { len: Some(0) },
-            Token::SeqEnd,
-            Token::Seq { len: Some(0) },
-            Token::SeqEnd,
-            Token::Seq { len: Some(0) },
-            Token::SeqEnd,
-            Token::SeqEnd,
-        ],
-    );
+    assert_tokens(&Array::<i32, (U3, U0)>([[], [], []]), &[
+        Token::Seq { len: Some(3) },
+        Token::Seq { len: Some(0) },
+        Token::SeqEnd,
+        Token::Seq { len: Some(0) },
+        Token::SeqEnd,
+        Token::Seq { len: Some(0) },
+        Token::SeqEnd,
+        Token::SeqEnd,
+    ]);
 
-    assert_tokens(
-        &Array::<i32, (U1, U2, U3)>([[[4, 5, 6], [7, 8, 9]]]),
-        &[
-            Token::Seq { len: Some(1) },
-            Token::Seq { len: Some(2) },
-            Token::Seq { len: Some(3) },
-            Token::I32(4),
-            Token::I32(5),
-            Token::I32(6),
-            Token::SeqEnd,
-            Token::Seq { len: Some(3) },
-            Token::I32(7),
-            Token::I32(8),
-            Token::I32(9),
-            Token::SeqEnd,
-            Token::SeqEnd,
-            Token::SeqEnd,
-        ],
-    );
+    assert_tokens(&Array::<i32, (U1, U2, U3)>([[[4, 5, 6], [7, 8, 9]]]), &[
+        Token::Seq { len: Some(1) },
+        Token::Seq { len: Some(2) },
+        Token::Seq { len: Some(3) },
+        Token::I32(4),
+        Token::I32(5),
+        Token::I32(6),
+        Token::SeqEnd,
+        Token::Seq { len: Some(3) },
+        Token::I32(7),
+        Token::I32(8),
+        Token::I32(9),
+        Token::SeqEnd,
+        Token::SeqEnd,
+        Token::SeqEnd,
+    ]);
 
     assert_tokens(&Tensor::<_, _>::from_elem((), 123), &[Token::I32(123)]);
 
     assert_tokens(&Tensor::<i32, (Dyn, U3)>::new(), &[Token::Seq { len: Some(0) }, Token::SeqEnd]);
 
-    assert_tokens(
-        &Tensor::<i32, (U3, Dyn)>::new(),
-        &[
-            Token::Seq { len: Some(3) },
-            Token::Seq { len: Some(0) },
-            Token::SeqEnd,
-            Token::Seq { len: Some(0) },
-            Token::SeqEnd,
-            Token::Seq { len: Some(0) },
-            Token::SeqEnd,
-            Token::SeqEnd,
-        ],
-    );
+    assert_tokens(&Tensor::<i32, (U3, Dyn)>::new(), &[
+        Token::Seq { len: Some(3) },
+        Token::Seq { len: Some(0) },
+        Token::SeqEnd,
+        Token::Seq { len: Some(0) },
+        Token::SeqEnd,
+        Token::Seq { len: Some(0) },
+        Token::SeqEnd,
+        Token::SeqEnd,
+    ]);
 
-    assert_tokens(
-        &DTensor::<i32, 3>::from([[[4, 5, 6], [7, 8, 9]]]),
-        &[
-            Token::Seq { len: Some(1) },
-            Token::Seq { len: Some(2) },
-            Token::Seq { len: Some(3) },
-            Token::I32(4),
-            Token::I32(5),
-            Token::I32(6),
-            Token::SeqEnd,
-            Token::Seq { len: Some(3) },
-            Token::I32(7),
-            Token::I32(8),
-            Token::I32(9),
-            Token::SeqEnd,
-            Token::SeqEnd,
-            Token::SeqEnd,
-        ],
-    );
+    assert_tokens(&DTensor::<i32, 3>::from([[[4, 5, 6], [7, 8, 9]]]), &[
+        Token::Seq { len: Some(1) },
+        Token::Seq { len: Some(2) },
+        Token::Seq { len: Some(3) },
+        Token::I32(4),
+        Token::I32(5),
+        Token::I32(6),
+        Token::SeqEnd,
+        Token::Seq { len: Some(3) },
+        Token::I32(7),
+        Token::I32(8),
+        Token::I32(9),
+        Token::SeqEnd,
+        Token::SeqEnd,
+        Token::SeqEnd,
+    ]);
 }
 
 #[test]

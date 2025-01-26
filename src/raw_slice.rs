@@ -56,11 +56,11 @@ impl<T, S: Shape, L: Layout> RawSlice<T, S, L> {
     }
 
     pub(crate) unsafe fn new_unchecked(ptr: *mut T, mapping: L::Mapping<S>) -> Self {
-        Self { ptr: NonNull::new_unchecked(ptr), mapping }
+        unsafe { Self { ptr: NonNull::new_unchecked(ptr), mapping } }
     }
 
     pub(crate) unsafe fn set_ptr(&mut self, new_ptr: *mut T) {
-        self.ptr = NonNull::new_unchecked(new_ptr);
+        self.ptr = unsafe { NonNull::new_unchecked(new_ptr) };
     }
 }
 

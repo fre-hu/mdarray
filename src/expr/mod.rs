@@ -7,13 +7,13 @@ mod into_expr;
 mod iter;
 mod sources;
 
-pub use adapters::{cloned, copied, enumerate, map, zip, Cloned, Copied, Enumerate, Map, Zip};
+pub use adapters::{Cloned, Copied, Enumerate, Map, Zip, cloned, copied, enumerate, map, zip};
 pub use buffer::{Buffer, Drain};
 pub use expression::{Apply, Expression, FromExpression, IntoExpression};
 pub use into_expr::IntoExpr;
 pub use iter::Iter;
-pub use sources::{fill, fill_with, from_elem, from_fn, Fill, FillWith, FromElem, FromFn};
 pub use sources::{AxisExpr, AxisExprMut, Lanes, LanesMut};
+pub use sources::{Fill, FillWith, FromElem, FromFn, fill, fill_with, from_elem, from_fn};
 
 /// Folds all elements of the argument into an accumulator by applying an operation,
 /// and returns the result.

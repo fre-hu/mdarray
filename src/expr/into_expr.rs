@@ -92,7 +92,9 @@ impl<B: Buffer> Expression for IntoExpr<B> {
 
         self.index += 1; // Keep track of that the element is moved out.
 
-        ManuallyDrop::take(&mut *self.buffer.as_mut_slice().as_mut_ptr().add(self.index - 1))
+        unsafe {
+            ManuallyDrop::take(&mut *self.buffer.as_mut_slice().as_mut_ptr().add(self.index - 1))
+        }
     }
 
     fn inner_rank(&self) -> usize {

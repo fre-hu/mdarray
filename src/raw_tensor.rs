@@ -59,11 +59,7 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
     }
 
     pub(crate) fn capacity(&self) -> usize {
-        if mem::size_of::<T>() > 0 {
-            self.capacity
-        } else {
-            usize::MAX
-        }
+        if mem::size_of::<T>() > 0 { self.capacity } else { usize::MAX }
     }
 
     #[cfg(not(feature = "nightly"))]
@@ -73,7 +69,7 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
         let mut vec = ManuallyDrop::new(vec);
 
         Self {
-            slice: RawSlice::new_unchecked(vec.as_mut_ptr(), mapping),
+            slice: unsafe { RawSlice::new_unchecked(vec.as_mut_ptr(), mapping) },
             capacity: vec.capacity(),
             phantom: PhantomData,
         }
@@ -86,7 +82,7 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
 
         Self {
-            slice: RawSlice::new_unchecked(ptr, mapping),
+            slice: unsafe { RawSlice::new_unchecked(ptr, mapping) },
             capacity,
             alloc: ManuallyDrop::new(alloc),
         }
@@ -158,7 +154,9 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
         debug_assert!(new_mapping.shape().checked_len().is_some(), "invalid length");
         debug_assert!(new_mapping.len() <= self.capacity, "length exceeds capacity");
 
-        *self.slice.mapping_mut() = new_mapping;
+        unsafe {
+            *self.slice.mapping_mut() = new_mapping;
+        }
     }
 
     #[cfg(not(feature = "nightly"))]
@@ -186,18 +184,21 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
             }
         }
 
-        let vec =
-            Vec::from_raw_parts(self.slice.as_mut_ptr(), self.slice.mapping().len(), self.capacity);
+        let vec = unsafe {
+            Vec::from_raw_parts(self.slice.as_mut_ptr(), self.slice.mapping().len(), self.capacity)
+        };
 
         let mut guard = DropGuard { tensor: self, vec: ManuallyDrop::new(vec) };
 
-        let mapping = guard.tensor.slice.mapping_mut();
+        let mapping = unsafe { guard.tensor.slice.mapping_mut() };
         let result = f(&mut guard.vec, mapping);
 
         debug_assert!(Some(guard.vec.len()) == mapping.shape().checked_len(), "length mismatch");
 
-        guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
-        guard.tensor.capacity = guard.vec.capacity();
+        unsafe {
+            guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
+            guard.tensor.capacity = guard.vec.capacity();
+        }
 
         mem::forget(guard);
 
@@ -246,9 +247,11 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
 
         debug_assert!(Some(guard.vec.len()) == mapping.shape().checked_len(), "length mismatch");
 
-        guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
-        guard.tensor.capacity = guard.vec.capacity();
-        guard.tensor.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
+        unsafe {
+            guard.tensor.slice.set_ptr(guard.vec.as_mut_ptr());
+            guard.tensor.capacity = guard.vec.capacity();
+            guard.tensor.alloc = ManuallyDrop::new(ptr::read(guard.vec.allocator()));
+        }
 
         mem::forget(guard);
 
@@ -352,62 +355,68 @@ unsafe fn copy_dim<T, S: Shape, A: Allocator>(
 
     let min_size = old_size.min(new_size);
 
-    if old_dims.len() > 1 {
-        // Avoid very long compile times for release build with MIR inlining,
-        // by avoiding recursion until types are known.
-        //
-        // This is a workaround until const if is available, see #3582 and #122301.
+    unsafe {
+        if old_dims.len() > 1 {
+            // Avoid very long compile times for release build with MIR inlining,
+            // by avoiding recursion until types are known.
+            //
+            // This is a workaround until const if is available, see #3582 and #122301.
 
-        unsafe fn dummy<T, A: Allocator>(
-            _: &mut DropGuard<T, A>,
-            _: &mut vec_t!(T, A),
-            _: &[usize],
-            _: &[usize],
-            _: &mut impl FnMut() -> T,
-        ) {
-            unreachable!();
-        }
-
-        let g = const {
-            match S::RANK {
-                Some(..2) => dummy::<T, A>,
-                _ => copy_dim::<T, S::Tail, A>,
+            unsafe fn dummy<T, A: Allocator>(
+                _: &mut DropGuard<T, A>,
+                _: &mut vec_t!(T, A),
+                _: &[usize],
+                _: &[usize],
+                _: &mut impl FnMut() -> T,
+            ) {
+                unreachable!();
             }
-        };
 
-        for _ in 0..min_size {
-            g(old_vec, new_vec, &old_dims[1..], &new_dims[1..], f);
+            let g = const {
+                match S::RANK {
+                    Some(..2) => dummy::<T, A>,
+                    _ => copy_dim::<T, S::Tail, A>,
+                }
+            };
+
+            for _ in 0..min_size {
+                g(old_vec, new_vec, &old_dims[1..], &new_dims[1..], f);
+            }
+        } else {
+            debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");
+            debug_assert!(new_vec.len() + min_size <= new_vec.capacity(), "slice exceeds capacity");
+
+            ptr::copy_nonoverlapping(
+                old_vec.ptr,
+                new_vec.as_mut_ptr().add(new_vec.len()),
+                min_size,
+            );
+
+            old_vec.ptr = old_vec.ptr.add(min_size);
+            old_vec.len -= min_size;
+
+            new_vec.set_len(new_vec.len() + min_size);
         }
-    } else {
-        debug_assert!(old_vec.len >= min_size, "slice exceeds remainder");
-        debug_assert!(new_vec.len() + min_size <= new_vec.capacity(), "slice exceeds capacity");
 
-        ptr::copy_nonoverlapping(old_vec.ptr, new_vec.as_mut_ptr().add(new_vec.len()), min_size);
+        if old_size > min_size {
+            let count = (old_size - min_size) * old_stride;
+            let slice = ptr::slice_from_raw_parts_mut(old_vec.ptr, count);
 
-        old_vec.ptr = old_vec.ptr.add(min_size);
-        old_vec.len -= min_size;
+            debug_assert!(old_vec.len >= count, "slice exceeds remainder");
 
-        new_vec.set_len(new_vec.len() + min_size);
-    }
+            old_vec.ptr = old_vec.ptr.add(count);
+            old_vec.len -= count;
 
-    if old_size > min_size {
-        let count = (old_size - min_size) * old_stride;
-        let slice = ptr::slice_from_raw_parts_mut(old_vec.ptr, count);
+            ptr::drop_in_place(slice);
+        }
 
-        debug_assert!(old_vec.len >= count, "slice exceeds remainder");
+        let additional = (new_size - min_size) * new_stride;
 
-        old_vec.ptr = old_vec.ptr.add(count);
-        old_vec.len -= count;
+        debug_assert!(new_vec.len() + additional <= new_vec.capacity(), "slice exceeds capacity");
 
-        ptr::drop_in_place(slice);
-    }
-
-    let additional = (new_size - min_size) * new_stride;
-
-    debug_assert!(new_vec.len() + additional <= new_vec.capacity(), "slice exceeds capacity");
-
-    for _ in 0..additional {
-        new_vec.as_mut_ptr().add(new_vec.len()).write(f());
-        new_vec.set_len(new_vec.len() + 1);
+        for _ in 0..additional {
+            new_vec.as_mut_ptr().add(new_vec.len()).write(f());
+            new_vec.set_len(new_vec.len() + 1);
+        }
     }
 }

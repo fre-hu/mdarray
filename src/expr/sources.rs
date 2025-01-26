@@ -122,7 +122,7 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::In
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, view, Tensor};
+/// use mdarray::{Tensor, expr, expr::FromExpression, view};
 ///
 /// let t = Tensor::from_expr(expr::from_fn([2, 3], |i| 3 * i[0] + i[1] + 1));
 ///
@@ -174,7 +174,7 @@ macro_rules! impl_axis_expr {
                 // If the view is empty, we must not offset the pointer.
                 let count = if len == 0 { 0 } else { offset };
 
-                $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping)
+                unsafe { $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping) }
             }
 
             fn inner_rank(&self) -> usize {
@@ -385,11 +385,7 @@ impl<T, S: Shape, F: FnMut(&[usize]) -> T> Expression for FromFn<S, F> {
     }
 
     fn inner_rank(&self) -> usize {
-        if self.shape.rank() > 0 {
-            1
-        } else {
-            usize::MAX
-        }
+        if self.shape.rank() > 0 { 1 } else { usize::MAX }
     }
 
     unsafe fn reset_dim(&mut self, index: usize, _: usize) {
@@ -453,7 +449,7 @@ macro_rules! impl_lanes {
                 // If the view is empty, we must not offset the pointer.
                 let count = if mapping.is_empty() { 0 } else { offset };
 
-                $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping)
+                unsafe { $expr::new_unchecked(self.slice.$as_ptr().offset(count), mapping) }
             }
 
             fn inner_rank(&self) -> usize {

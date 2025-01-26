@@ -206,7 +206,7 @@ macro_rules! impl_view {
             ///
             /// The pointer must be non-null and a valid array view for the given layout.
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, mapping: L::Mapping<S>) -> Self {
-                let slice = RawSlice::new_unchecked(ptr as *mut T, mapping);
+                let slice = unsafe { RawSlice::new_unchecked(ptr as *mut T, mapping) };
 
                 Self { slice, phantom: PhantomData }
             }
@@ -322,7 +322,7 @@ macro_rules! impl_view {
             unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
                 let count = self.slice.mapping().inner_stride() * index as isize;
 
-                &$($mut)? *self.slice.$as_ptr().offset(count)
+                unsafe { &$($mut)? *self.slice.$as_ptr().offset(count) }
             }
 
             fn inner_rank(&self) -> usize {
@@ -337,15 +337,19 @@ macro_rules! impl_view {
 
             unsafe fn reset_dim(&mut self, index: usize, count: usize) {
                 let count = -self.stride(index) * count as isize;
-                let ptr = self.slice.as_mut_ptr().offset(count);
+                let ptr = self.slice.as_mut_ptr();
 
-                self.slice.set_ptr(ptr);
+                unsafe {
+                    self.slice.set_ptr(ptr.offset(count));
+                }
             }
 
             unsafe fn step_dim(&mut self, index: usize) {
-                let ptr = self.slice.as_mut_ptr().offset(self.stride(index));
+                let ptr = self.slice.as_mut_ptr();
 
-                self.slice.set_ptr(ptr);
+                unsafe {
+                    self.slice.set_ptr(ptr.offset(self.stride(index)));
+                }
             }
         }
 

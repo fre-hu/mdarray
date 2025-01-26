@@ -6,7 +6,7 @@
 /// - Create an array containing a given list of elements:
 ///
 /// ```
-/// use mdarray::{array, Array};
+/// use mdarray::{Array, array};
 ///
 /// let a = array![[1, 2, 3], [4, 5, 6]];
 ///
@@ -72,7 +72,7 @@ macro_rules! array {
 /// - Create an array containing a given list of elements:
 ///
 /// ```
-/// use mdarray::{tensor, DTensor};
+/// use mdarray::{DTensor, tensor};
 ///
 /// let a = tensor![[1, 2, 3], [4, 5, 6]];
 ///
@@ -138,7 +138,7 @@ macro_rules! tensor {
 /// - Create an array view containing a given list of elements:
 ///
 /// ```
-/// use mdarray::{view, DView};
+/// use mdarray::{DView, view};
 ///
 /// let a = view![[1, 2, 3], [4, 5, 6]];
 ///

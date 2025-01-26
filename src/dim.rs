@@ -111,10 +111,6 @@ impl<const N: usize> TryFrom<Dyn> for Const<N> {
     type Error = Dyn;
 
     fn try_from(value: Dyn) -> Result<Self, Self::Error> {
-        if value.size() == N {
-            Ok(Self)
-        } else {
-            Err(value)
-        }
+        if value.size() == N { Ok(Self) } else { Err(value) }
     }
 }

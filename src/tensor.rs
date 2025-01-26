@@ -182,7 +182,9 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         capacity: usize,
         alloc: A,
     ) -> Self {
-        Self::from_parts(Vec::from_raw_parts_in(ptr, mapping.len(), capacity, alloc), mapping)
+        unsafe {
+            Self::from_parts(Vec::from_raw_parts_in(ptr, mapping.len(), capacity, alloc), mapping)
+        }
     }
 
     /// Converts the array into an array with dynamic rank.
@@ -314,7 +316,9 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// All elements within the array length must be initialized.
     pub unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<S>) {
-        self.tensor.set_mapping(new_mapping);
+        unsafe {
+            self.tensor.set_mapping(new_mapping);
+        }
     }
 
     /// Shrinks the capacity of the array with a lower bound.
@@ -420,7 +424,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
-        Self { tensor: RawTensor::from_parts(vec, mapping) }
+        unsafe { Self { tensor: RawTensor::from_parts(vec, mapping) } }
     }
 }
 
@@ -448,7 +452,7 @@ impl<T, S: Shape> Tensor<T, S> {
     ///
     /// The pointer must be a valid allocation given the shape and capacity.
     pub unsafe fn from_raw_parts(ptr: *mut T, mapping: DenseMapping<S>, capacity: usize) -> Self {
-        Self::from_parts(Vec::from_raw_parts(ptr, mapping.len(), capacity), mapping)
+        unsafe { Self::from_parts(Vec::from_raw_parts(ptr, mapping.len(), capacity), mapping) }
     }
 
     /// Decomposes an array into its raw components.
@@ -506,7 +510,7 @@ impl<T, S: Shape> Tensor<T, S> {
     ///
     /// The pointer must be a valid allocation given the shape and capacity.
     pub unsafe fn from_raw_parts(ptr: *mut T, mapping: DenseMapping<S>, capacity: usize) -> Self {
-        Self::from_raw_parts_in(ptr, mapping, capacity, Global)
+        unsafe { Self::from_raw_parts_in(ptr, mapping, capacity, Global) }
     }
 
     /// Decomposes an array into its raw components.

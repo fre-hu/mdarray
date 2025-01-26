@@ -23,7 +23,9 @@ unsafe impl<const N: usize, A: Allocator> Allocator for AlignedAlloc<N, A> {
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
-        self.alloc.deallocate(ptr, aligned_layout::<N>(layout))
+        unsafe {
+            self.alloc.deallocate(ptr, aligned_layout::<N>(layout));
+        }
     }
 
     fn allocate_zeroed(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
@@ -36,7 +38,9 @@ unsafe impl<const N: usize, A: Allocator> Allocator for AlignedAlloc<N, A> {
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
-        self.alloc.grow(ptr, aligned_layout::<N>(old_layout), aligned_layout::<N>(new_layout))
+        unsafe {
+            self.alloc.grow(ptr, aligned_layout::<N>(old_layout), aligned_layout::<N>(new_layout))
+        }
     }
 
     unsafe fn grow_zeroed(
@@ -45,11 +49,13 @@ unsafe impl<const N: usize, A: Allocator> Allocator for AlignedAlloc<N, A> {
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
-        self.alloc.grow_zeroed(
-            ptr,
-            aligned_layout::<N>(old_layout),
-            aligned_layout::<N>(new_layout),
-        )
+        unsafe {
+            self.alloc.grow_zeroed(
+                ptr,
+                aligned_layout::<N>(old_layout),
+                aligned_layout::<N>(new_layout),
+            )
+        }
     }
 
     unsafe fn shrink(
@@ -58,7 +64,9 @@ unsafe impl<const N: usize, A: Allocator> Allocator for AlignedAlloc<N, A> {
         old_layout: Layout,
         new_layout: Layout,
     ) -> Result<NonNull<[u8]>, AllocError> {
-        self.alloc.shrink(ptr, aligned_layout::<N>(old_layout), aligned_layout::<N>(new_layout))
+        unsafe {
+            self.alloc.shrink(ptr, aligned_layout::<N>(old_layout), aligned_layout::<N>(new_layout))
+        }
     }
 }
 

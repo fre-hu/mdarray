@@ -284,11 +284,7 @@ impl Shape for DynRank {
     const RANK: Option<usize> = None;
 
     fn new(rank: usize) -> Self {
-        if rank == 1 {
-            Self::One(0)
-        } else {
-            Self::Dyn(Dims::new(rank))
-        }
+        if rank == 1 { Self::One(0) } else { Self::Dyn(Dims::new(rank)) }
     }
 
     fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {

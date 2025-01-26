@@ -100,13 +100,8 @@ where
                 }
             }
 
-            let f = const {
-                if L::IS_DENSE && K::IS_DENSE {
-                    compare_dense
-                } else {
-                    compare_strided
-                }
-            };
+            let f =
+                const { if L::IS_DENSE && K::IS_DENSE { compare_dense } else { compare_strided } };
 
             f(self, &other)
         } else {
