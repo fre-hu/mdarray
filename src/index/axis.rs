@@ -7,7 +7,7 @@ use crate::mapping::{DenseMapping, Mapping};
 use crate::shape::{DynRank, Shape};
 
 /// Array axis trait, for subarray shapes.
-pub trait Axis: Copy + Debug + Default + Eq + Hash + Ord + Send + Sync {
+pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     /// Shape for the previous dimensions excluding the current dimension.
     type Init<S: Shape>: Shape;
 
@@ -51,16 +51,21 @@ pub trait Axis: Copy + Debug + Default + Eq + Hash + Ord + Send + Sync {
     }
 }
 
-/// Get dimension from the shape for the specified axis.
+//
+// These types are public to improve documentation, but hidden since
+// they are not considered part of the API.
+//
+
+#[doc(hidden)]
 pub type Get<A, S> = <<A as Axis>::Rest<S> as Shape>::Head;
 
-/// Shape when resizing the dimension for the specified axis.
+#[doc(hidden)]
 pub type Resize<A, S> = <A as Axis>::Insert<Dyn, <A as Axis>::Remove<S>>;
 
-/// Layout when keeping the dimension for the specified axis.
+#[doc(hidden)]
 pub type Keep<A, S, L> = <<<A as Axis>::Rest<S> as Shape>::Tail as Shape>::Layout<L>;
 
-/// Layout when removing or resizing the dimension for the specified axis.
+#[doc(hidden)]
 pub type Split<A, S, L> = <<A as Axis>::Init<S> as Shape>::Layout<L>;
 
 //

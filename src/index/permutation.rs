@@ -1,4 +1,4 @@
-use crate::index::axis::{Axis, Get, Keep};
+use crate::index::axis::{Axis, Get};
 use crate::layout::{Layout, Strided};
 use crate::shape::{DynRank, Shape};
 
@@ -9,34 +9,43 @@ pub trait Permutation {
 
     /// Layout after permuting dimensions.
     type Layout<L: Layout>: Layout;
+
+    #[doc(hidden)]
+    type Init: Shape;
 }
 
 impl<X: Axis> Permutation for (X,) {
     type Shape<S: Shape> = (Get<X, S>,);
     type Layout<L: Layout> = L;
+
+    type Init = X::Init<()>;
 }
 
 macro_rules! impl_permutation {
-    (($($ij:tt),+), $k:tt, ($($xy:tt),+), $z:tt) => {
-        impl<$($xy: Axis,)+ $z: Axis> Permutation for ($($xy,)+ $z)
+    (($($jk:tt),+), ($($yz:tt),+)) => {
+        impl<X: Axis $(,$yz: Axis)+> Permutation for (X $(,$yz)+)
         where
-            ($($xy,)+): Permutation
+            ($($yz,)+): Permutation
         {
             type Shape<S: Shape> =
-                <<($($xy,)+) as Permutation>::Shape<S> as Shape>::Concat<(Get<$z, S>,)>;
-            type Layout<L: Layout> =
-                Keep<$z, Self::Shape<()>, <($($xy,)+) as Permutation>::Layout<L>>;
-        }
+                <<($($yz,)+) as Permutation>::Shape<S> as Shape>::Prepend<Get<X, S>>;
+            type Layout<L: Layout> = <Self::Init as Shape>::Layout<L>;
+
+            type Init =
+                <<<($($yz,)+) as Permutation>::Init as Shape>::Tail as Shape>::Merge<X::Init<()>>;
+            }
     };
 }
 
-impl_permutation!((0), 1, (X), Y);
-impl_permutation!((0, 1), 2, (X, Y), Z);
-impl_permutation!((0, 1, 2), 3, (X, Y, Z), W);
-impl_permutation!((0, 1, 2, 3), 4, (X, Y, Z, W), U);
-impl_permutation!((0, 1, 2, 3, 4), 5, (X, Y, Z, W, U), V);
+impl_permutation!((1), (Y));
+impl_permutation!((1, 2), (Y, Z));
+impl_permutation!((1, 2, 3), (Y, Z, W));
+impl_permutation!((1, 2, 3, 4), (Y, Z, W, U));
+impl_permutation!((1, 2, 3, 4, 5), (Y, Z, W, U, V));
 
 impl Permutation for DynRank {
     type Shape<S: Shape> = S::Dyn;
     type Layout<L: Layout> = Strided;
+
+    type Init = Self;
 }

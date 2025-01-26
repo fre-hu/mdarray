@@ -14,13 +14,10 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
     type Tail: Shape;
 
     /// Shape with the reverse ordering of dimensions.
-    type Reverse: Shape<Reverse = Self>;
+    type Reverse: Shape;
 
     /// Prepend the dimension to the shape.
     type Prepend<D: Dim>: Shape;
-
-    /// Concatenate the other shape to the shape.
-    type Concat<S: Shape>: Shape;
 
     /// Corresponding shape with dynamically-sized dimensions.
     type Dyn: Shape;
@@ -274,10 +271,9 @@ impl PartialEq for DynRank {
 impl Shape for DynRank {
     type Head = Dyn;
     type Tail = Self;
-    type Reverse = Self;
 
+    type Reverse = Self;
     type Prepend<D: Dim> = Self;
-    type Concat<S: Shape> = Self;
 
     type Dyn = Self;
     type Merge<S: Shape> = Self;
@@ -317,10 +313,9 @@ impl Shape for DynRank {
 impl Shape for () {
     type Head = Dyn;
     type Tail = Self;
-    type Reverse = Self;
 
+    type Reverse = Self;
     type Prepend<D: Dim> = (D,);
-    type Concat<S: Shape> = S;
 
     type Dyn = Self;
     type Merge<S: Shape> = S;
@@ -346,10 +341,9 @@ impl Shape for () {
 impl<X: Dim> Shape for (X,) {
     type Head = X;
     type Tail = ();
-    type Reverse = Self;
 
+    type Reverse = Self;
     type Prepend<D: Dim> = (D, X);
-    type Concat<S: Shape> = S::Prepend<X>;
 
     type Dyn = (Dyn,);
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
@@ -379,17 +373,30 @@ impl<X: Dim> Shape for (X,) {
     }
 }
 
+#[cfg(not(feature = "nightly"))]
+macro_rules! dyn_shape {
+    ($($yz:tt),+) => {
+        <<Self::Tail as Shape>::Dyn as Shape>::Prepend<Dyn>
+    };
+}
+
+#[cfg(feature = "nightly")]
+macro_rules! dyn_shape {
+    ($($yz:tt),+) => {
+        (Dyn $(,${ignore($yz)} Dyn)+)
+    };
+}
+
 macro_rules! impl_shape {
-    ($n:tt, ($($jk:tt),*), ($($yz:tt),*), $prepend:tt) => {
-        impl<X: Dim, $($yz: Dim,)+> Shape for (X, $($yz,)+) {
+    ($n:tt, ($($jk:tt),+), ($($yz:tt),+), $reverse:tt, $prepend:tt) => {
+        impl<X: Dim $(,$yz: Dim)+> Shape for (X $(,$yz)+) {
             type Head = X;
             type Tail = ($($yz,)+);
-            type Reverse = <<Self::Tail as Shape>::Reverse as Shape>::Concat<(X,)>;
 
+            type Reverse = $reverse;
             type Prepend<D: Dim> = $prepend;
-            type Concat<S: Shape> = <<Self::Tail as Shape>::Concat<S> as Shape>::Prepend<X>;
 
-            type Dyn = <Self::Tail as Shape>::Prepend<Dyn>;
+            type Dyn = dyn_shape!($($yz),+);
             type Merge<S: Shape> =
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
 
@@ -420,11 +427,11 @@ macro_rules! impl_shape {
     };
 }
 
-impl_shape!(2, (1), (Y), (D, X, Y));
-impl_shape!(3, (1, 2), (Y, Z), (D, X, Y, Z));
-impl_shape!(4, (1, 2, 3), (Y, Z, W), (D, X, Y, Z, W));
-impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (D, X, Y, Z, W, U));
-impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), DynRank);
+impl_shape!(2, (1), (Y), (Y, X), (D, X, Y));
+impl_shape!(3, (1, 2), (Y, Z), (Z, Y, X), (D, X, Y, Z));
+impl_shape!(4, (1, 2, 3), (Y, Z, W), (W, Z, Y, X), (D, X, Y, Z, W));
+impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (U, W, Z, Y, X), (D, X, Y, Z, W, U));
+impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), (V, U, W, Z, Y, X), DynRank);
 
 macro_rules! impl_const_shape {
     (($($xyz:tt),*), $inner:ty) => {

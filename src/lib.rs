@@ -151,6 +151,7 @@
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
+#![cfg_attr(feature = "nightly", feature(macro_metavar_expr))]
 #![cfg_attr(feature = "nightly", feature(slice_range))]
 #![warn(missing_docs)]
 #![warn(unreachable_pub)]

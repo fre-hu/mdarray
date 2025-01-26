@@ -80,7 +80,7 @@ pub trait Mapping: Clone + Debug + Default + Eq + Hash + Send + Sync {
     fn remove_dim<M: Mapping>(mapping: &M, index: usize) -> Self;
 
     #[doc(hidden)]
-    fn reorder<M: Mapping<Shape = <Self::Shape as Shape>::Reverse>>(mapping: &M) -> Self;
+    fn reorder<M: Mapping<Shape: Shape<Reverse = Self::Shape>>>(mapping: &M) -> Self;
 
     #[doc(hidden)]
     fn reshape<S: Shape>(&self, new_shape: S) -> <Self::Layout as Layout>::Mapping<S>;
@@ -218,7 +218,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::new(mapping.shape().remove_dim(index))
     }
 
-    fn reorder<M: Mapping<Shape = S::Reverse>>(mapping: &M) -> Self {
+    fn reorder<M: Mapping<Shape: Shape<Reverse = S>>>(mapping: &M) -> Self {
         assert!(mapping.rank() < 2 && M::Layout::IS_DENSE, "invalid layout");
 
         Self::new(mapping.shape().reverse())
@@ -396,7 +396,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().remove_dim(index), strides }
     }
 
-    fn reorder<M: Mapping<Shape = S::Reverse>>(mapping: &M) -> Self {
+    fn reorder<M: Mapping<Shape: Shape<Reverse = S>>>(mapping: &M) -> Self {
         let mut strides = S::Dims::new(mapping.rank());
 
         mapping.for_each_stride(|i, stride| strides.as_mut()[mapping.rank() - 1 - i] = stride);
