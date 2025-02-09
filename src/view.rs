@@ -35,6 +35,46 @@ pub type DViewMut<'a, T, const N: usize, L = Dense> = ViewMut<'a, T, Rank<N>, L>
 macro_rules! impl_view {
     ($name:tt, $as_ptr:tt, $from_raw_parts:tt, $raw_mut:tt, {$($mut:tt)?}, $repeatable:tt) => {
         impl<'a, T, S: Shape, L: Layout> $name<'a, T, S, L> {
+            /// Converts the array view into a new array view indexing the first dimension.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the index is out of bounds, or if the rank is not at least 1.
+            pub fn into_at(
+                self,
+                index: usize,
+            ) -> $name<'a, T, S::Tail, L> {
+                self.into_axis_at(Const::<0>, index)
+            }
+
+            /// Converts the array view into a new array view indexing the specified dimension.
+            ///
+            /// If the dimension to be indexed is know at compile time, the resulting array shape
+            /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
+            /// the resulting array view has the same layout as the input.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the dimension or the index is out of bounds.
+            pub fn into_axis_at<A: Axis>(
+                $($mut)? self,
+                axis: A,
+                index: usize,
+            ) -> $name<'a, T, A::Remove<S>, Split<A, S, L>> {
+                unsafe { Self::axis_at(self.$as_ptr(), self.mapping(), axis, index) }
+            }
+
+            /// Converts the array view into a new array view for the specified column.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+            pub fn into_col(self, index: usize) -> $name<'a, T, (S::Head,), Strided> {
+                let shape = self.shape().with_dims(<(_, <S::Tail as Shape>::Head)>::from_dims);
+
+                self.into_shape(shape).into_view(.., index)
+            }
+
             /// Converts the array view into a new array view for the given diagonal,
             /// where `index` > 0 is above and `index` < 0 is below the main diagonal.
             ///
@@ -75,23 +115,6 @@ macro_rules! impl_view {
                 let len = self.len();
 
                 self.into_shape([len])
-            }
-
-            /// Converts the array view into a new array view indexing the specified dimension.
-            ///
-            /// If the dimension to be indexed is know at compile time, the resulting array shape
-            /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
-            /// the resulting array view has the same layout as the input.
-            ///
-            /// # Panics
-            ///
-            /// Panics if the dimension or the index is out of bounds.
-            pub fn into_index_axis<A: Axis>(
-                $($mut)? self,
-                axis: A,
-                index: usize,
-            ) -> $name<'a, T, A::Remove<S>, Split<A, S, L>> {
-                unsafe { Self::index_axis(self.$as_ptr(), self.mapping(), axis, index) }
             }
 
             /// Converts the array view into a remapped array view.
@@ -137,6 +160,17 @@ macro_rules! impl_view {
                 let mapping = Mapping::reorder(self.mapping());
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
+            }
+
+            /// Converts the array view into a new array view for the specified row.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+            pub fn into_row(self, index: usize) -> $name<'a, T, (<S::Tail as Shape>::Head,), L> {
+                let shape = self.shape().with_dims(<(S::Head, _)>::from_dims);
+
+                self.into_shape(shape).into_view(index, ..)
             }
 
             /// Converts the array view into a reshaped array view.
@@ -211,7 +245,7 @@ macro_rules! impl_view {
                 Self { slice, phantom: PhantomData }
             }
 
-            pub(crate) unsafe fn index_axis<A: Axis>(
+            pub(crate) unsafe fn axis_at<A: Axis>(
                 ptr: *$raw_mut T,
                 mapping: &L::Mapping<S>,
                 axis: A,

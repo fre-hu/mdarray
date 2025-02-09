@@ -1,4 +1,4 @@
-use crate::index::axis::{Axis, Get};
+use crate::index::axis::Axis;
 use crate::layout::{Layout, Strided};
 use crate::shape::{DynRank, Shape};
 
@@ -15,7 +15,7 @@ pub trait Permutation {
 }
 
 impl<X: Axis> Permutation for (X,) {
-    type Shape<S: Shape> = (Get<X, S>,);
+    type Shape<S: Shape> = (X::Dim<S>,);
     type Layout<L: Layout> = L;
 
     type Init = X::Init<()>;
@@ -28,7 +28,7 @@ macro_rules! impl_permutation {
             ($($yz,)+): Permutation
         {
             type Shape<S: Shape> =
-                <<($($yz,)+) as Permutation>::Shape<S> as Shape>::Prepend<Get<X, S>>;
+                <<($($yz,)+) as Permutation>::Shape<S> as Shape>::Prepend<X::Dim<S>>;
             type Layout<L: Layout> = <Self::Init as Shape>::Layout<L>;
 
             type Init =

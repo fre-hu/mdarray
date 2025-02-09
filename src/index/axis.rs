@@ -8,10 +8,13 @@ use crate::shape::{DynRank, Shape};
 
 /// Array axis trait, for subarray shapes.
 pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
+    /// Corresponding dimension.
+    type Dim<S: Shape>: Dim;
+
     /// Shape for the previous dimensions excluding the current dimension.
     type Init<S: Shape>: Shape;
 
-    /// Shape for the next dimensions including the current dimension.
+    /// Shape for the next dimensions excluding the current dimension.
     type Rest<S: Shape>: Shape;
 
     /// Remove the dimension from the shape.
@@ -20,14 +23,14 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     /// Insert the dimension into the shape.
     type Insert<D: Dim, S: Shape>: Shape;
 
-    #[doc(hidden)]
+    /// Returns the dimension index.
     fn index(self, rank: usize) -> usize;
 
     #[doc(hidden)]
     fn get<M: Mapping>(
         self,
         mapping: &M,
-    ) -> <Keep<Self, M::Shape, M::Layout> as Layout>::Mapping<(Get<Self, M::Shape>,)> {
+    ) -> <Keep<Self, M::Shape, M::Layout> as Layout>::Mapping<(Self::Dim<M::Shape>,)> {
         let index = self.index(mapping.rank());
 
         Mapping::prepend_dim(&DenseMapping::new(()), mapping.dim(index), mapping.stride(index))
@@ -51,19 +54,24 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     }
 }
 
+/// Column axis type, for the second last dimension.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Cols;
+
+/// Row axis type, for the last dimension.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Rows;
+
 //
 // These types are public to improve documentation, but hidden since
 // they are not considered part of the API.
 //
 
 #[doc(hidden)]
-pub type Get<A, S> = <<A as Axis>::Rest<S> as Shape>::Head;
-
-#[doc(hidden)]
 pub type Resize<A, S> = <A as Axis>::Insert<Dyn, <A as Axis>::Remove<S>>;
 
 #[doc(hidden)]
-pub type Keep<A, S, L> = <<<A as Axis>::Rest<S> as Shape>::Tail as Shape>::Layout<L>;
+pub type Keep<A, S, L> = <<A as Axis>::Rest<S> as Shape>::Layout<L>;
 
 #[doc(hidden)]
 pub type Split<A, S, L> = <<A as Axis>::Init<S> as Shape>::Layout<L>;
@@ -93,8 +101,10 @@ pub type Split<A, S, L> = <<A as Axis>::Init<S> as Shape>::Layout<L>;
 //
 
 impl Axis for Const<0> {
+    type Dim<S: Shape> = S::Head;
+
     type Init<S: Shape> = ();
-    type Rest<S: Shape> = S;
+    type Rest<S: Shape> = S::Tail;
 
     type Remove<S: Shape> = S::Tail;
     type Insert<D: Dim, S: Shape> = S::Prepend<D>;
@@ -110,6 +120,8 @@ macro_rules! impl_axis {
     (($($n:tt),*), ($($k:tt),*)) => {
         $(
             impl Axis for Const<$n> {
+                type Dim<S: Shape> = <Const<$k> as Axis>::Dim<S::Tail>;
+
                 type Init<S: Shape> =
                     <<Const<$k> as Axis>::Init<S::Tail> as Shape>::Prepend<S::Head>;
                 type Rest<S: Shape> = <Const<$k> as Axis>::Rest<S::Tail>;
@@ -131,7 +143,33 @@ macro_rules! impl_axis {
 
 impl_axis!((1, 2, 3, 4, 5), (0, 1, 2, 3, 4));
 
+macro_rules! impl_cols_rows {
+    ($name:tt, $n:tt) => {
+        impl Axis for $name {
+            type Dim<S: Shape> = <Const<$n> as Axis>::Dim<S::Reverse>;
+
+            type Init<S: Shape> = <<Const<$n> as Axis>::Rest<S::Reverse> as Shape>::Reverse;
+            type Rest<S: Shape> = <<Const<$n> as Axis>::Init<S::Reverse> as Shape>::Reverse;
+
+            type Remove<S: Shape> = <<Const<$n> as Axis>::Remove<S::Reverse> as Shape>::Reverse;
+            type Insert<D: Dim, S: Shape> =
+                <<Const<$n> as Axis>::Insert<D, S::Reverse> as Shape>::Reverse;
+
+            fn index(self, rank: usize) -> usize {
+                assert!(rank > $n, "invalid dimension");
+
+                rank - $n - 1
+            }
+        }
+    };
+}
+
+impl_cols_rows!(Cols, 1);
+impl_cols_rows!(Rows, 0);
+
 impl Axis for Dyn {
+    type Dim<S: Shape> = Dyn;
+
     type Init<S: Shape> = DynRank;
     type Rest<S: Shape> = DynRank;
 

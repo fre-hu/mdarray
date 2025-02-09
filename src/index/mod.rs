@@ -5,13 +5,13 @@ mod permutation;
 mod slice;
 mod view;
 
-pub use axis::Axis;
+pub use axis::{Axis, Cols, Rows};
 pub use permutation::Permutation;
 pub use slice::SliceIndex;
 pub use view::{DimIndex, ViewIndex};
 
 #[doc(hidden)]
-pub use axis::{Get, Keep, Resize, Split};
+pub use axis::{Keep, Resize, Split};
 
 #[cfg(not(feature = "nightly"))]
 pub(crate) fn range<R>(range: R, bounds: std::ops::RangeTo<usize>) -> std::ops::Range<usize>

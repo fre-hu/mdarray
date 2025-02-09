@@ -2,7 +2,7 @@ use std::fmt::{Debug, Formatter, Result};
 
 use crate::expr::expression::Expression;
 use crate::expr::iter::Iter;
-use crate::index::{Axis, Get, Keep, Split};
+use crate::index::{Axis, Keep, Split};
 use crate::layout::Layout;
 use crate::mapping::Mapping;
 use crate::shape::{IntoShape, Shape};
@@ -13,7 +13,7 @@ use crate::view::{View, ViewMut};
 pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a Slice<T, S, L>,
     axis: A,
-    mapping: <Keep<A, S, L> as Layout>::Mapping<(Get<A, S>,)>,
+    mapping: <Keep<A, S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
 }
 
@@ -21,7 +21,7 @@ pub struct AxisExpr<'a, T, S: Shape, L: Layout, A: Axis> {
 pub struct AxisExprMut<'a, T, S: Shape, L: Layout, A: Axis> {
     slice: &'a mut Slice<T, S, L>,
     axis: A,
-    mapping: <Keep<A, S, L> as Layout>::Mapping<(Get<A, S>,)>,
+    mapping: <Keep<A, S, L> as Layout>::Mapping<(A::Dim<S>,)>,
     offset: isize,
 }
 
@@ -157,7 +157,7 @@ macro_rules! impl_axis_expr {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> Expression for $name<'a, T, S, L, A> {
-            type Shape = (Get<A, S>,);
+            type Shape = (A::Dim<S>,);
 
             const IS_REPEATABLE: bool = $repeatable;
 
@@ -472,7 +472,7 @@ macro_rules! impl_lanes {
         }
 
         impl<'a, T, S: Shape, L: Layout, A: Axis> IntoIterator for $name<'a, T, S, L, A> {
-            type Item = $expr<'a, T, (Get<A, S>,), Keep<A, S, L>>;
+            type Item = $expr<'a, T, (A::Dim<S>,), Keep<A, S, L>>;
             type IntoIter = Iter<Self>;
 
             fn into_iter(self) -> Iter<Self> {

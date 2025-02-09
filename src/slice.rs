@@ -11,7 +11,7 @@ use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
-use crate::index::{Axis, DimIndex, Permutation, Resize, SliceIndex, Split, ViewIndex};
+use crate::index::{Axis, Cols, DimIndex, Permutation, Resize, Rows, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
@@ -56,6 +56,54 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         self.expr_mut().zip(expr).for_each(|(x, y)| y.clone_to(x));
     }
 
+    /// Returns an array view after indexing the first dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds, or if the rank is not at least 1.
+    pub fn at(&self, index: usize) -> View<T, S::Tail, L> {
+        self.axis_at(Const::<0>, index)
+    }
+
+    /// Returns a mutable array view after indexing the first dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds, or if the rank is not at least 1.
+    pub fn at_mut(&mut self, index: usize) -> ViewMut<T, S::Tail, L> {
+        self.axis_at_mut(Const::<0>, index)
+    }
+
+    /// Returns an array view after indexing the specified dimension.
+    ///
+    /// If the dimension to be indexed is know at compile time, the resulting array shape
+    /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
+    /// the resulting array view has the same layout as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimension or the index is out of bounds.
+    pub fn axis_at<A: Axis>(&self, axis: A, index: usize) -> View<T, A::Remove<S>, Split<A, S, L>> {
+        unsafe { View::axis_at(self.as_ptr(), self.mapping(), axis, index) }
+    }
+
+    /// Returns a mutable array view after indexing the specified dimension.
+    ///
+    /// If the dimension to be indexed is know at compile time, the resulting array shape
+    /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
+    /// the resulting array view has the same layout as the input.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the dimension or the index is out of bounds.
+    pub fn axis_at_mut<A: Axis>(
+        &mut self,
+        axis: A,
+        index: usize,
+    ) -> ViewMut<T, A::Remove<S>, Split<A, S, L>> {
+        unsafe { ViewMut::axis_at(self.as_mut_ptr(), self.mapping(), axis, index) }
+    }
+
     /// Returns an expression that gives array views iterating over the specified dimension.
     ///
     /// If the dimension to be iterated over is know at compile time, the resulting array
@@ -88,7 +136,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
     pub fn col(&self, index: usize) -> View<T, (S::Head,), Strided> {
-        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+        let shape = self.shape().with_dims(<(_, <S::Tail as Shape>::Head)>::from_dims);
 
         self.reshape(shape).into_view(.., index)
     }
@@ -99,31 +147,27 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
     pub fn col_mut(&mut self, index: usize) -> ViewMut<T, (S::Head,), Strided> {
-        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+        let shape = self.shape().with_dims(<(_, <S::Tail as Shape>::Head)>::from_dims);
 
         self.reshape_mut(shape).into_view(.., index)
     }
 
-    /// Returns an expression that gives column views iterating over the other dimension.
+    /// Returns an expression that gives column views iterating over the other dimensions.
     ///
     /// # Panics
     ///
-    /// Panics if the rank is not equal to 2.
-    pub fn cols(&self) -> Lanes<T, S, L, Const<0>> {
-        assert!(self.rank() == 2, "invalid rank");
-
-        self.lanes(Const::<0>)
+    /// Panics if the rank is not at least 2.
+    pub fn cols(&self) -> Lanes<T, S, L, Cols> {
+        self.lanes(Cols)
     }
 
-    /// Returns a mutable expression that gives column views iterating over the other dimension.
+    /// Returns a mutable expression that gives column views iterating over the other dimensions.
     ///
     /// # Panics
     ///
-    /// Panics if the rank is not equal to 2.
-    pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Const<0>> {
-        assert!(self.rank() == 2, "invalid rank");
-
-        self.lanes_mut(Const::<0>)
+    /// Panics if the rank is not at least 2.
+    pub fn cols_mut(&mut self) -> LanesMut<T, S, L, Cols> {
+        self.lanes_mut(Cols)
     }
 
     /// Returns `true` if the array slice contains an element with the given value.
@@ -226,40 +270,6 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// The index must be within bounds of the array slice.
     pub unsafe fn get_unchecked_mut<I: SliceIndex<T, S, L>>(&mut self, index: I) -> &mut I::Output {
         unsafe { index.get_unchecked_mut(self) }
-    }
-
-    /// Returns an array view after indexing the specified dimension.
-    ///
-    /// If the dimension to be indexed is know at compile time, the resulting array shape
-    /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
-    /// the resulting array view has the same layout as the input.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the dimension or the index is out of bounds.
-    pub fn index_axis<A: Axis>(
-        &self,
-        axis: A,
-        index: usize,
-    ) -> View<T, A::Remove<S>, Split<A, S, L>> {
-        unsafe { View::index_axis(self.as_ptr(), self.mapping(), axis, index) }
-    }
-
-    /// Returns a mutable array view after indexing the specified dimension.
-    ///
-    /// If the dimension to be indexed is know at compile time, the resulting array shape
-    /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
-    /// the resulting array view has the same layout as the input.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the dimension or the index is out of bounds.
-    pub fn index_axis_mut<A: Axis>(
-        &mut self,
-        axis: A,
-        index: usize,
-    ) -> ViewMut<T, A::Remove<S>, Split<A, S, L>> {
-        unsafe { ViewMut::index_axis(self.as_mut_ptr(), self.mapping(), axis, index) }
     }
 
     /// Returns `true` if the array strides are consistent with contiguous memory layout.
@@ -475,7 +485,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
     pub fn row(&self, index: usize) -> View<T, (<S::Tail as Shape>::Head,), L> {
-        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+        let shape = self.shape().with_dims(<(S::Head, _)>::from_dims);
 
         self.reshape(shape).into_view(index, ..)
     }
@@ -486,31 +496,27 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
     pub fn row_mut(&mut self, index: usize) -> ViewMut<T, (<S::Tail as Shape>::Head,), L> {
-        let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
+        let shape = self.shape().with_dims(<(S::Head, _)>::from_dims);
 
         self.reshape_mut(shape).into_view(index, ..)
     }
 
-    /// Returns an expression that gives row views iterating over the other dimension.
+    /// Returns an expression that gives row views iterating over the other dimensions.
     ///
     /// # Panics
     ///
-    /// Panics if the rank is not equal to 2.
-    pub fn rows(&self) -> Lanes<T, S, L, Const<1>> {
-        assert!(self.rank() == 2, "invalid rank");
-
-        self.lanes(Const::<1>)
+    /// Panics if the rank is not at least 1.
+    pub fn rows(&self) -> Lanes<T, S, L, Rows> {
+        self.lanes(Rows)
     }
 
-    /// Returns a mutable expression that gives row views iterating over the other dimension.
+    /// Returns a mutable expression that gives row views iterating over the other dimensions.
     ///
     /// # Panics
     ///
-    /// Panics if the rank is not equal to 2.
-    pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Const<1>> {
-        assert!(self.rank() == 2, "invalid rank");
-
-        self.lanes_mut(Const::<1>)
+    /// Panics if the rank is not at least 1.
+    pub fn rows_mut(&mut self) -> LanesMut<T, S, L, Rows> {
+        self.lanes_mut(Rows)
     }
 
     /// Returns the array shape.

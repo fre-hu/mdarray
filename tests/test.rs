@@ -24,6 +24,7 @@ use serde_test::{Token, assert_tokens};
 #[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::expr::{self, Apply, Expression, IntoExpression};
+use mdarray::index::{Axis, Cols, Rows};
 use mdarray::{Array, DTensor, DView, DViewMut, Tensor, View, ViewMut, array, tensor, view};
 use mdarray::{Const, Dense, Dyn, DynRank, Layout, Rank, Shape, StepRange, Strided, step};
 use mdarray::{DenseMapping, IntoCloned, Mapping, StridedMapping};
@@ -149,17 +150,30 @@ fn test_base() {
     assert_eq!(a.view(2, 1.., ..).diag(0), view![1210, 1221, 1232]);
     assert_eq!(a.view_mut(1, 2.., 3..).diag_mut(0), view![1123, 1134]);
 
+    assert_eq!(a.view(2, .., ..).into_col(1), view![1201, 1211, 1221, 1231]);
     assert_eq!(a.view(.., .., 1).col(2), view![1021, 1121, 1221]);
     assert_eq!(a.view_mut(2, .., ..).col_mut(1), view![1201, 1211, 1221, 1231]);
 
+    assert_eq!(a.view(2, .., ..).into_row(1), view![1210, 1211, 1212, 1213, 1214]);
     assert_eq!(a.view(.., .., 1).row(2), view![1201, 1211, 1221, 1231]);
     assert_eq!(a.view_mut(2, .., ..).row_mut(1), view![1210, 1211, 1212, 1213, 1214]);
 
-    assert_eq!(a.view(.., 2, ..), a.expr().into_dyn().index_axis(1, 2));
-    assert_eq!(b.tensor(.., .., 1), b.index_axis_mut(U2, 1));
+    assert_eq!(a.view(1, .., ..), a.at(1));
+    assert_eq!(b.tensor(2, .., ..), b.expr_mut().into_dyn().at_mut(2));
 
-    assert_eq!(a.view(.., 2, ..), a.expr().into_index_axis(1, 2));
-    assert_eq!(b.tensor(.., .., 1), b.expr_mut().into_dyn().into_index_axis(U2, 1));
+    assert_eq!(a.view(2, .., ..), a.expr().into_dyn().into_at(2));
+    assert_eq!(b.tensor(1, .., ..), b.expr_mut().into_at(1));
+
+    assert_eq!(a.view(.., 2, ..), a.expr().into_dyn().axis_at(1, 2));
+    assert_eq!(b.tensor(.., .., 1), b.axis_at_mut(U2, 1));
+
+    assert_eq!(a.view(.., 2, ..), a.expr().into_axis_at(1, 2));
+    assert_eq!(b.tensor(.., .., 1), b.expr_mut().into_dyn().into_axis_at(U2, 1));
+
+    assert_eq!(Axis::index(1, 3), 1);
+    assert_eq!(Axis::index(Const::<2>, 3), 2);
+    assert_eq!(Axis::index(Cols, 3), 1);
+    assert_eq!(Axis::index(Rows, 3), 2);
 
     assert_eq!(array![[1, 2, 3], [4, 5, 6]].array(1, ..), view![4, 5, 6]);
     assert_eq!(array![[1, 2, 3], [4, 5, 6]].view(.., 1).to_array(), view![2, 5]);
@@ -583,65 +597,77 @@ fn test_serde() {
 
     assert_tokens(&Array::<i32, (U0, U3)>([]), &[Token::Seq { len: Some(0) }, Token::SeqEnd]);
 
-    assert_tokens(&Array::<i32, (U3, U0)>([[], [], []]), &[
-        Token::Seq { len: Some(3) },
-        Token::Seq { len: Some(0) },
-        Token::SeqEnd,
-        Token::Seq { len: Some(0) },
-        Token::SeqEnd,
-        Token::Seq { len: Some(0) },
-        Token::SeqEnd,
-        Token::SeqEnd,
-    ]);
+    assert_tokens(
+        &Array::<i32, (U3, U0)>([[], [], []]),
+        &[
+            Token::Seq { len: Some(3) },
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
 
-    assert_tokens(&Array::<i32, (U1, U2, U3)>([[[4, 5, 6], [7, 8, 9]]]), &[
-        Token::Seq { len: Some(1) },
-        Token::Seq { len: Some(2) },
-        Token::Seq { len: Some(3) },
-        Token::I32(4),
-        Token::I32(5),
-        Token::I32(6),
-        Token::SeqEnd,
-        Token::Seq { len: Some(3) },
-        Token::I32(7),
-        Token::I32(8),
-        Token::I32(9),
-        Token::SeqEnd,
-        Token::SeqEnd,
-        Token::SeqEnd,
-    ]);
+    assert_tokens(
+        &Array::<i32, (U1, U2, U3)>([[[4, 5, 6], [7, 8, 9]]]),
+        &[
+            Token::Seq { len: Some(1) },
+            Token::Seq { len: Some(2) },
+            Token::Seq { len: Some(3) },
+            Token::I32(4),
+            Token::I32(5),
+            Token::I32(6),
+            Token::SeqEnd,
+            Token::Seq { len: Some(3) },
+            Token::I32(7),
+            Token::I32(8),
+            Token::I32(9),
+            Token::SeqEnd,
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
 
     assert_tokens(&Tensor::<_, _>::from_elem((), 123), &[Token::I32(123)]);
 
     assert_tokens(&Tensor::<i32, (Dyn, U3)>::new(), &[Token::Seq { len: Some(0) }, Token::SeqEnd]);
 
-    assert_tokens(&Tensor::<i32, (U3, Dyn)>::new(), &[
-        Token::Seq { len: Some(3) },
-        Token::Seq { len: Some(0) },
-        Token::SeqEnd,
-        Token::Seq { len: Some(0) },
-        Token::SeqEnd,
-        Token::Seq { len: Some(0) },
-        Token::SeqEnd,
-        Token::SeqEnd,
-    ]);
+    assert_tokens(
+        &Tensor::<i32, (U3, Dyn)>::new(),
+        &[
+            Token::Seq { len: Some(3) },
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::Seq { len: Some(0) },
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
 
-    assert_tokens(&DTensor::<i32, 3>::from([[[4, 5, 6], [7, 8, 9]]]), &[
-        Token::Seq { len: Some(1) },
-        Token::Seq { len: Some(2) },
-        Token::Seq { len: Some(3) },
-        Token::I32(4),
-        Token::I32(5),
-        Token::I32(6),
-        Token::SeqEnd,
-        Token::Seq { len: Some(3) },
-        Token::I32(7),
-        Token::I32(8),
-        Token::I32(9),
-        Token::SeqEnd,
-        Token::SeqEnd,
-        Token::SeqEnd,
-    ]);
+    assert_tokens(
+        &DTensor::<i32, 3>::from([[[4, 5, 6], [7, 8, 9]]]),
+        &[
+            Token::Seq { len: Some(1) },
+            Token::Seq { len: Some(2) },
+            Token::Seq { len: Some(3) },
+            Token::I32(4),
+            Token::I32(5),
+            Token::I32(6),
+            Token::SeqEnd,
+            Token::Seq { len: Some(3) },
+            Token::I32(7),
+            Token::I32(8),
+            Token::I32(9),
+            Token::SeqEnd,
+            Token::SeqEnd,
+            Token::SeqEnd,
+        ],
+    );
 }
 
 #[test]
