@@ -20,7 +20,7 @@ use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_tensor::RawTensor;
 use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 use crate::slice::Slice;
-use crate::traits::IntoCloned;
+use crate::traits::{IntoCloned, Owned};
 use crate::view::{View, ViewMut};
 
 #[cfg(not(feature = "nightly"))]
@@ -539,17 +539,6 @@ impl<T, S: Shape> Tensor<T, S> {
     }
 }
 
-impl<T: Clone, S: Shape> Tensor<T, S> {
-    pub(crate) fn clone_from_slice(&mut self, slice: &Slice<T, S>) {
-        unsafe {
-            self.tensor.with_mut_parts(|vec, mapping| {
-                slice[..].clone_into(vec);
-                mapping.clone_from(slice.mapping());
-            });
-        }
-    }
-}
-
 impl<'a, T, U, S: Shape, A: Allocator> Apply<U> for &'a Tensor<T, S, A> {
     type Output<F: FnMut(&'a T) -> U> = Map<Self::IntoExpr, F>;
     type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
@@ -858,6 +847,22 @@ impl<T, S: Shape, A: Allocator> IntoIterator for Tensor<T, S, A> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.into_expr().into_iter()
+    }
+}
+
+impl<T, S: Shape> Owned<T, S> for Tensor<T, S> {
+    type WithConst<const N: usize> = Tensor<T, S::Prepend<Const<N>>>;
+
+    fn clone_from_slice(&mut self, slice: &Slice<T, S>)
+    where
+        T: Clone,
+    {
+        unsafe {
+            self.tensor.with_mut_parts(|vec, mapping| {
+                slice[..].clone_into(vec);
+                mapping.clone_from(slice.mapping());
+            });
+        }
     }
 }
 

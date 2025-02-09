@@ -1,10 +1,17 @@
 use std::fmt::{self, Debug, Formatter};
 use std::hash::Hash;
 
+use crate::shape::Shape;
+use crate::tensor::Tensor;
+use crate::traits::Owned;
+
 /// Array dimension trait.
 pub trait Dim: Copy + Debug + Default + Hash + Ord + Send + Sync {
     /// Merge dimensions, where constant size is preferred over dynamic.
     type Merge<D: Dim>: Dim;
+
+    #[doc(hidden)]
+    type Owned<T, S: Shape>: Owned<T, S::Prepend<Self>>;
 
     /// Dimension size if known statically, or `None` if dynamic.
     const SIZE: Option<usize>;
@@ -51,6 +58,7 @@ impl<const N: usize> Debug for Const<N> {
 
 impl<const N: usize> Dim for Const<N> {
     type Merge<D: Dim> = Self;
+    type Owned<T, S: Shape> = <S::Owned<T> as Owned<T, S>>::WithConst<N>;
 
     const SIZE: Option<usize> = Some(N);
 
@@ -67,6 +75,7 @@ impl<const N: usize> Dim for Const<N> {
 
 impl Dim for Dyn {
     type Merge<D: Dim> = D;
+    type Owned<T, S: Shape> = Tensor<T, S::Prepend<Self>>;
 
     const SIZE: Option<usize> = None;
 

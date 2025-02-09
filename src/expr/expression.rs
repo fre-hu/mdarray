@@ -73,7 +73,11 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression into a new array.
-    fn eval<A: FromExpression<Self::Item, Self::Shape>>(self) -> A
+    ///
+    /// The resulting type is `Array` if the shape has constant-sized dimensions, or
+    /// otherwise `Tensor`. If the shape type is generic, `FromExpression::from_expr`
+    /// can be used to evaluate the expression into a specific array type.
+    fn eval(self) -> <Self::Shape as Shape>::Owned<Self::Item>
     where
         Self: Sized,
     {
@@ -193,7 +197,7 @@ pub trait Expression: IntoIterator {
 }
 
 /// Conversion trait from an expression.
-pub trait FromExpression<T, S: Shape> {
+pub trait FromExpression<T, S: Shape>: Sized {
     /// Creates an array from an expression.
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self;
 }

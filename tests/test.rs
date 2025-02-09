@@ -178,6 +178,9 @@ fn test_base() {
     assert_eq!(array![[1, 2, 3], [4, 5, 6]].array(1, ..), view![4, 5, 6]);
     assert_eq!(array![[1, 2, 3], [4, 5, 6]].view(.., 1).to_array(), view![2, 5]);
 
+    assert_eq!((*array![[1, 2, 3], [4, 5, 6]]).to_owned(), array![[1, 2, 3], [4, 5, 6]]);
+    assert_eq!((*view![[1, 2, 3], [4, 5, 6]]).to_owned(), view![[1, 2, 3], [4, 5, 6]]);
+
     let mut r = a.clone().into_shape([5, 4, 3]);
     let mut s = b.clone();
 
@@ -269,7 +272,7 @@ fn test_base() {
     assert_eq!(Tensor::from_iter(s.into_shape([120])).as_ref(), t.into_vec());
 
     let mut d = DTensor::<_, 2>::from([[1, 2], [3, 4], [5, 6]]);
-    let mut e = d.drain(1..2).eval::<Tensor<_, _>>();
+    let mut e = d.drain(1..2).eval();
 
     assert_eq!(d, Tensor::from(&array![[1, 2], [5, 6]]));
     assert_eq!(e, Tensor::<_, (U1, Dyn)>::from(&[[3, 4]]));
@@ -348,8 +351,8 @@ fn test_base() {
 fn test_expr() {
     let mut a = tensor![[1, 2, 3], [4, 5, 6]];
 
-    assert_eq!((&a + &view![1, 2, 3]).eval::<Tensor<_, _>>()[..], [2, 4, 6, 5, 7, 9]);
-    assert_eq!((&view![1, 2, 3] + &a).eval::<Tensor<_, _>>()[..], [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&a + &view![1, 2, 3]).eval()[..], [2, 4, 6, 5, 7, 9]);
+    assert_eq!((&view![1, 2, 3] + &a).eval()[..], [2, 4, 6, 5, 7, 9]);
 
     assert_eq!(format!("{:?}", a.axis_expr(0)), "AxisExpr(0, [[1, 2, 3], [4, 5, 6]])");
     assert_eq!(format!("{:?}", a.outer_expr_mut()), "AxisExprMut(0, [[1, 2, 3], [4, 5, 6]])");
@@ -379,7 +382,7 @@ fn test_expr() {
     assert_eq!(format!("{:?}", a.view(.., 1).iter()), "Iter([2, 5])");
     assert_eq!(format!("{:?}", a.view_mut(.., 2).iter_mut()), "Iter([3, 6])");
 
-    let b = a.expr().copied().map(|x| x + 3).eval::<Tensor<_, _>>();
+    let b = a.expr().copied().map(|x| x + 3).eval();
 
     assert_eq!(b, view![[4, 5, 6], [7, 8, 9]]);
 
@@ -401,19 +404,17 @@ fn test_expr() {
     let d = view![[(1, 5), (2, 6)], [(3, 5), (4, 6)]];
     let e = tensor![[(0, 1), (1, 1)], [(2, 1), (3, 1)], [(4, 1), (5, 1)]];
 
-    let f = view![[1, 2], [3, 4]];
+    assert_eq!(expr::zip(&view![[1, 2], [3, 4]], &view![5, 6]).map(|(x, y)| (*x, *y)).eval(), d);
+    assert_eq!(tensor![[1; 2]; 3].into_expr().enumerate().eval(), e);
 
-    assert_eq!(expr::zip(&f, &view![5, 6]).map(|(x, y)| (*x, *y)).eval::<Tensor<_, _>>(), d);
-    assert_eq!(tensor![[1; 2]; 3].into_expr().enumerate().eval::<Tensor<_, _>>(), e);
+    assert_eq!(a.cols().eval(), view![view![1, 4], view![2, 5], view![3, 6]]);
+    assert_eq!(a.cols_mut().eval(), view![view![1, 4], view![2, 5], view![3, 6]]);
 
-    assert_eq!(a.cols().eval::<Tensor<_, _>>(), view![view![1, 4], view![2, 5], view![3, 6]]);
-    assert_eq!(a.cols_mut().eval::<Tensor<_, _>>(), view![view![1, 4], view![2, 5], view![3, 6]]);
+    assert_eq!(a.lanes(U0).eval(), view![view![1, 4], view![2, 5], view![3, 6]]);
+    assert_eq!(a.lanes_mut(1).eval(), view![view![1, 2, 3], view![4, 5, 6]]);
 
-    assert_eq!(a.lanes(U0).eval::<Tensor<_, _>>(), view![view![1, 4], view![2, 5], view![3, 6]]);
-    assert_eq!(a.lanes_mut(1).eval::<Tensor<_, _>>(), view![view![1, 2, 3], view![4, 5, 6]]);
-
-    assert_eq!(a.rows().eval::<Tensor<_, _>>(), view![view![1, 2, 3], view![4, 5, 6]]);
-    assert_eq!(a.rows_mut().eval::<Tensor<_, _>>(), view![view![1, 2, 3], view![4, 5, 6]]);
+    assert_eq!(a.rows().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
+    assert_eq!(a.rows_mut().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
 }
 
 #[test]
@@ -587,7 +588,7 @@ fn test_ops() {
     let c = expr::fill_with(|| 1usize) + expr::from_elem([3, 2], 4);
     let c = c + expr::from_fn([3, 2], |x| x[0] + x[1]);
 
-    assert_eq!(c.eval::<Tensor::<_, _>>(), tensor![[5, 6], [6, 7], [7, 8]]);
+    assert_eq!(c.eval(), tensor![[5, 6], [6, 7], [7, 8]]);
 }
 
 #[cfg(feature = "serde")]

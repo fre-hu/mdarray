@@ -107,11 +107,9 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::FromExpression, view, Tensor};
+/// use mdarray::{view, expr, expr::Expression};
 ///
-/// let t = Tensor::from_expr(expr::from_elem([2, 3], 1));
-///
-/// assert_eq!(t, view![[1; 3]; 2]);
+/// assert_eq!(expr::from_elem([2, 3], 1).eval(), view![[1; 3]; 2]);
 /// ```
 pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::IntoShape> {
     FromElem::new(shape.into_shape(), elem)
@@ -122,11 +120,9 @@ pub fn from_elem<T: Clone, I: IntoShape>(shape: I, elem: T) -> FromElem<T, I::In
 /// # Examples
 ///
 /// ```
-/// use mdarray::{Tensor, expr, expr::FromExpression, view};
+/// use mdarray::{expr, expr::Expression, view};
 ///
-/// let t = Tensor::from_expr(expr::from_fn([2, 3], |i| 3 * i[0] + i[1] + 1));
-///
-/// assert_eq!(t, view![[1, 2, 3], [4, 5, 6]]);
+/// assert_eq!(expr::from_fn([2, 3], |i| 3 * i[0] + i[1] + 1).eval(), view![[1, 2, 3], [4, 5, 6]]);
 /// ```
 pub fn from_fn<T, I: IntoShape, F>(shape: I, f: F) -> FromFn<I::IntoShape, F>
 where

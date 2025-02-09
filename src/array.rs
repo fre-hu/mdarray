@@ -13,6 +13,7 @@ use crate::layout::{Dense, Layout};
 use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
 use crate::tensor::Tensor;
+use crate::traits::Owned;
 use crate::view::{View, ViewMut};
 
 /// Multidimensional array with constant-sized dimensions and inline allocation.
@@ -350,5 +351,16 @@ impl<T, S: ConstShape> IntoIterator for Array<T, S> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.into_expr().into_iter()
+    }
+}
+
+impl<T, S: ConstShape> Owned<T, S> for Array<T, S> {
+    type WithConst<const N: usize> = S::WithConst<T, N, Self>;
+
+    fn clone_from_slice(&mut self, slice: &Slice<T, S>)
+    where
+        T: Clone,
+    {
+        self.assign(slice);
     }
 }

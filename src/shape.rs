@@ -2,8 +2,11 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::slice;
 
+use crate::array::Array;
 use crate::dim::{Const, Dim, Dims, Dyn};
 use crate::layout::{Layout, Strided};
+use crate::tensor::Tensor;
+use crate::traits::Owned;
 
 /// Array shape trait.
 pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
@@ -28,6 +31,9 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
 
     /// Select layout `L` for rank 0, or `Strided` for rank >0 or dynamic.
     type Layout<L: Layout>: Layout;
+
+    /// Corresponding array type owning its contents.
+    type Owned<T>: Owned<T, Self>;
 
     #[doc(hidden)]
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync>: Dims<T>;
@@ -175,6 +181,9 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
 pub trait ConstShape: Shape {
     #[doc(hidden)]
     type Inner<T>;
+
+    #[doc(hidden)]
+    type WithConst<T, const N: usize, A: Owned<T, Self>>: Owned<T, Self::Prepend<Const<N>>>;
 }
 
 /// Conversion trait into an array shape.
@@ -279,6 +288,8 @@ impl Shape for DynRank {
     type Merge<S: Shape> = Self;
 
     type Layout<L: Layout> = Strided;
+    type Owned<T> = Tensor<T>;
+
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = Box<[T]>;
 
     const RANK: Option<usize> = None;
@@ -317,6 +328,8 @@ impl Shape for () {
     type Merge<S: Shape> = S;
 
     type Layout<L: Layout> = L;
+    type Owned<T> = Array<T, ()>;
+
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 0];
 
     const RANK: Option<usize> = Some(0);
@@ -345,6 +358,8 @@ impl<X: Dim> Shape for (X,) {
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
 
     type Layout<L: Layout> = Strided;
+    type Owned<T> = X::Owned<T, ()>;
+
     type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 1];
 
     const RANK: Option<usize> = Some(1);
@@ -397,6 +412,8 @@ macro_rules! impl_shape {
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
 
             type Layout<L: Layout> = Strided;
+            type Owned<T> = X::Owned<T, Self::Tail>;
+
             type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; $n];
 
             const RANK: Option<usize> = Some($n);
@@ -430,20 +447,22 @@ impl_shape!(5, (1, 2, 3, 4), (Y, Z, W, U), (U, W, Z, Y, X), (D, X, Y, Z, W, U));
 impl_shape!(6, (1, 2, 3, 4, 5), (Y, Z, W, U, V), (V, U, W, Z, Y, X), DynRank);
 
 macro_rules! impl_const_shape {
-    (($($xyz:tt),*), $inner:ty) => {
+    (($($xyz:tt),*), $inner:ty, $with_const:tt) => {
         impl<$(const $xyz: usize),*> ConstShape for ($(Const<$xyz>,)*) {
             type Inner<T> = $inner;
+            type WithConst<T, const N: usize, A: Owned<T, Self>> =
+                $with_const<T, Self::Prepend<Const<N>>>;
         }
     };
 }
 
-impl_const_shape!((), T);
-impl_const_shape!((X), [T; X]);
-impl_const_shape!((X, Y), [[T; Y]; X]);
-impl_const_shape!((X, Y, Z), [[[T; Z]; Y]; X]);
-impl_const_shape!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X]);
-impl_const_shape!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X]);
-impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X]);
+impl_const_shape!((), T, Array);
+impl_const_shape!((X), [T; X], Array);
+impl_const_shape!((X, Y), [[T; Y]; X], Array);
+impl_const_shape!((X, Y, Z), [[[T; Z]; Y]; X], Array);
+impl_const_shape!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X], Array);
+impl_const_shape!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X], Array);
+impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X], Tensor);
 
 impl<S: Shape> IntoShape for S {
     type IntoShape = S;

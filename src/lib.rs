@@ -195,5 +195,5 @@ pub use ops::{StepRange, step};
 pub use shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 pub use slice::{DSlice, Slice};
 pub use tensor::{DTensor, Tensor};
-pub use traits::IntoCloned;
+pub use traits::{IntoCloned, Owned};
 pub use view::{DView, DViewMut, View, ViewMut};

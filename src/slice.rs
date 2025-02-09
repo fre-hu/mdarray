@@ -9,7 +9,7 @@ use std::ptr::NonNull;
 
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{Apply, Expression, IntoExpression};
+use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
 use crate::index::{Axis, Cols, DimIndex, Permutation, Resize, Rows, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
@@ -17,7 +17,7 @@ use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
 use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 use crate::tensor::Tensor;
-use crate::traits::IntoCloned;
+use crate::traits::{IntoCloned, Owned};
 use crate::view::{View, ViewMut};
 
 /// Multidimensional array slice.
@@ -884,10 +884,10 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Slice<T, S, L> {
 }
 
 impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
-    type Owned = Tensor<T, S>;
+    type Owned = S::Owned<T>;
 
     fn to_owned(&self) -> Self::Owned {
-        self.to_tensor()
+        FromExpression::from_expr(self.into_expr().cloned())
     }
 
     fn clone_into(&self, target: &mut Self::Owned) {
