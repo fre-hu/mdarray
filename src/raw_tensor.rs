@@ -101,7 +101,7 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
                 me.slice.as_mut_ptr(),
                 me.slice.mapping().len(),
                 me.capacity,
-                ptr::read(&*me.alloc),
+                ManuallyDrop::take(&mut me.alloc),
             )
         };
 
@@ -177,6 +177,8 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
 
                     // Cleanup in case of length mismatch (e.g. due to allocation failure)
                     if self.vec.len() != self.tensor.slice.mapping().len() {
+                        assert!(S::default().len() == 0, "default length not zero");
+
                         *self.tensor.slice.mapping_mut() = DenseMapping::default();
                         ptr::drop_in_place(self.vec.as_mut_slice());
                     }
@@ -236,7 +238,7 @@ impl<T, S: Shape, A: Allocator> RawTensor<T, S, A> {
                 self.slice.as_mut_ptr(),
                 self.slice.mapping().len(),
                 self.capacity,
-                ptr::read(&*self.alloc),
+                ManuallyDrop::take(&mut self.alloc),
             )
         };
 
@@ -311,7 +313,7 @@ impl<T, S: Shape, A: Allocator> Drop for RawTensor<T, S, A> {
                 self.slice.as_mut_ptr(),
                 self.slice.mapping().len(),
                 self.capacity,
-                ptr::read(&*self.alloc),
+                ManuallyDrop::take(&mut self.alloc),
             )
         };
     }

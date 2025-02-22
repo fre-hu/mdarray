@@ -1,7 +1,7 @@
-use std::borrow::Borrow;
+use std::borrow::BorrowMut;
 
 use crate::dim::Const;
-use crate::expr::FromExpression;
+use crate::expr::{Apply, FromExpression};
 use crate::shape::Shape;
 use crate::slice::Slice;
 
@@ -35,7 +35,7 @@ impl<T> IntoCloned<T> for T {
 }
 
 /// Trait for a multidimensional array owning its contents.
-pub trait Owned<T, S: Shape>: Borrow<Slice<T, S>> + FromExpression<T, S> {
+pub trait Owned<T, S: Shape>: Apply<T> + BorrowMut<Slice<T, S>> + FromExpression<T, S> {
     #[doc(hidden)]
     type WithConst<const N: usize>: Owned<T, S::Prepend<Const<N>>>;
 

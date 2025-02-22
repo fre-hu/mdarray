@@ -6,7 +6,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash, Hasher};
 use std::mem::{self, ManuallyDrop, MaybeUninit};
 use std::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
-use std::slice;
+use std::{ptr, slice};
 
 #[cfg(not(feature = "nightly"))]
 use crate::alloc::{Allocator, Global};
@@ -79,7 +79,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the default array length for the layout mapping is not zero.
     pub fn clear(&mut self) {
-        assert!(S::default().checked_len() == Some(0), "default length not zero");
+        assert!(S::default().len() == 0, "default length not zero");
 
         unsafe {
             self.tensor.with_mut_parts(|vec, mapping| {
@@ -260,11 +260,8 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Returns the array with the given closure applied to each element.
-    pub fn map<F: FnMut(T) -> T>(self, f: F) -> Self
-    where
-        T: Default,
-    {
-        self.apply(f)
+    pub fn map<F: FnMut(T) -> T>(self, mut f: F) -> Self {
+        self.zip_with(expr::fill(()), |(x, ())| f(x))
     }
 
     /// Creates a new, empty array with the specified allocator.
@@ -426,6 +423,50 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
         unsafe { Self { tensor: RawTensor::from_parts(vec, mapping) } }
     }
+
+    fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self
+    where
+        F: FnMut((T, I::Item)) -> T,
+    {
+        struct DropGuard<T, S: Shape, A: Allocator> {
+            tensor: ManuallyDrop<Tensor<T, S, A>>,
+            index: usize,
+        }
+
+        impl<T, S: Shape, A: Allocator> Drop for DropGuard<T, S, A> {
+            fn drop(&mut self) {
+                let ptr = self.tensor.as_mut_ptr();
+                let tail = self.tensor.len() - self.index;
+
+                // Drop all elements except the current one, which is read but not written back.
+                unsafe {
+                    let mut vec = ManuallyDrop::take(&mut self.tensor).into_vec();
+
+                    vec.set_len(0);
+
+                    if self.index > 1 {
+                        ptr::slice_from_raw_parts_mut(ptr, self.index - 1).drop_in_place();
+                    }
+
+                    ptr::slice_from_raw_parts_mut(ptr.add(self.index), tail).drop_in_place();
+                }
+            }
+        }
+
+        let mut guard = DropGuard { tensor: ManuallyDrop::new(self), index: 0 };
+        let expr = guard.tensor.expr_mut().zip(expr);
+
+        expr.for_each(|(x, y)| unsafe {
+            guard.index += 1;
+            ptr::write(x, f((ptr::read(x), y)));
+        });
+
+        let tensor = unsafe { ManuallyDrop::take(&mut guard.tensor) };
+
+        mem::forget(guard);
+
+        tensor
+    }
 }
 
 #[cfg(not(feature = "nightly"))]
@@ -573,21 +614,19 @@ impl<'a, T, U, S: Shape, A: Allocator> Apply<U> for &'a mut Tensor<T, S, A> {
     }
 }
 
-impl<T: Default, S: Shape, A: Allocator> Apply<T> for Tensor<T, S, A> {
+impl<T, S: Shape, A: Allocator> Apply<T> for Tensor<T, S, A> {
     type Output<F: FnMut(T) -> T> = Self;
     type ZippedWith<I: IntoExpression, F: FnMut((T, I::Item)) -> T> = Self;
 
-    fn apply<F: FnMut(T) -> T>(mut self, mut f: F) -> Self {
-        self.expr_mut().for_each(|x| *x = f(mem::take(x)));
-        self
+    fn apply<F: FnMut(T) -> T>(self, f: F) -> Self {
+        self.map(f)
     }
 
-    fn zip_with<I: IntoExpression, F>(mut self, expr: I, mut f: F) -> Self
+    fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self
     where
         F: FnMut((T, I::Item)) -> T,
     {
-        self.expr_mut().zip(expr).for_each(|(x, y)| *x = f((mem::take(x), y)));
-        self
+        self.zip_with(expr, f)
     }
 }
 

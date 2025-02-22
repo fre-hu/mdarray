@@ -319,7 +319,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T: Default, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Tensor<T, S, A>
+        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Tensor<T, S, A>
         where
             T: $trt<I::Item, Output = T>,
         {
@@ -587,7 +587,7 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T: Default, S: Shape, A: Allocator> $trt for Tensor<T, S, A>
+        impl<T, S: Shape, A: Allocator> $trt for Tensor<T, S, A>
         where
             T: $trt<Output = T>,
         {
