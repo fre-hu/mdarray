@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::slice;
@@ -9,7 +10,7 @@ use crate::tensor::Tensor;
 use crate::traits::Owned;
 
 /// Array shape trait.
-pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
+pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     /// First dimension.
     type Head: Dim;
 
@@ -178,7 +179,7 @@ pub trait Shape: Clone + Debug + Default + Eq + Hash + Send + Sync {
 }
 
 /// Trait for array shape where all dimensions are constant-sized.
-pub trait ConstShape: Shape {
+pub trait ConstShape: Copy + Shape {
     #[doc(hidden)]
     type Inner<T>;
 
@@ -271,9 +272,21 @@ impl Hash for DynRank {
     }
 }
 
+impl Ord for DynRank {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.with_dims(|dims| other.with_dims(|other| dims.cmp(other)))
+    }
+}
+
 impl PartialEq for DynRank {
     fn eq(&self, other: &Self) -> bool {
-        self.with_dims(|dims| other.with_dims(|other| dims == other))
+        self.with_dims(|dims| other.with_dims(|other| dims.eq(other)))
+    }
+}
+
+impl PartialOrd for DynRank {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
