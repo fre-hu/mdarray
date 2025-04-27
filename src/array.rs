@@ -64,6 +64,29 @@ impl<T, S: ConstShape> Array<T, S> {
         self.apply(f)
     }
 
+    /// Creates an array with uninitialized elements.
+    pub fn uninit() -> Array<MaybeUninit<T>, S> {
+        let array = <MaybeUninit<Self>>::uninit();
+
+        unsafe { mem::transmute_copy(&array) }
+    }
+
+    /// Creates an array with elements set to zero.
+    ///
+    /// Zero elements are created using `Default::default()`.
+    pub fn zeros() -> Self
+    where
+        T: Default,
+    {
+        let mut array = Self::uninit();
+
+        array.expr_mut().for_each(|x| {
+            _ = x.write(T::default());
+        });
+
+        unsafe { array.assume_init() }
+    }
+
     fn from_expr<E: Expression<Item = T>>(expr: E) -> Self {
         struct DropGuard<'a, T, S: ConstShape> {
             array: &'a mut MaybeUninit<Array<T, S>>,
@@ -96,6 +119,17 @@ impl<T, S: ConstShape> Array<T, S> {
         mem::forget(guard);
 
         unsafe { array.assume_init() }
+    }
+}
+
+impl<T, S: ConstShape> Array<MaybeUninit<T>, S> {
+    /// Converts the array element type from `MaybeUninit<T>` to `T`.
+    ///
+    /// # Safety
+    ///
+    /// All elements in the array must be initialized, or the behavior is undefined.
+    pub unsafe fn assume_init(self) -> Array<T, S> {
+        unsafe { mem::transmute_copy(&self) }
     }
 }
 

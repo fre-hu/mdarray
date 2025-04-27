@@ -385,6 +385,20 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         unsafe { self.tensor.with_mut_parts(|vec, _| vec.try_reserve_exact(additional)) }
     }
 
+    /// Creates an array with uninitialized elements and the specified allocator.
+    #[cfg(feature = "nightly")]
+    pub fn uninit_in<I: IntoShape<IntoShape = S>>(
+        shape: I,
+        alloc: A,
+    ) -> Tensor<MaybeUninit<T>, S, A> {
+        let shape = shape.into_shape();
+        let len = shape.checked_len().expect("invalid length");
+
+        let vec = Vec::from(Box::new_uninit_slice_in(len, alloc));
+
+        unsafe { Tensor::from_parts(vec, DenseMapping::new(shape)) }
+    }
+
     /// Creates a new, empty array with the specified capacity and allocator.
     ///
     /// # Panics
@@ -395,6 +409,23 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
         unsafe { Self::from_parts(Vec::with_capacity_in(capacity, alloc), DenseMapping::default()) }
+    }
+
+    /// Creates an array with elements set to zero.
+    ///
+    /// Zero elements are created using `Default::default()`.
+    #[cfg(feature = "nightly")]
+    pub fn zeros_in<I: IntoShape<IntoShape = S>>(shape: I, alloc: A) -> Self
+    where
+        T: Default,
+    {
+        let mut tensor = Tensor::uninit_in(shape, alloc);
+
+        tensor.expr_mut().for_each(|x| {
+            _ = x.write(T::default());
+        });
+
+        unsafe { tensor.assume_init() }
     }
 
     #[cfg(not(feature = "nightly"))]
@@ -515,6 +546,16 @@ impl<T, S: Shape> Tensor<T, S> {
         unsafe { Self::from_parts(Vec::new(), DenseMapping::default()) }
     }
 
+    /// Creates an array with uninitialized elements.
+    pub fn uninit<I: IntoShape<IntoShape = S>>(shape: I) -> Tensor<MaybeUninit<T>, S> {
+        let shape = shape.into_shape();
+        let len = shape.checked_len().expect("invalid length");
+
+        let vec = Vec::from(Box::new_uninit_slice(len));
+
+        unsafe { Tensor::from_parts(vec, DenseMapping::new(shape)) }
+    }
+
     /// Creates a new, empty array with the specified capacity.
     ///
     /// # Panics
@@ -524,6 +565,22 @@ impl<T, S: Shape> Tensor<T, S> {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
         unsafe { Self::from_parts(Vec::with_capacity(capacity), DenseMapping::default()) }
+    }
+
+    /// Creates an array with elements set to zero.
+    ///
+    /// Zero elements are created using `Default::default()`.
+    pub fn zeros<I: IntoShape<IntoShape = S>>(shape: I) -> Self
+    where
+        T: Default,
+    {
+        let mut tensor = Tensor::uninit(shape);
+
+        tensor.expr_mut().for_each(|x| {
+            _ = x.write(T::default());
+        });
+
+        unsafe { tensor.assume_init() }
     }
 }
 
@@ -570,6 +627,11 @@ impl<T, S: Shape> Tensor<T, S> {
         Self::new_in(Global)
     }
 
+    /// Creates an array with uninitialized elements.
+    pub fn uninit<I: IntoShape<IntoShape = S>>(shape: I) -> Tensor<MaybeUninit<T>, S> {
+        Self::uninit_in(shape, Global)
+    }
+
     /// Creates a new, empty array with the specified capacity.
     ///
     /// # Panics
@@ -577,6 +639,47 @@ impl<T, S: Shape> Tensor<T, S> {
     /// Panics if the default array length for the layout mapping is not zero.
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_in(capacity, Global)
+    }
+
+    /// Creates an array with elements set to zero.
+    ///
+    /// Zero elements are created using `Default::default()`.
+    pub fn zeros<I: IntoShape<IntoShape = S>>(shape: I) -> Self
+    where
+        T: Default,
+    {
+        Self::zeros_in(shape, Global)
+    }
+}
+
+#[cfg(not(feature = "nightly"))]
+impl<T, S: Shape, A: Allocator> Tensor<MaybeUninit<T>, S, A> {
+    /// Converts the array element type from `MaybeUninit<T>` to `T`.
+    ///
+    /// # Safety
+    ///
+    /// All elements in the array must be initialized, or the behavior is undefined.
+    pub unsafe fn assume_init(self) -> Tensor<T, S, A> {
+        let (vec, mapping) = self.tensor.into_parts();
+
+        let mut vec = mem::ManuallyDrop::new(vec);
+        let (ptr, len, capacity) = (vec.as_mut_ptr(), vec.len(), vec.capacity());
+
+        unsafe { Tensor::from_parts(Vec::from_raw_parts(ptr.cast(), len, capacity), mapping) }
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<T, S: Shape, A: Allocator> Tensor<MaybeUninit<T>, S, A> {
+    /// Converts the array element type from `MaybeUninit<T>` to `T`.
+    ///
+    /// # Safety
+    ///
+    /// All elements in the array must be initialized, or the behavior is undefined.
+    pub unsafe fn assume_init(self) -> Tensor<T, S, A> {
+        let (ptr, mapping, capacity, alloc) = self.into_raw_parts_with_alloc();
+
+        unsafe { Tensor::from_raw_parts_in(ptr.cast(), mapping, capacity, alloc) }
     }
 }
 
@@ -676,9 +779,9 @@ impl<T: Debug, S: Shape, A: Allocator> Debug for Tensor<T, S, A> {
     }
 }
 
-impl<T, S: Shape> Default for Tensor<T, S> {
+impl<T: Default, S: Shape> Default for Tensor<T, S> {
     fn default() -> Self {
-        Self::new()
+        Self::zeros(S::default())
     }
 }
 

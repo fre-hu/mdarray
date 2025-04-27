@@ -58,8 +58,7 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
                             let dst = &dims[1..];
 
                             if src != dst {
-                                let msg =
-                                    format!("invalid dimensions {src:?}, expected {dst:?}");
+                                let msg = format!("invalid dimensions {src:?}, expected {dst:?}");
 
                                 Err(A::Error::custom(msg))
                             } else {

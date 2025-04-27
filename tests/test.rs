@@ -340,6 +340,22 @@ fn test_base() {
 
     assert!(*h6 == array![[1, 2, 3], [4, 5, 6]]);
 
+    assert_eq!(Array::<usize, (U2, U3)>::zeros(), view![[0; 3]; 2]);
+    assert_eq!(Tensor::<usize, _>::zeros([2, 3]), view![[0; 3]; 2]);
+
+    let mut w1 = Array::<usize, (U2, U3)>::uninit();
+    let mut w2 = Tensor::<usize, _>::uninit([2, 3]);
+
+    for i in 0..2 {
+        for j in 0..3 {
+            _ = w1[[i, j]].write(1);
+            _ = w2[[i, j]].write(2);
+        }
+    }
+
+    assert_eq!(unsafe { w1.assume_init() }, view![[1; 3]; 2]);
+    assert_eq!(unsafe { w2.assume_init() }, view![[2; 3]; 2]);
+
     #[cfg(feature = "nightly")]
     let u = DTensor::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 
