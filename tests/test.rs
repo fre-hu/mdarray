@@ -325,8 +325,8 @@ fn test_base() {
     assert_eq!(array![1, 2, 3].into_shape::<(U3, U1)>(), view![[1], [2], [3]]);
     assert_eq!(array![[1, 2, 3], [4, 5, 6]], view![[1, 2, 3], [4, 5, 6]]);
 
-    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]].reorder(), view![[1, 4], [2, 5], [3, 6]]);
-    assert_eq!(tensor![[1, 2, 3]].reorder_mut(), view![[1, 2, 3]].into_reordered());
+    assert_eq!(tensor![[1, 2, 3], [4, 5, 6]].transpose(), view![[1, 4], [2, 5], [3, 6]]);
+    assert_eq!(tensor![[1, 2, 3]].transpose_mut(), view![[1, 2, 3]].into_transposed());
 
     let mut h1 = array![[1, 2, 3], [4, 5, 6]];
     let h2: &mut [[_; 3]; 2] = h1.as_mut();

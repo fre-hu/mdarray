@@ -154,10 +154,13 @@ macro_rules! impl_view {
             }
 
             /// Converts the array view into a reordered array view.
+            ///
+            /// This method is deprecated, use `into_transposed` instead.
+            #[deprecated]
             pub fn into_reordered(
                 $($mut)? self
             ) -> $name<'a, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
-                let mapping = Mapping::reorder(self.mapping());
+                let mapping = Mapping::transpose(self.mapping());
 
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
@@ -232,6 +235,16 @@ macro_rules! impl_view {
                 $name<'a, T, Resize<A, S>, Split<A, S, L>>,
             ) {
                 unsafe { Self::split_axis_at(self.$as_ptr(), self.mapping(), axis, mid) }
+            }
+
+            /// Converts the array view into a transposed array view, where the dimensions
+            /// are reversed.
+            pub fn into_transposed(
+                $($mut)? self
+            ) -> $name<'a, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
+                let mapping = Mapping::transpose(self.mapping());
+
+                unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
 
             /// Creates an array view from a raw pointer and layout.

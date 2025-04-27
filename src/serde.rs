@@ -59,7 +59,7 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
 
                             if src != dst {
                                 let msg =
-                                    format!("invalid dimensions {:?}, expected {:?}", src, dst);
+                                    format!("invalid dimensions {src:?}, expected {dst:?}");
 
                                 Err(A::Error::custom(msg))
                             } else {
@@ -77,7 +77,7 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
         if S::Head::SIZE.is_none() {
             shape.with_mut_dims(|dims| dims[0] = size);
         } else if size != shape.dim(0) {
-            let msg = format!("invalid dimension {:?}, expected {:?}", size, shape.dim(0));
+            let msg = format!("invalid dimension {size:?}, expected {:?}", shape.dim(0));
 
             return Err(A::Error::custom(msg));
         }

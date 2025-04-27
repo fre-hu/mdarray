@@ -426,15 +426,21 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Returns a reordered array view of the array slice.
+    ///
+    /// This method is deprecated, use `transpose` instead.
+    #[deprecated]
     pub fn reorder(&self) -> View<T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
-        let mapping = Mapping::reorder(self.mapping());
+        let mapping = Mapping::transpose(self.mapping());
 
         unsafe { View::new_unchecked(self.as_ptr(), mapping) }
     }
 
     /// Returns a mutable reordered array view of the array slice.
+    ///
+    /// This method is deprecated, use `transpose_mut` instead.
+    #[deprecated]
     pub fn reorder_mut(&mut self) -> ViewMut<T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
-        let mapping = Mapping::reorder(self.mapping());
+        let mapping = Mapping::transpose(self.mapping());
 
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
@@ -468,7 +474,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// At most one dimension can have dynamic size `usize::MAX`, and is then inferred
     /// from the other dimensions and the array length.
     ///
-    /// See the `reshape` function above for examples.
+    /// See the `reshape` method above for examples.
     ///
     /// # Panics
     ///
@@ -636,6 +642,22 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         T: Clone,
     {
         self.to_tensor_in(alloc).into_vec()
+    }
+
+    /// Returns a transposed array view of the array slice, where the dimensions
+    /// are reversed.
+    pub fn transpose(&self) -> View<T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
+        let mapping = Mapping::transpose(self.mapping());
+
+        unsafe { View::new_unchecked(self.as_ptr(), mapping) }
+    }
+
+    /// Returns a mutable transposed array view of the array slice, where the dimensions
+    /// are reversed.
+    pub fn transpose_mut(&mut self) -> ViewMut<T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
+        let mapping = Mapping::transpose(self.mapping());
+
+        unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
 }
 
