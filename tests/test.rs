@@ -431,6 +431,10 @@ fn test_expr() {
 
     assert_eq!(a.rows().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
     assert_eq!(a.rows_mut().eval(), view![view![1, 2, 3], view![4, 5, 6]]);
+
+    assert!(array![1, 2, 3].into_expr().eq_by(array![2, 3, 4], |x, y| x + 1 == y));
+    assert!(view![[1, 2, 3], [4, 5, 6]].eq(&tensor![[1, 2, 3], [4, 5, 6]]));
+    assert!(tensor![[1, 2, 3], [4, 5, 6]].expr().ne(view![[4, 5, 6], [1, 2, 3]]));
 }
 
 #[test]

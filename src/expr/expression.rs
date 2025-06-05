@@ -72,6 +72,27 @@ pub trait Expression: IntoIterator {
         Enumerate::new(self)
     }
 
+    /// Determines if the elements of the expression are equal to those of another.
+    fn eq<I: IntoExpression>(self, other: I) -> bool
+    where
+        Self: Expression<Item: PartialEq<I::Item>> + Sized,
+    {
+        self.eq_by(other, |x, y| x == y)
+    }
+
+    /// Determines if the elements of the expression are equal to those of another
+    /// with respect to the specified equality function.
+    fn eq_by<I: IntoExpression, F>(self, other: I, mut eq: F) -> bool
+    where
+        Self: Sized,
+        F: FnMut(Self::Item, I::Item) -> bool,
+    {
+        let other = other.into_expr();
+
+        self.shape().with_dims(|dims| other.shape().with_dims(|other| dims == other))
+            && self.zip(other).into_iter().all(|(x, y)| eq(x, y))
+    }
+
     /// Evaluates the expression into a new array.
     ///
     /// The resulting type is `Array` if the shape has constant-sized dimensions, or
@@ -136,6 +157,14 @@ pub trait Expression: IntoIterator {
         Self: Sized,
     {
         Map::new(self, f)
+    }
+
+    /// Determines if the elements of the expression are not equal to those of another.
+    fn ne<I: IntoExpression>(self, other: I) -> bool
+    where
+        Self: Expression<Item: PartialEq<I::Item>> + Sized,
+    {
+        !self.eq(other)
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
