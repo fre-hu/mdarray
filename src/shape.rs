@@ -1,7 +1,12 @@
-use std::cmp::Ordering;
-use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
-use std::slice;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+use core::cmp::Ordering;
+use core::fmt::Debug;
+use core::hash::{Hash, Hasher};
+use core::slice;
 
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dims, Dyn};
@@ -253,7 +258,7 @@ impl Clone for DynRank {
 }
 
 impl Debug for DynRank {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.with_dims(|dims| f.debug_tuple("DynRank").field(&dims).finish())
     }
 }

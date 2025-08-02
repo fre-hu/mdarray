@@ -1,5 +1,5 @@
-use std::fmt::{Debug, Formatter, Result};
-use std::iter::FusedIterator;
+use core::fmt::{Debug, Formatter, Result};
+use core::iter::FusedIterator;
 
 use crate::dim::Dims;
 use crate::expr::expression::Expression;

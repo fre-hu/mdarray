@@ -1,5 +1,5 @@
-use std::mem;
-use std::ptr::NonNull;
+use core::mem;
+use core::ptr::NonNull;
 
 use crate::layout::Layout;
 use crate::shape::Shape;

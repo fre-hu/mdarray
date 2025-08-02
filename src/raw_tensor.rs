@@ -1,11 +1,14 @@
 #[cfg(feature = "nightly")]
-use std::alloc::Allocator;
-use std::marker::PhantomData;
-use std::mem::{self, ManuallyDrop};
-use std::ptr;
+use alloc::alloc::Allocator;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+use core::marker::PhantomData;
+use core::mem::{self, ManuallyDrop};
+use core::ptr;
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::Allocator;
+use crate::allocator::Allocator;
 use crate::layout::Dense;
 use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_slice::RawSlice;

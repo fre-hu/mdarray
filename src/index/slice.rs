@@ -1,4 +1,4 @@
-use std::ops::{
+use core::ops::{
     Bound, Index, IndexMut, Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 

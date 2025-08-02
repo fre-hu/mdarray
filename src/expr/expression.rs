@@ -1,8 +1,10 @@
 #[cfg(feature = "nightly")]
-use std::alloc::Allocator;
+use alloc::alloc::Allocator;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::Allocator;
+use crate::allocator::Allocator;
 use crate::expr::adapters::{Cloned, Copied, Enumerate, Map, Zip};
 use crate::expr::iter::Iter;
 use crate::shape::Shape;

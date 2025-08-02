@@ -1,13 +1,13 @@
 #[cfg(feature = "nightly")]
-use std::alloc::Allocator;
+use alloc::alloc::Allocator;
 
-use std::ops::{
+use core::ops::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign,
     Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
 };
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::Allocator;
+use crate::allocator::Allocator;
 use crate::array::Array;
 use crate::expr::{Apply, Buffer, Expression, IntoExpression};
 use crate::expr::{Fill, FillWith, FromElem, FromFn, IntoExpr, Map};

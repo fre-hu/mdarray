@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter, Result};
+use core::fmt::{Debug, Formatter, Result};
 
 use crate::expr::expression::Expression;
 use crate::expr::iter::Iter;

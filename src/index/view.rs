@@ -1,7 +1,7 @@
 #[cfg(feature = "nightly")]
-use std::slice;
+use core::slice;
 
-use std::ops::{
+use core::ops::{
     Bound, Range, RangeBounds, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive,
 };
 

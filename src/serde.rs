@@ -1,14 +1,19 @@
 #[cfg(feature = "nightly")]
-use std::alloc::Allocator;
-use std::fmt::{self, Formatter};
-use std::marker::PhantomData;
+use alloc::alloc::Allocator;
+#[cfg(not(feature = "std"))]
+use alloc::format;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+use core::fmt::{self, Formatter};
+use core::marker::PhantomData;
 
 use serde::de::{Error, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::Allocator;
+use crate::allocator::Allocator;
 use crate::array::Array;
 use crate::dim::Dim;
 use crate::layout::Layout;

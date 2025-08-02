@@ -1,10 +1,11 @@
 #[cfg(feature = "nightly")]
-use std::alloc::{Allocator, Global};
-use std::mem::ManuallyDrop;
-use std::ptr;
+use alloc::alloc::{Allocator, Global};
+
+use core::mem::ManuallyDrop;
+use core::ptr;
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::{Allocator, Global};
+use crate::allocator::{Allocator, Global};
 use crate::array::Array;
 use crate::dim::Const;
 use crate::index::Axis;

@@ -1,4 +1,4 @@
-use std::borrow::BorrowMut;
+use core::borrow::BorrowMut;
 
 use crate::dim::Const;
 use crate::expr::{Apply, FromExpression};

@@ -1,6 +1,6 @@
-use std::fmt::{Debug, Formatter, Result};
-use std::mem::ManuallyDrop;
-use std::ptr;
+use core::fmt::{Debug, Formatter, Result};
+use core::mem::ManuallyDrop;
+use core::ptr;
 
 use crate::expr::buffer::Buffer;
 use crate::expr::expression::Expression;

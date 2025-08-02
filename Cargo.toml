@@ -10,11 +10,12 @@ keywords = ["array", "matrix", "multidimensional"]
 categories = ["data-structures", "mathematics", "science"]
 
 [dependencies]
-serde = { version = "1.0", optional = true }
+serde = { version = "1.0", default-features = false, optional = true }
 
 [dev-dependencies]
 serde_test = "1.0"
 
 [features]
-nightly = [] # Required for testing in Miri by using extern types, see:
-             # https://github.com/rust-lang/unsafe-code-guidelines/issues/256
+default = ["std"]
+nightly = []
+std = []

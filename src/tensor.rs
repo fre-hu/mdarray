@@ -1,15 +1,22 @@
 #[cfg(feature = "nightly")]
-use std::alloc::{Allocator, Global};
-use std::borrow::{Borrow, BorrowMut};
-use std::collections::TryReserveError;
-use std::fmt::{self, Debug, Formatter};
-use std::hash::{Hash, Hasher};
-use std::mem::{self, ManuallyDrop, MaybeUninit};
-use std::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
-use std::{ptr, slice};
+use alloc::alloc::{Allocator, Global};
+#[cfg(not(feature = "std"))]
+use alloc::borrow::ToOwned;
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+use alloc::collections::TryReserveError;
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+use core::borrow::{Borrow, BorrowMut};
+use core::fmt::{self, Debug, Formatter};
+use core::hash::{Hash, Hasher};
+use core::mem::{self, ManuallyDrop, MaybeUninit};
+use core::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
+use core::{ptr, slice};
 
 #[cfg(not(feature = "nightly"))]
-use crate::alloc::{Allocator, Global};
+use crate::allocator::{Allocator, Global};
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{self, Drain, IntoExpr, Iter, Map, Zip};

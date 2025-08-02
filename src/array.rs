@@ -1,9 +1,9 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::fmt::{Debug, Formatter, Result};
-use std::hash::{Hash, Hasher};
-use std::mem::{self, ManuallyDrop, MaybeUninit};
-use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::ptr;
+use core::borrow::{Borrow, BorrowMut};
+use core::fmt::{Debug, Formatter, Result};
+use core::hash::{Hash, Hasher};
+use core::mem::{self, ManuallyDrop, MaybeUninit};
+use core::ops::{Deref, DerefMut, Index, IndexMut};
+use core::ptr;
 
 use crate::dim::Const;
 use crate::expr::{self, IntoExpr, Iter, Map, Zip};

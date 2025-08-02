@@ -1,9 +1,9 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::fmt::{self, Debug, Formatter};
-use std::hash::{Hash, Hasher};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
-use std::slice;
+use core::borrow::{Borrow, BorrowMut};
+use core::fmt::{self, Debug, Formatter};
+use core::hash::{Hash, Hasher};
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut, Index, IndexMut};
+use core::slice;
 
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
