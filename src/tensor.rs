@@ -103,7 +103,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the rank is not at least 1, or if the first dimension
     /// is not dynamically-sized.
-    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<T, S, A>> {
+    pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<'_, T, S, A>> {
         assert!(self.rank() > 0, "invalid rank");
         assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
 

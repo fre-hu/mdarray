@@ -147,7 +147,6 @@
 
 #![allow(clippy::comparison_chain)]
 #![allow(clippy::needless_range_loop)]
-#![allow(mismatched_lifetime_syntaxes)]
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
 #![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
