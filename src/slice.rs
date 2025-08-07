@@ -10,13 +10,14 @@ use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::mem;
 use core::ops::{Index, IndexMut};
-use core::ptr::NonNull;
+use core::ptr::{self, NonNull};
 
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
 use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
-use crate::index::{Axis, Cols, DimIndex, Permutation, Resize, Rows, SliceIndex, Split, ViewIndex};
+use crate::index::{self, Axis, Cols, Resize, Rows, Split};
+use crate::index::{DimIndex, Permutation, SliceIndex, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
@@ -618,6 +619,47 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Panics if the dimension is out of bounds.
     pub fn stride(&self, index: usize) -> isize {
         self.mapping().stride(index)
+    }
+
+    /// Swaps two elements in the array slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `a` or `b` are out of bounds.
+    pub fn swap<I, J>(&mut self, a: I, b: J)
+    where
+        I: SliceIndex<T, S, L, Output = T>,
+        J: SliceIndex<T, S, L, Output = T>,
+    {
+        unsafe {
+            ptr::swap(&raw mut self[a], &raw mut self[b]);
+        }
+    }
+
+    /// Swaps the elements in two subarrays after indexing the specified dimension.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `a` or `b` are out of bounds.
+    pub fn swap_axis<A: Axis>(&mut self, axis: A, a: usize, b: usize) {
+        let size = self.dim(axis.index(self.rank()));
+
+        if a >= size {
+            index::panic_bounds_check(a, size);
+        }
+
+        if b >= size {
+            index::panic_bounds_check(b, size);
+        }
+
+        if a != b {
+            let (mut first, mut second) = self.split_axis_at_mut(axis, a.max(b));
+
+            let first = first.axis_at_mut(axis, a.min(b));
+            let second = second.axis_at_mut(axis, 0);
+
+            first.zip(second).for_each(|(x, y)| mem::swap(x, y));
+        }
     }
 
     /// Copies the array slice into a new array.

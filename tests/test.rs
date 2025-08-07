@@ -356,6 +356,13 @@ fn test_base() {
     assert_eq!(unsafe { w1.assume_init() }, view![[1; 3]; 2]);
     assert_eq!(unsafe { w2.assume_init() }, view![[2; 3]; 2]);
 
+    let mut x = tensor![[1, 2, 3], [4, 5, 6]];
+
+    x.swap([0, 2], [1, 0]);
+    x.swap_axis(1, 0, 2);
+
+    assert_eq!(x, view![[4, 2, 1], [6, 5, 3]]);
+
     #[cfg(feature = "nightly")]
     let u = DTensor::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 
