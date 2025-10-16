@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2025-10-16
+
+- Add swap and swap_axis methods, see #14.
+- Enable mismatched lifetime syntaxes warning.
+- Add no_std support based on https://github.com/kulst/mdarray commit 118017a, see #10.
+- Add equality comparison methods for expressions, see #13.
+- Add assume_init, uninit/uninit_in and zeros/zeros_in methods, see #12.
+- Deprecate reorder and add transpose methods, see #8.
+
 ## [0.7.0] - 2025-02-23
 
 - Update dependencies.
