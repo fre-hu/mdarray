@@ -277,7 +277,6 @@ impl Default for DynRank {
 impl Eq for DynRank {}
 
 impl Hash for DynRank {
-    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.with_dims(|dims| dims.hash(state))
     }
@@ -326,7 +325,6 @@ impl Shape for DynRank {
         if rank == 1 { Self::One(0) } else { Self::Dyn(Dims::new(rank)) }
     }
 
-    #[inline]
     fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         let dims = match self {
             Self::Dyn(dims) => dims,
@@ -336,7 +334,6 @@ impl Shape for DynRank {
         f(dims)
     }
 
-    #[inline]
     fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         let dims = match self {
             Self::Dyn(dims) => dims,
@@ -369,12 +366,10 @@ impl Shape for () {
         assert!(rank == 0, "invalid rank");
     }
 
-    #[inline]
     fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         f(&[])
     }
 
-    #[inline]
     fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         f(&mut [])
     }
@@ -529,7 +524,6 @@ impl IntoShape for &[usize] {
         Shape::from_dims(self)
     }
 
-    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(self)
     }
@@ -543,7 +537,6 @@ impl IntoShape for Box<[usize]> {
         DynRank::Dyn(self)
     }
 
-    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&self)
     }
@@ -569,7 +562,6 @@ impl IntoShape for Dyn {
         (self,)
     }
 
-    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&[self])
     }
@@ -583,7 +575,6 @@ impl IntoShape for Vec<usize> {
         DynRank::Dyn(self.into())
     }
 
-    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&self)
     }
@@ -599,7 +590,6 @@ macro_rules! impl_into_shape {
                 Shape::from_dims(&self)
             }
 
-            #[inline]
             fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
                 f(&self)
             }
