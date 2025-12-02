@@ -445,6 +445,24 @@ fn test_expr() {
 }
 
 #[test]
+fn from_fn_dynrank_passes_correct_index_length() {
+    // 1D DynRank shape (e.g. dims = [80])
+    let dims = vec![80usize];
+
+    // Ensure that the closure sees an index slice whose length matches the rank (1).
+    let _t = Tensor::<f64, DynRank>::from_fn(&dims[..], |idx| {
+        assert_eq!(
+            idx.len(),
+            dims.len(),
+            "from_fn passed index of wrong length: idx.len() = {}, dims.len() = {}",
+            idx.len(),
+            dims.len()
+        );
+        0.0
+    });
+}
+
+#[test]
 fn test_hash() {
     let mut s1 = DefaultHasher::new();
     let mut s2 = DefaultHasher::new();
