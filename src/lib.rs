@@ -122,6 +122,9 @@
 //! `B` and `C`. By using iterator-like expressions the array bounds checking is
 //! avoided, and the compiler is able to vectorize the inner loop.
 //!
+//! If you are doing benchmarking, make sure to build in release mode and with
+//! `RUSTFLAGS='-C target-cpu=native'` to utilize CPU features such as FMA.
+//!
 //! ```
 //! use mdarray::{expr::Expression, tensor, view, DSlice};
 //!

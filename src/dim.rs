@@ -84,10 +84,12 @@ impl Dim for Dyn {
 
     const SIZE: Option<usize> = None;
 
+    #[inline]
     fn from_size(size: usize) -> Self {
         size
     }
 
+    #[inline]
     fn size(self) -> usize {
         self
     }

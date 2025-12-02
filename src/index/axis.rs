@@ -109,6 +109,7 @@ impl Axis for Const<0> {
     type Remove<S: Shape> = S::Tail;
     type Insert<D: Dim, S: Shape> = S::Prepend<D>;
 
+    #[inline]
     fn index(self, rank: usize) -> usize {
         assert!(rank > 0, "invalid dimension");
 
@@ -131,6 +132,7 @@ macro_rules! impl_axis {
                 type Insert<D: Dim, S: Shape> =
                     <<Const<$k> as Axis>::Insert<D, S::Tail> as Shape>::Prepend<S::Head>;
 
+                #[inline]
                 fn index(self, rank: usize) -> usize {
                     assert!(rank > $n, "invalid dimension");
 
@@ -155,6 +157,7 @@ macro_rules! impl_cols_rows {
             type Insert<D: Dim, S: Shape> =
                 <<Const<$n> as Axis>::Insert<D, S::Reverse> as Shape>::Reverse;
 
+            #[inline]
             fn index(self, rank: usize) -> usize {
                 assert!(rank > $n, "invalid dimension");
 
@@ -176,6 +179,7 @@ impl Axis for Dyn {
     type Remove<S: Shape> = <S::Tail as Shape>::Dyn;
     type Insert<D: Dim, S: Shape> = <S::Dyn as Shape>::Prepend<Dyn>;
 
+    #[inline]
     fn index(self, rank: usize) -> usize {
         assert!(self < rank, "invalid dimension");
 
