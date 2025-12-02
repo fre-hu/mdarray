@@ -350,7 +350,15 @@ impl<S: Shape, F> FromFn<S, F> {
     pub(crate) fn new(shape: S, f: F) -> Self {
         _ = shape.checked_len().expect("invalid length");
 
-        Self { shape, f, index: S::Dims::default() }
+        // Initialize the index buffer with the correct rank for this shape.
+        //
+        // For static-rank shapes, use the compile-time rank if available.
+        // For dynamic-rank shapes like `DynRank`, fall back to the runtime
+        // dimension length obtained via `with_dims`.
+        let rank = S::RANK.unwrap_or_else(|| shape.with_dims(|dims| dims.len()));
+        let index = <S::Dims<usize> as crate::dim::Dims<usize>>::new(rank);
+
+        Self { shape, f, index }
     }
 }
 
@@ -402,6 +410,31 @@ impl<T, S: Shape, F: FnMut(&[usize]) -> T> IntoIterator for FromFn<S, F> {
 
     fn into_iter(self) -> Iter<Self> {
         Iter::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shape::DynRank;
+    use crate::tensor::Tensor;
+
+    #[test]
+    fn from_fn_dynrank_passes_correct_index_length() {
+        // 1D DynRank shape (e.g. dims = [80])
+        let dims = vec![80usize];
+
+        // Ensure that the closure sees an index slice whose length matches the rank (1).
+        let _t = Tensor::<f64, DynRank>::from_fn(&dims[..], |idx| {
+            assert_eq!(
+                idx.len(),
+                dims.len(),
+                "from_fn passed index of wrong length: idx.len() = {}, dims.len() = {}",
+                idx.len(),
+                dims.len()
+            );
+            0.0
+        });
     }
 }
 
