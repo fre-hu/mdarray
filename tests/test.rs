@@ -445,7 +445,7 @@ fn test_expr() {
 }
 
 #[test]
-fn from_fn_dynrank_passes_correct_index_length() {
+fn test_from_fn_dynrank_passes_correct_index_length() {
     // 1D DynRank shape (e.g. dims = [80])
     let dims = vec![80usize];
 
