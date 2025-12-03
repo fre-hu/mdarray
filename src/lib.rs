@@ -124,6 +124,7 @@
 //!
 //! If you are doing benchmarking, make sure to build in release mode and with
 //! `RUSTFLAGS='-C target-cpu=native'` to utilize CPU features such as FMA.
+//! Adding `-C codegen-units=1` may also improve performance.
 //!
 //! ```
 //! use mdarray::{expr::Expression, tensor, view, DSlice};
