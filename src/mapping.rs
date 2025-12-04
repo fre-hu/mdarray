@@ -31,11 +31,13 @@ pub trait Mapping: Clone + Debug + Default + Eq + Hash + Send + Sync {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     fn dim(&self, index: usize) -> usize {
         self.shape().dim(index)
     }
 
     /// Returns the number of elements in each dimension.
+    #[inline]
     fn dims(&self) -> &[usize]
     where
         Self: Mapping<Shape = DynRank>,
@@ -44,16 +46,19 @@ pub trait Mapping: Clone + Debug + Default + Eq + Hash + Send + Sync {
     }
 
     /// Returns `true` if the array contains no elements.
+    #[inline]
     fn is_empty(&self) -> bool {
         self.shape().is_empty()
     }
 
     /// Returns the number of elements in the array.
+    #[inline]
     fn len(&self) -> usize {
         self.shape().len()
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
+    #[inline]
     fn rank(&self) -> usize {
         self.shape().rank()
     }
@@ -92,6 +97,7 @@ pub trait Mapping: Clone + Debug + Default + Eq + Hash + Send + Sync {
     fn transpose<M: Mapping<Shape: Shape<Reverse = Self::Shape>>>(mapping: &M) -> Self;
 
     #[doc(hidden)]
+    #[inline]
     fn offset(&self, index: &[usize]) -> isize {
         debug_assert!(index.len() == self.rank(), "invalid rank");
 
@@ -122,16 +128,19 @@ pub struct StridedMapping<S: Shape> {
 
 impl<S: Shape> DenseMapping<S> {
     /// Creates a new, dense layout mapping with the specified shape.
+    #[inline]
     pub fn new(shape: S) -> Self {
         Self { shape }
     }
 }
 
 impl<S: Shape> Clone for DenseMapping<S> {
+    #[inline]
     fn clone(&self) -> Self {
         Self::new(self.shape.clone())
     }
 
+    #[inline]
     fn clone_from(&mut self, source: &Self) {
         self.shape.clone_from(&source.shape);
     }
@@ -143,14 +152,17 @@ impl<S: Shape> Mapping for DenseMapping<S> {
     type Shape = S;
     type Layout = Dense;
 
+    #[inline]
     fn is_contiguous(&self) -> bool {
         true
     }
 
+    #[inline]
     fn shape(&self) -> &S {
         &self.shape
     }
 
+    #[inline]
     fn stride(&self, index: usize) -> isize {
         assert!(index < self.rank(), "invalid dimension");
 
@@ -163,6 +175,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         stride as isize
     }
 
+    #[inline]
     fn for_each_stride<F: FnMut(usize, isize)>(&self, mut f: F) {
         let mut stride = 1;
 
@@ -172,18 +185,21 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         }
     }
 
+    #[inline]
     fn inner_stride(&self) -> isize {
         // The inner stride should be a compile time constant with dense layout.
         // For static rank 0, we set it to 0 to allow inner rank >0 in iteration.
         if S::RANK == Some(0) { 0 } else { 1 }
     }
 
+    #[inline]
     fn linear_offset(&self, index: usize) -> isize {
         debug_assert!(index < self.len(), "index out of bounds");
 
         index as isize
     }
 
+    #[inline]
     fn permute<M: Mapping>(mapping: &M, perm: &[usize]) -> Self {
         assert!(perm.len() == mapping.rank(), "invalid permutation");
 
@@ -194,6 +210,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::remap(mapping)
     }
 
+    #[inline]
     fn prepend_dim<M: Mapping>(mapping: &M, size: usize, stride: isize) -> Self {
         assert!(M::Layout::IS_DENSE, "invalid layout");
         assert!(stride == mapping.len() as isize, "invalid stride");
@@ -201,12 +218,14 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::new(mapping.shape().prepend_dim(size))
     }
 
+    #[inline]
     fn remap<M: Mapping>(mapping: &M) -> Self {
         assert!(mapping.is_contiguous(), "mapping not contiguous");
 
         Self::new(mapping.shape().with_dims(Shape::from_dims))
     }
 
+    #[inline]
     fn remove_dim<M: Mapping>(mapping: &M, index: usize) -> Self {
         assert!(M::Layout::IS_DENSE, "invalid layout");
         assert!(index == 0, "invalid dimension");
@@ -214,10 +233,12 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::new(mapping.shape().remove_dim(index))
     }
 
+    #[inline]
     fn reshape<R: Shape>(&self, new_shape: R) -> DenseMapping<R> {
         DenseMapping::new(self.shape.reshape(new_shape))
     }
 
+    #[inline]
     fn resize_dim<M: Mapping>(mapping: &M, index: usize, new_size: usize) -> Self {
         assert!(M::Layout::IS_DENSE, "invalid layout");
         assert!(index == 0, "invalid dimension");
@@ -225,10 +246,12 @@ impl<S: Shape> Mapping for DenseMapping<S> {
         Self::new(mapping.shape().resize_dim(index, new_size))
     }
 
+    #[inline]
     fn shape_mut(&mut self) -> &mut S {
         &mut self.shape
     }
 
+    #[inline]
     fn transpose<M: Mapping<Shape: Shape<Reverse = S>>>(mapping: &M) -> Self {
         assert!(mapping.rank() < 2 && M::Layout::IS_DENSE, "invalid layout");
 
@@ -238,6 +261,7 @@ impl<S: Shape> Mapping for DenseMapping<S> {
 
 impl<S: Shape> StridedMapping<S> {
     /// Creates a new, strided layout mapping with the specified shape and strides.
+    #[inline]
     pub fn new(shape: S, strides: &[isize]) -> Self {
         assert!(shape.rank() == strides.len(), "length mismatch");
 
@@ -245,22 +269,26 @@ impl<S: Shape> StridedMapping<S> {
     }
 
     /// Returns the distance between elements in each dimension.
+    #[inline]
     pub fn strides(&self) -> &[isize] {
         self.strides.as_ref()
     }
 }
 
 impl<S: Shape> Default for StridedMapping<S> {
+    #[inline]
     fn default() -> Self {
         Self { shape: S::default(), strides: S::Dims::new(S::default().rank()) }
     }
 }
 
 impl<S: Shape> Clone for StridedMapping<S> {
+    #[inline]
     fn clone(&self) -> Self {
         Self { shape: self.shape.clone(), strides: self.strides.clone() }
     }
 
+    #[inline]
     fn clone_from(&mut self, source: &Self) {
         self.shape.clone_from(&source.shape);
         self.strides.clone_from(&source.strides);
@@ -273,6 +301,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
     type Shape = S;
     type Layout = Strided;
 
+    #[inline]
     fn is_contiguous(&self) -> bool {
         let mut stride = 1;
 
@@ -287,26 +316,31 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         true
     }
 
+    #[inline]
     fn shape(&self) -> &S {
         &self.shape
     }
 
+    #[inline]
     fn stride(&self, index: usize) -> isize {
         assert!(index < self.rank(), "invalid dimension");
 
         self.strides.as_ref()[index]
     }
 
+    #[inline]
     fn for_each_stride<F: FnMut(usize, isize)>(&self, mut f: F) {
         for i in 0..self.rank() {
             f(i, self.strides.as_ref()[i])
         }
     }
 
+    #[inline]
     fn inner_stride(&self) -> isize {
         if self.rank() > 0 { self.strides.as_ref()[self.rank() - 1] } else { 0 }
     }
 
+    #[inline]
     fn linear_offset(&self, index: usize) -> isize {
         debug_assert!(index < self.len(), "index out of bounds");
 
@@ -321,6 +355,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         offset
     }
 
+    #[inline]
     fn permute<M: Mapping>(mapping: &M, perm: &[usize]) -> Self {
         assert!(perm.len() == mapping.rank(), "invalid permutation");
 
@@ -355,6 +390,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape, strides }
     }
 
+    #[inline]
     fn prepend_dim<M: Mapping>(mapping: &M, size: usize, stride: isize) -> Self {
         let mut strides = S::Dims::new(mapping.rank() + 1);
 
@@ -364,6 +400,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().prepend_dim(size), strides }
     }
 
+    #[inline]
     fn remap<M: Mapping>(mapping: &M) -> Self {
         let mut strides = S::Dims::new(mapping.rank());
 
@@ -372,6 +409,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().with_dims(Shape::from_dims), strides }
     }
 
+    #[inline]
     fn remove_dim<M: Mapping>(mapping: &M, index: usize) -> Self {
         assert!(index < mapping.rank(), "invalid dimension");
 
@@ -388,6 +426,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().remove_dim(index), strides }
     }
 
+    #[inline]
     fn reshape<R: Shape>(&self, new_shape: R) -> StridedMapping<R> {
         let new_shape = self.shape.reshape(new_shape);
         let mut new_strides = R::Dims::new(new_shape.rank());
@@ -444,6 +483,7 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         StridedMapping { shape: new_shape, strides: new_strides }
     }
 
+    #[inline]
     fn resize_dim<M: Mapping>(mapping: &M, index: usize, new_size: usize) -> Self {
         let mut strides = S::Dims::new(mapping.rank());
 
@@ -452,10 +492,12 @@ impl<S: Shape> Mapping for StridedMapping<S> {
         Self { shape: mapping.shape().resize_dim(index, new_size), strides }
     }
 
+    #[inline]
     fn shape_mut(&mut self) -> &mut S {
         &mut self.shape
     }
 
+    #[inline]
     fn transpose<M: Mapping<Shape: Shape<Reverse = S>>>(mapping: &M) -> Self {
         let mut strides = S::Dims::new(mapping.rank());
 

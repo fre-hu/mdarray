@@ -36,6 +36,7 @@ pub type DSlice<T, const N: usize, L = Dense> = Slice<T, Rank<N>, L>;
 
 impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable pointer to the array buffer.
+    #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut T {
         if mem::size_of::<L::Mapping<S>>() > 0 {
             RawSlice::from_mut_slice(self).as_mut_ptr()
@@ -45,6 +46,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Returns a raw pointer to the array buffer.
+    #[inline]
     pub fn as_ptr(&self) -> *const T {
         if mem::size_of::<L::Mapping<S>>() > 0 {
             RawSlice::from_slice(self).as_ptr()
@@ -58,6 +60,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the expression cannot be broadcast to the shape of the array slice.
+    #[inline]
     pub fn assign<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
         self.expr_mut().zip(expr).for_each(|(x, y)| y.clone_to(x));
     }
@@ -67,6 +70,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds, or if the rank is not at least 1.
+    #[inline]
     pub fn at(&self, index: usize) -> View<'_, T, S::Tail, L> {
         self.axis_at(Const::<0>, index)
     }
@@ -76,6 +80,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the index is out of bounds, or if the rank is not at least 1.
+    #[inline]
     pub fn at_mut(&mut self, index: usize) -> ViewMut<'_, T, S::Tail, L> {
         self.axis_at_mut(Const::<0>, index)
     }
@@ -89,6 +94,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension or the index is out of bounds.
+    #[inline]
     pub fn axis_at<A: Axis>(
         &self,
         axis: A,
@@ -106,6 +112,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension or the index is out of bounds.
+    #[inline]
     pub fn axis_at_mut<A: Axis>(
         &mut self,
         axis: A,
@@ -123,6 +130,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     pub fn axis_expr<A: Axis>(&self, axis: A) -> AxisExpr<'_, T, S, L, A> {
         AxisExpr::new(self, axis)
     }
@@ -136,6 +144,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     pub fn axis_expr_mut<A: Axis>(&mut self, axis: A) -> AxisExprMut<'_, T, S, L, A> {
         AxisExprMut::new(self, axis)
     }
@@ -145,6 +154,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    #[inline]
     pub fn col(&self, index: usize) -> View<'_, T, (S::Head,), Strided> {
         let shape = self.shape().with_dims(<(_, <S::Tail as Shape>::Head)>::from_dims);
 
@@ -156,6 +166,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    #[inline]
     pub fn col_mut(&mut self, index: usize) -> ViewMut<'_, T, (S::Head,), Strided> {
         let shape = self.shape().with_dims(<(_, <S::Tail as Shape>::Head)>::from_dims);
 
@@ -167,6 +178,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 2.
+    #[inline]
     pub fn cols(&self) -> Lanes<'_, T, S, L, Cols> {
         self.lanes(Cols)
     }
@@ -176,11 +188,13 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 2.
+    #[inline]
     pub fn cols_mut(&mut self) -> LanesMut<'_, T, S, L, Cols> {
         self.lanes_mut(Cols)
     }
 
     /// Returns `true` if the array slice contains an element with the given value.
+    #[inline]
     pub fn contains(&self, x: &T) -> bool
     where
         T: PartialEq,
@@ -195,6 +209,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not equal to 2, or if the absolute index is larger
     /// than the number of columns or rows.
+    #[inline]
     pub fn diag(&self, index: isize) -> View<'_, T, (Dyn,), Strided> {
         let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
 
@@ -208,6 +223,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the rank is not equal to 2, or if the absolute index is larger
     /// than the number of columns or rows.
+    #[inline]
     pub fn diag_mut(&mut self, index: isize) -> ViewMut<'_, T, (Dyn,), Strided> {
         let shape = self.shape().with_dims(<(S::Head, <S::Tail as Shape>::Head)>::from_dims);
 
@@ -219,21 +235,25 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     pub fn dim(&self, index: usize) -> usize {
         self.mapping().dim(index)
     }
 
     /// Returns an expression over the array slice.
+    #[inline]
     pub fn expr(&self) -> View<'_, T, S, L> {
         unsafe { View::new_unchecked(self.as_ptr(), self.mapping().clone()) }
     }
 
     /// Returns a mutable expression over the array slice.
+    #[inline]
     pub fn expr_mut(&mut self) -> ViewMut<'_, T, S, L> {
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), self.mapping().clone()) }
     }
 
     /// Fills the array slice with elements by cloning `value`.
+    #[inline]
     pub fn fill(&mut self, value: T)
     where
         T: Clone,
@@ -242,6 +262,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Fills the array slice with elements returned by calling a closure repeatedly.
+    #[inline]
     pub fn fill_with<F: FnMut() -> T>(&mut self, mut f: F) {
         self.expr_mut().for_each(|x| *x = f());
     }
@@ -251,6 +272,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
+    #[inline]
     pub fn flatten(&self) -> View<'_, T, (Dyn,), L> {
         self.reshape([self.len()])
     }
@@ -260,6 +282,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the array layout is not uniformly strided.
+    #[inline]
     pub fn flatten_mut(&mut self) -> ViewMut<'_, T, (Dyn,), L> {
         self.reshape_mut([self.len()])
     }
@@ -269,6 +292,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Safety
     ///
     /// The index must be within bounds of the array slice.
+    #[inline]
     pub unsafe fn get_unchecked<I: SliceIndex<T, S, L>>(&self, index: I) -> &I::Output {
         unsafe { index.get_unchecked(self) }
     }
@@ -278,26 +302,31 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Safety
     ///
     /// The index must be within bounds of the array slice.
+    #[inline]
     pub unsafe fn get_unchecked_mut<I: SliceIndex<T, S, L>>(&mut self, index: I) -> &mut I::Output {
         unsafe { index.get_unchecked_mut(self) }
     }
 
     /// Returns `true` if the array strides are consistent with contiguous memory layout.
+    #[inline]
     pub fn is_contiguous(&self) -> bool {
         self.mapping().is_contiguous()
     }
 
     /// Returns `true` if the array contains no elements.
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.mapping().is_empty()
     }
 
     /// Returns an iterator over the array slice.
+    #[inline]
     pub fn iter(&self) -> Iter<View<'_, T, S, L>> {
         self.expr().into_iter()
     }
 
     /// Returns a mutable iterator over the array slice.
+    #[inline]
     pub fn iter_mut(&mut self) -> Iter<ViewMut<'_, T, S, L>> {
         self.expr_mut().into_iter()
     }
@@ -312,6 +341,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     pub fn lanes<A: Axis>(&self, axis: A) -> Lanes<'_, T, S, L, A> {
         Lanes::new(self, axis)
     }
@@ -326,16 +356,19 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     pub fn lanes_mut<A: Axis>(&mut self, axis: A) -> LanesMut<'_, T, S, L, A> {
         LanesMut::new(self, axis)
     }
 
     /// Returns the number of elements in the array.
+    #[inline]
     pub fn len(&self) -> usize {
         self.mapping().len()
     }
 
     /// Returns the array layout mapping.
+    #[inline]
     pub fn mapping(&self) -> &L::Mapping<S> {
         if mem::size_of::<L::Mapping<S>>() > 0 {
             RawSlice::from_slice(self).mapping()
@@ -352,6 +385,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
+    #[inline]
     pub fn outer_expr(&self) -> AxisExpr<'_, T, S, L, Const<0>> {
         self.axis_expr(Const::<0>)
     }
@@ -364,6 +398,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
+    #[inline]
     pub fn outer_expr_mut(&mut self) -> AxisExprMut<'_, T, S, L, Const<0>> {
         self.axis_expr_mut(Const::<0>)
     }
@@ -378,6 +413,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the permutation is not valid.
+    #[inline]
     pub fn permute<I: IntoShape<IntoShape: Permutation>>(
         &self,
         perm: I,
@@ -402,6 +438,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the permutation is not valid.
+    #[inline]
     pub fn permute_mut<I: IntoShape<IntoShape: Permutation>>(
         &mut self,
         perm: I,
@@ -417,6 +454,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
+    #[inline]
     pub fn rank(&self) -> usize {
         self.mapping().rank()
     }
@@ -426,6 +464,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
+    #[inline]
     pub fn remap<R: Shape, K: Layout>(&self) -> View<'_, T, R, K> {
         let mapping = Mapping::remap(self.mapping());
 
@@ -437,6 +476,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the memory layout is not compatible with the new array layout.
+    #[inline]
     pub fn remap_mut<R: Shape, K: Layout>(&mut self) -> ViewMut<'_, T, R, K> {
         let mapping = Mapping::remap(self.mapping());
 
@@ -447,6 +487,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// This method is deprecated, use `transpose` instead.
     #[deprecated]
+    #[inline]
     pub fn reorder(&self) -> View<'_, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::transpose(self.mapping());
 
@@ -457,6 +498,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// This method is deprecated, use `transpose_mut` instead.
     #[deprecated]
+    #[inline]
     pub fn reorder_mut(&mut self) -> ViewMut<'_, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::transpose(self.mapping());
 
@@ -481,6 +523,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
+    #[inline]
     pub fn reshape<I: IntoShape>(&self, shape: I) -> View<'_, T, I::IntoShape, L> {
         let mapping = self.mapping().reshape(shape.into_shape());
 
@@ -497,6 +540,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the array length is changed, or if the memory layout is not compatible.
+    #[inline]
     pub fn reshape_mut<I: IntoShape>(&mut self, shape: I) -> ViewMut<'_, T, I::IntoShape, L> {
         let mapping = self.mapping().reshape(shape.into_shape());
 
@@ -508,6 +552,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    #[inline]
     pub fn row(&self, index: usize) -> View<'_, T, (<S::Tail as Shape>::Head,), L> {
         let shape = self.shape().with_dims(<(S::Head, _)>::from_dims);
 
@@ -519,6 +564,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+    #[inline]
     pub fn row_mut(&mut self, index: usize) -> ViewMut<'_, T, (<S::Tail as Shape>::Head,), L> {
         let shape = self.shape().with_dims(<(S::Head, _)>::from_dims);
 
@@ -530,6 +576,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
+    #[inline]
     pub fn rows(&self) -> Lanes<'_, T, S, L, Rows> {
         self.lanes(Rows)
     }
@@ -539,11 +586,13 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the rank is not at least 1.
+    #[inline]
     pub fn rows_mut(&mut self) -> LanesMut<'_, T, S, L, Rows> {
         self.lanes_mut(Rows)
     }
 
     /// Returns the array shape.
+    #[inline]
     pub fn shape(&self) -> &S {
         self.mapping().shape()
     }
@@ -554,6 +603,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the split point is larger than the number of elements in that dimension,
     /// or if the rank is not at least 1.
+    #[inline]
     pub fn split_at(
         &self,
         mid: usize,
@@ -567,6 +617,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the split point is larger than the number of elements in that dimension,
     /// or if the rank is not at least 1.
+    #[inline]
     pub fn split_at_mut(
         &mut self,
         mid: usize,
@@ -584,6 +635,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the split point is larger than the number of elements in that dimension,
     /// or if the dimension is out of bounds.
+    #[inline]
     pub fn split_axis_at<A: Axis>(
         &self,
         axis: A,
@@ -603,6 +655,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// Panics if the split point is larger than the number of elements in that dimension,
     /// or if the dimension is out of bounds.
+    #[inline]
     pub fn split_axis_at_mut<A: Axis>(
         &mut self,
         axis: A,
@@ -617,6 +670,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     pub fn stride(&self, index: usize) -> isize {
         self.mapping().stride(index)
     }
@@ -626,6 +680,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if `a` or `b` are out of bounds.
+    #[inline]
     pub fn swap<I, J>(&mut self, a: I, b: J)
     where
         I: SliceIndex<T, S, L, Output = T>,
@@ -641,6 +696,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// # Panics
     ///
     /// Panics if `a` or `b` are out of bounds.
+    #[inline]
     pub fn swap_axis<A: Axis>(&mut self, axis: A, a: usize, b: usize) {
         let size = self.dim(axis.index(self.rank()));
 
@@ -663,6 +719,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Copies the array slice into a new array.
+    #[inline]
     pub fn to_array(&self) -> Array<T, S>
     where
         T: Clone,
@@ -672,6 +729,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Copies the array slice into a new array.
+    #[inline]
     pub fn to_tensor(&self) -> Tensor<T, S>
     where
         T: Clone,
@@ -681,6 +739,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Copies the array slice into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn to_tensor_in<A: Allocator>(&self, alloc: A) -> Tensor<T, S, A>
     where
         T: Clone,
@@ -689,6 +748,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Copies the array slice into a new vector.
+    #[inline]
     pub fn to_vec(&self) -> Vec<T>
     where
         T: Clone,
@@ -698,6 +758,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Copies the array slice into a new vector with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn to_vec_in<A: Allocator>(&self, alloc: A) -> Vec<T, A>
     where
         T: Clone,
@@ -707,6 +768,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a transposed array view of the array slice, where the dimensions
     /// are reversed.
+    #[inline]
     pub fn transpose(&self) -> View<'_, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::transpose(self.mapping());
 
@@ -715,6 +777,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a mutable transposed array view of the array slice, where the dimensions
     /// are reversed.
+    #[inline]
     pub fn transpose_mut(&mut self) -> ViewMut<'_, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::transpose(self.mapping());
 
@@ -724,6 +787,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
 impl<T, L: Layout> Slice<T, DynRank, L> {
     /// Returns the number of elements in each dimension.
+    #[inline]
     pub fn dims(&self) -> &[usize] {
         self.mapping().dims()
     }
@@ -731,6 +795,7 @@ impl<T, L: Layout> Slice<T, DynRank, L> {
 
 impl<T, S: Shape> Slice<T, S, Strided> {
     /// Returns the distance between elements in each dimension.
+    #[inline]
     pub fn strides(&self) -> &[isize] {
         self.mapping().strides()
     }
@@ -744,6 +809,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
+            #[inline]
             pub fn array<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
@@ -760,6 +826,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
+            #[inline]
             pub fn tensor<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
@@ -775,6 +842,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
+            #[inline]
             pub fn view<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
@@ -792,6 +860,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
+            #[inline]
             pub fn view_mut<$($abc: DimIndex),+>(
                 &mut self,
                 $($idx: $abc),+,
@@ -819,10 +888,12 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a Slice<T, S, L> {
     type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
+    #[inline]
     fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output<F> {
         self.expr().map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((&'a T, I::Item)) -> U,
@@ -836,10 +907,12 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut Slice<T, S, L> {
     type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
+    #[inline]
     fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output<F> {
         self.expr_mut().map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((&'a mut T, I::Item)) -> U,
@@ -849,24 +922,28 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut Slice<T, S, L> {
 }
 
 impl<T, S: Shape, L: Layout> AsMut<Self> for Slice<T, S, L> {
+    #[inline]
     fn as_mut(&mut self) -> &mut Self {
         self
     }
 }
 
 impl<T, D: Dim> AsMut<[T]> for Slice<T, (D,)> {
+    #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self.expr_mut().into()
     }
 }
 
 impl<T, S: Shape, L: Layout> AsRef<Self> for Slice<T, S, L> {
+    #[inline]
     fn as_ref(&self) -> &Self {
         self
     }
 }
 
 impl<T, D: Dim> AsRef<[T]> for Slice<T, (D,)> {
+    #[inline]
     fn as_ref(&self) -> &[T] {
         self.expr().into()
     }
@@ -875,12 +952,14 @@ impl<T, D: Dim> AsRef<[T]> for Slice<T, (D,)> {
 macro_rules! impl_as_mut_ref {
     (($($xyz:tt),+), $array:tt) => {
         impl<T, $(const $xyz: usize),+> AsMut<$array> for Slice<T, ($(Const<$xyz>,)+)> {
+            #[inline]
             fn as_mut(&mut self) -> &mut $array {
                 unsafe { &mut *(self as *mut Self as *mut $array) }
             }
         }
 
         impl<T, $(const $xyz: usize),+> AsRef<$array> for Slice<T, ($(Const<$xyz>,)+)> {
+            #[inline]
             fn as_ref(&self) -> &$array {
                 unsafe { &*(self as *const Self as *const $array) }
             }
@@ -906,6 +985,7 @@ impl<T: Debug, S: Shape, L: Layout> Debug for Slice<T, S, L> {
 }
 
 impl<T: Hash, S: Shape, L: Layout> Hash for Slice<T, S, L> {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         for i in 0..self.rank() {
             #[cfg(not(feature = "nightly"))]
@@ -921,12 +1001,14 @@ impl<T: Hash, S: Shape, L: Layout> Hash for Slice<T, S, L> {
 impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> Index<I> for Slice<T, S, L> {
     type Output = I::Output;
 
+    #[inline]
     fn index(&self, index: I) -> &I::Output {
         index.index(self)
     }
 }
 
 impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> IndexMut<I> for Slice<T, S, L> {
+    #[inline]
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
     }
@@ -936,6 +1018,7 @@ impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a Slice<T, S, L> {
     type Shape = S;
     type IntoExpr = View<'a, T, S, L>;
 
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         self.expr()
     }
@@ -945,6 +1028,7 @@ impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a mut Slice<T, S, L> {
     type Shape = S;
     type IntoExpr = ViewMut<'a, T, S, L>;
 
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         self.expr_mut()
     }
@@ -954,6 +1038,7 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a Slice<T, S, L> {
     type Item = &'a T;
     type IntoIter = Iter<View<'a, T, S, L>>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -963,6 +1048,7 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Slice<T, S, L> {
     type Item = &'a mut T;
     type IntoIter = Iter<ViewMut<'a, T, S, L>>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
@@ -971,15 +1057,18 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Slice<T, S, L> {
 impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
     type Owned = S::Owned<T>;
 
+    #[inline]
     fn to_owned(&self) -> Self::Owned {
         FromExpression::from_expr(self.into_expr().cloned())
     }
 
+    #[inline]
     fn clone_into(&self, target: &mut Self::Owned) {
         target.clone_from_slice(self);
     }
 }
 
+#[inline]
 fn contains<T: PartialEq, S: Shape, L: Layout>(this: &Slice<T, S, L>, value: &T) -> bool {
     if L::IS_DENSE {
         this.remap::<S, _>()[..].contains(value)

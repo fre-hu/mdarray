@@ -40,6 +40,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the index is out of bounds, or if the rank is not at least 1.
+            #[inline]
             pub fn into_at(
                 self,
                 index: usize,
@@ -56,6 +57,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the dimension or the index is out of bounds.
+            #[inline]
             pub fn into_axis_at<A: Axis>(
                 $($mut)? self,
                 axis: A,
@@ -69,6 +71,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+            #[inline]
             pub fn into_col(self, index: usize) -> $name<'a, T, (S::Head,), Strided> {
                 let shape = self.shape().with_dims(<(_, <S::Tail as Shape>::Head)>::from_dims);
 
@@ -82,6 +85,7 @@ macro_rules! impl_view {
             ///
             /// Panics if the rank is not equal to 2, or if the absolute index is larger
             /// than the number of columns or rows.
+            #[inline]
             pub fn into_diag($($mut)? self, index: isize) -> $name<'a, T, (Dyn,), Strided> {
                 assert!(self.rank() == 2, "invalid rank");
 
@@ -102,6 +106,7 @@ macro_rules! impl_view {
             }
 
             /// Converts the array view into an array view with dynamic rank.
+            #[inline]
             pub fn into_dyn(self) -> $name<'a, T, DynRank, L> {
                 self.into_mapping()
             }
@@ -111,6 +116,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the array layout is not uniformly strided.
+            #[inline]
             pub fn into_flat(self) -> $name<'a, T, (Dyn,), L> {
                 let len = self.len();
 
@@ -123,6 +129,7 @@ macro_rules! impl_view {
             ///
             /// Panics if the shape is not matching static rank or constant-sized dimensions,
             /// or if the memory layout is not compatible with the new array layout.
+            #[inline]
             pub fn into_mapping<R: Shape, K: Layout>($($mut)? self) -> $name<'a, T, R, K> {
                 let mapping = Mapping::remap(self.mapping());
 
@@ -139,6 +146,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the permutation is not valid.
+            #[inline]
             pub fn into_permuted<I: IntoShape<IntoShape: Permutation>>(
                 $($mut)? self,
                 perm: I,
@@ -157,6 +165,7 @@ macro_rules! impl_view {
             ///
             /// This method is deprecated, use `into_transposed` instead.
             #[deprecated]
+            #[inline]
             pub fn into_reordered(
                 $($mut)? self
             ) -> $name<'a, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
@@ -170,6 +179,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the rank is not equal to 2, or if the index is out of bounds.
+            #[inline]
             pub fn into_row(self, index: usize) -> $name<'a, T, (<S::Tail as Shape>::Head,), L> {
                 let shape = self.shape().with_dims(<(S::Head, _)>::from_dims);
 
@@ -194,6 +204,7 @@ macro_rules! impl_view {
             /// # Panics
             ///
             /// Panics if the array length is changed, or if the memory layout is not compatible.
+            #[inline]
             pub fn into_shape<I: IntoShape>(
                 $($mut)? self,
                 shape: I
@@ -209,6 +220,7 @@ macro_rules! impl_view {
             ///
             /// Panics if the split point is larger than the number of elements in that dimension,
             /// or if the rank is not at least 1.
+            #[inline]
             pub fn into_split_at(
                 self,
                 mid: usize,
@@ -226,6 +238,7 @@ macro_rules! impl_view {
             ///
             /// Panics if the split point is larger than the number of elements in that dimension,
             /// or if the dimension is out of bounds.
+            #[inline]
             pub fn into_split_axis_at<A: Axis>(
                 $($mut)? self,
                 axis: A,
@@ -239,6 +252,7 @@ macro_rules! impl_view {
 
             /// Converts the array view into a transposed array view, where the dimensions
             /// are reversed.
+            #[inline]
             pub fn into_transposed(
                 $($mut)? self
             ) -> $name<'a, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
@@ -252,12 +266,14 @@ macro_rules! impl_view {
             /// # Safety
             ///
             /// The pointer must be non-null and a valid array view for the given layout.
+            #[inline]
             pub unsafe fn new_unchecked(ptr: *$raw_mut T, mapping: L::Mapping<S>) -> Self {
                 let slice = unsafe { RawSlice::new_unchecked(ptr as *mut T, mapping) };
 
                 Self { slice, phantom: PhantomData }
             }
 
+            #[inline]
             pub(crate) unsafe fn axis_at<A: Axis>(
                 ptr: *$raw_mut T,
                 mapping: &L::Mapping<S>,
@@ -279,6 +295,7 @@ macro_rules! impl_view {
                 unsafe { $name::new_unchecked(ptr.offset(count), new_mapping) }
             }
 
+            #[inline]
             pub(crate) unsafe fn split_axis_at<A: Axis>(
                 ptr: *$raw_mut T,
                 mapping: &L::Mapping<S>,
@@ -316,10 +333,12 @@ macro_rules! impl_view {
             type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
                 Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
+            #[inline]
             fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output<F> {
                 self.expr().map(f)
             }
 
+            #[inline]
             fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
             where
                 F: FnMut((&'a T, I::Item)) -> U,
@@ -332,12 +351,14 @@ macro_rules! impl_view {
         where
             Slice<T, S, L>: AsRef<U>,
         {
+            #[inline]
             fn as_ref(&self) -> &U {
                 (**self).as_ref()
             }
         }
 
         impl<T, S: Shape, L: Layout> Borrow<Slice<T, S, L>> for $name<'_, T, S, L> {
+            #[inline]
             fn borrow(&self) -> &Slice<T, S, L> {
                 self
             }
@@ -352,6 +373,7 @@ macro_rules! impl_view {
         impl<T, S: Shape, L: Layout> Deref for $name<'_, T, S, L> {
             type Target = Slice<T, S, L>;
 
+            #[inline]
             fn deref(&self) -> &Self::Target {
                 self.slice.as_slice()
             }
@@ -362,16 +384,19 @@ macro_rules! impl_view {
 
             const IS_REPEATABLE: bool = $repeatable;
 
+            #[inline]
             fn shape(&self) -> &S {
                 (**self).shape()
             }
 
+            #[inline]
             unsafe fn get_unchecked(&mut self, index: usize) -> &'a $($mut)? T {
                 let count = self.slice.mapping().inner_stride() * index as isize;
 
                 unsafe { &$($mut)? *self.slice.$as_ptr().offset(count) }
             }
 
+            #[inline]
             fn inner_rank(&self) -> usize {
                 if L::IS_DENSE {
                     // For static rank 0, the inner stride is 0 so we allow inner rank >0.
@@ -382,6 +407,7 @@ macro_rules! impl_view {
                 }
             }
 
+            #[inline]
             unsafe fn reset_dim(&mut self, index: usize, count: usize) {
                 let count = -self.stride(index) * count as isize;
                 let ptr = self.slice.as_mut_ptr();
@@ -391,6 +417,7 @@ macro_rules! impl_view {
                 }
             }
 
+            #[inline]
             unsafe fn step_dim(&mut self, index: usize) {
                 let ptr = self.slice.as_mut_ptr();
 
@@ -404,12 +431,14 @@ macro_rules! impl_view {
         where
             &'a $($mut)? I: IntoExpression<IntoExpr = $name<'a, T, S, L>>
         {
+            #[inline]
             fn from(value: &'a $($mut)? I) -> Self {
                 value.into_expr()
             }
         }
 
         impl<'a, T> From<&'a $($mut)? [T]> for $name<'a, T, (Dyn,)> {
+            #[inline]
             fn from(value: &'a $($mut)? [T]) -> Self {
                 let mapping = DenseMapping::new((value.len(),));
 
@@ -418,12 +447,14 @@ macro_rules! impl_view {
         }
 
         impl<'a, T, D: Dim> From<$name<'a, T, (D,)>> for &'a $($mut)? [T] {
+            #[inline]
             fn from($($mut)? value: $name<T, (D,)>) -> Self {
                 unsafe { slice::$from_raw_parts(value.$as_ptr(), value.len()) }
             }
         }
 
         impl<T: Hash, S: Shape, L: Layout> Hash for $name<'_, T, S, L> {
+            #[inline]
             fn hash<H: Hasher>(&self, state: &mut H) {
                 (**self).hash(state)
             }
@@ -432,6 +463,7 @@ macro_rules! impl_view {
         impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> Index<I> for $name<'_, T, S, L> {
             type Output = I::Output;
 
+            #[inline]
             fn index(&self, index: I) -> &I::Output {
                 index.index(self)
             }
@@ -441,6 +473,7 @@ macro_rules! impl_view {
             type Shape = S;
             type IntoExpr = View<'a, T, S, L>;
 
+            #[inline]
             fn into_expr(self) -> Self::IntoExpr {
                 self.expr()
             }
@@ -450,6 +483,7 @@ macro_rules! impl_view {
             type Item = &'a T;
             type IntoIter = Iter<View<'a, T, S, L>>;
 
+            #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 self.expr().into_iter()
             }
@@ -459,6 +493,7 @@ macro_rules! impl_view {
             type Item = &'a $($mut)? T;
             type IntoIter = Iter<Self>;
 
+            #[inline]
             fn into_iter(self) -> Iter<Self> {
                 Iter::new(self)
             }
@@ -477,6 +512,7 @@ macro_rules! impl_into_view {
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
+            #[inline]
             pub fn into_view<$($abc: DimIndex),+>(
                 self,
                 $($idx: $abc),+
@@ -501,6 +537,7 @@ macro_rules! impl_into_view {
             /// # Panics
             ///
             /// Panics if the subarray is out of bounds.
+            #[inline]
             pub fn into_view<$($abc: DimIndex),+>(
                 mut self,
                 $($idx: $abc),+
@@ -533,10 +570,12 @@ impl<'a, T, U, S: Shape, L: Layout> Apply<U> for &'a mut ViewMut<'_, T, S, L> {
     type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
+    #[inline]
     fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output<F> {
         self.expr_mut().map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((&'a mut T, I::Item)) -> U,
@@ -549,22 +588,26 @@ impl<T, U: ?Sized, S: Shape, L: Layout> AsMut<U> for ViewMut<'_, T, S, L>
 where
     Slice<T, S, L>: AsMut<U>,
 {
+    #[inline]
     fn as_mut(&mut self) -> &mut U {
         (**self).as_mut()
     }
 }
 
 impl<T, S: Shape, L: Layout> BorrowMut<Slice<T, S, L>> for ViewMut<'_, T, S, L> {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut Slice<T, S, L> {
         self
     }
 }
 
 impl<T, S: Shape, L: Layout> Clone for View<'_, T, S, L> {
+    #[inline]
     fn clone(&self) -> Self {
         Self { slice: self.slice.clone(), phantom: PhantomData }
     }
 
+    #[inline]
     fn clone_from(&mut self, source: &Self) {
         self.slice.clone_from(&source.slice);
     }
@@ -573,6 +616,7 @@ impl<T, S: Shape, L: Layout> Clone for View<'_, T, S, L> {
 impl<T, S: Shape, L: Layout<Mapping<S>: Copy>> Copy for View<'_, T, S, L> {}
 
 impl<T, S: Shape, L: Layout> DerefMut for ViewMut<'_, T, S, L> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.slice.as_mut_slice()
     }
@@ -583,6 +627,7 @@ macro_rules! impl_from_array_ref {
         impl<'a, T $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<&'a $array>
             for View<'a, T, ($($xyz,)+)>
         {
+            #[inline]
             fn from(value: &'a $array) -> Self {
                 let mapping = DenseMapping::new(($($xyz::from(Const::<$abc>),)+));
 
@@ -595,6 +640,7 @@ macro_rules! impl_from_array_ref {
         impl<'a, T $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<&'a mut $array>
             for ViewMut<'a, T, ($($xyz,)+)>
         {
+            #[inline]
             fn from(value: &'a mut $array) -> Self {
                 let mapping = DenseMapping::new(($($xyz::from(Const::<$abc>),)+));
 
@@ -614,6 +660,7 @@ impl_from_array_ref!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A
 impl_from_array_ref!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);
 
 impl<T, S: Shape, L: Layout, I: SliceIndex<T, S, L>> IndexMut<I> for ViewMut<'_, T, S, L> {
+    #[inline]
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
     }
@@ -623,6 +670,7 @@ impl<'a, T, S: Shape, L: Layout> IntoExpression for &'a mut ViewMut<'_, T, S, L>
     type Shape = S;
     type IntoExpr = ViewMut<'a, T, S, L>;
 
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         self.expr_mut()
     }
@@ -632,6 +680,7 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut ViewMut<'_, T, S, L> {
     type Item = &'a mut T;
     type IntoIter = Iter<ViewMut<'a, T, S, L>>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.expr_mut().into_iter()
     }
@@ -650,6 +699,7 @@ macro_rules! impl_try_from_array_ref {
         {
             type Error = View<'a, T, ($($xyz,)+)>;
 
+            #[inline]
             fn try_from(value: View<'a, T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
                 if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
                     Ok(unsafe { &*value.as_ptr().cast() })
@@ -664,6 +714,7 @@ macro_rules! impl_try_from_array_ref {
         {
             type Error = ViewMut<'a, T, ($($xyz,)+)>;
 
+            #[inline]
             fn try_from(mut value: ViewMut<'a, T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
                 if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
                     Ok(unsafe { &mut *value.as_mut_ptr().cast() })

@@ -55,6 +55,7 @@ pub type DTensor<T, const N: usize, A = Global> = Tensor<T, Rank<N>, A>;
 impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// Returns a reference to the underlying allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn allocator(&self) -> &A {
         self.tensor.allocator()
     }
@@ -67,11 +68,13 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the inner dimensions do not match, if the rank is not the same and
     /// at least 1, or if the first dimension is not dynamically-sized.
+    #[inline]
     pub fn append(&mut self, other: &mut Self) {
         self.expand(other.drain(..));
     }
 
     /// Returns the number of elements the array can hold without reallocating.
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.tensor.capacity()
     }
@@ -85,6 +88,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Panics
     ///
     /// Panics if the default array length for the layout mapping is not zero.
+    #[inline]
     pub fn clear(&mut self) {
         assert!(S::default().len() == 0, "default length not zero");
 
@@ -103,6 +107,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the rank is not at least 1, or if the first dimension
     /// is not dynamically-sized.
+    #[inline]
     pub fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> IntoExpr<Drain<'_, T, S, A>> {
         assert!(self.rank() > 0, "invalid rank");
         assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
@@ -124,6 +129,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the inner dimensions do not match, if the rank is not the same and
     /// at least 1, or if the first dimension is not dynamically-sized.
+    #[inline]
     pub fn expand<I: IntoExpression<Item: IntoCloned<T>>>(&mut self, expr: I) {
         assert!(self.rank() > 0, "invalid rank");
         assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
@@ -161,6 +167,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
     /// Creates an array from the given element with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn from_elem_in<I: IntoShape<IntoShape = S>>(shape: I, elem: T, alloc: A) -> Self
     where
         T: Clone,
@@ -170,6 +177,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
     /// Creates an array with the results from the given function with the specified allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn from_fn_in<I: IntoShape<IntoShape = S>, F>(shape: I, f: F, alloc: A) -> Self
     where
         F: FnMut(&[usize]) -> T,
@@ -183,6 +191,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// The pointer must be a valid allocation given the mapping, capacity and allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub unsafe fn from_raw_parts_in(
         ptr: *mut T,
         mapping: DenseMapping<S>,
@@ -195,11 +204,13 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Converts the array into an array with dynamic rank.
+    #[inline]
     pub fn into_dyn(self) -> Tensor<T, DynRank, A> {
         self.into_mapping()
     }
 
     /// Converts the array into a one-dimensional array.
+    #[inline]
     pub fn into_flat(self) -> Tensor<T, (Dyn,), A> {
         self.into_vec().into()
     }
@@ -209,6 +220,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Panics
     ///
     /// Panics if the shape is not matching static rank or constant-sized dimensions.
+    #[inline]
     pub fn into_mapping<R: Shape>(self) -> Tensor<T, R, A> {
         let (vec, mapping) = self.tensor.into_parts();
 
@@ -217,6 +229,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 
     /// Decomposes an array into its raw components including the allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn into_raw_parts_with_alloc(self) -> (*mut T, DenseMapping<S>, usize, A) {
         let (vec, mapping) = self.tensor.into_parts();
         let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
@@ -229,6 +242,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Panics
     ///
     /// Panics if the array length is not equal to one.
+    #[inline]
     pub fn into_scalar(self) -> T {
         assert!(self.len() == 1, "invalid length");
 
@@ -253,6 +267,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Panics
     ///
     /// Panics if the array length is changed.
+    #[inline]
     pub fn into_shape<I: IntoShape>(self, shape: I) -> Tensor<T, I::IntoShape, A> {
         let (vec, mapping) = self.tensor.into_parts();
 
@@ -260,6 +275,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Converts the array into a vector.
+    #[inline]
     pub fn into_vec(self) -> vec_t!(T, A) {
         let (vec, _) = self.tensor.into_parts();
 
@@ -267,6 +283,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Returns the array with the given closure applied to each element.
+    #[inline]
     pub fn map<F: FnMut(T) -> T>(self, mut f: F) -> Self {
         self.zip_with(expr::fill(()), |(x, ())| f(x))
     }
@@ -277,6 +294,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the default array length for the layout mapping is not zero.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn new_in(alloc: A) -> Self {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
@@ -284,6 +302,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Reserves capacity for at least the additional number of elements in the array.
+    #[inline]
     pub fn reserve(&mut self, additional: usize) {
         unsafe {
             self.tensor.with_mut_parts(|vec, _| vec.reserve(additional));
@@ -291,6 +310,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Reserves the minimum capacity for the additional number of elements in the array.
+    #[inline]
     pub fn reserve_exact(&mut self, additional: usize) {
         unsafe {
             self.tensor.with_mut_parts(|vec, _| vec.reserve_exact(additional));
@@ -298,6 +318,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Resizes the array to the new shape, creating new elements with the given value.
+    #[inline]
     pub fn resize(&mut self, new_dims: &[usize], value: T)
     where
         T: Clone,
@@ -307,6 +328,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Resizes the array to the new shape, creating new elements from the given closure.
+    #[inline]
     pub fn resize_with<F: FnMut() -> T>(&mut self, new_dims: &[usize], f: F)
     where
         A: Clone,
@@ -319,6 +341,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Safety
     ///
     /// All elements within the array length must be initialized.
+    #[inline]
     pub unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<S>) {
         unsafe {
             self.tensor.set_mapping(new_mapping);
@@ -326,6 +349,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Shrinks the capacity of the array with a lower bound.
+    #[inline]
     pub fn shrink_to(&mut self, min_capacity: usize) {
         unsafe {
             self.tensor.with_mut_parts(|vec, _| vec.shrink_to(min_capacity));
@@ -333,6 +357,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     /// Shrinks the capacity of the array as much as possible.
+    #[inline]
     pub fn shrink_to_fit(&mut self) {
         unsafe {
             self.tensor.with_mut_parts(|vec, _| vec.shrink_to_fit());
@@ -343,6 +368,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// The returned slice can be used to fill the array with data, before marking
     /// the data as initialized using the `set_shape` method.
+    #[inline]
     pub fn spare_capacity_mut(&mut self) -> &mut [MaybeUninit<T>] {
         let ptr = self.as_mut_ptr();
         let len = self.capacity() - self.len();
@@ -360,6 +386,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the rank is not at least 1, or if the first dimension
     /// is not dynamically-sized.
+    #[inline]
     pub fn truncate(&mut self, size: usize) {
         assert!(self.rank() > 0, "invalid rank");
         assert!(S::Head::SIZE.is_none(), "first dimension not dynamically-sized");
@@ -379,6 +406,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Errors
     ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+    #[inline]
     pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
         unsafe { self.tensor.with_mut_parts(|vec, _| vec.try_reserve(additional)) }
     }
@@ -388,12 +416,14 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     /// # Errors
     ///
     /// If the capacity overflows, or the allocator reports a failure, then an error is returned.
+    #[inline]
     pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
         unsafe { self.tensor.with_mut_parts(|vec, _| vec.try_reserve_exact(additional)) }
     }
 
     /// Creates an array with uninitialized elements and the specified allocator.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn uninit_in<I: IntoShape<IntoShape = S>>(
         shape: I,
         alloc: A,
@@ -412,6 +442,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Panics if the default array length for the layout mapping is not zero.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
@@ -422,6 +453,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     ///
     /// Zero elements are created using `Default::default()`.
     #[cfg(feature = "nightly")]
+    #[inline]
     pub fn zeros_in<I: IntoShape<IntoShape = S>>(shape: I, alloc: A) -> Self
     where
         T: Default,
@@ -436,6 +468,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     #[cfg(not(feature = "nightly"))]
+    #[inline]
     fn from_expr<E: Expression<Item = T, Shape = S>>(expr: E) -> Self {
         let shape = expr.shape().clone();
         let mut vec = Vec::with_capacity(shape.len());
@@ -446,6 +479,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
     }
 
     #[cfg(feature = "nightly")]
+    #[inline]
     pub(crate) fn from_expr_in<E>(expr: E, alloc: A) -> Self
     where
         E: Expression<Item = T, Shape = S>,
@@ -458,10 +492,12 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         unsafe { Self::from_parts(vec, DenseMapping::new(shape)) }
     }
 
+    #[inline]
     pub(crate) unsafe fn from_parts(vec: vec_t!(T, A), mapping: DenseMapping<S>) -> Self {
         unsafe { Self { tensor: RawTensor::from_parts(vec, mapping) } }
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, mut f: F) -> Self
     where
         F: FnMut((T, I::Item)) -> T,
@@ -472,6 +508,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
         }
 
         impl<T, S: Shape, A: Allocator> Drop for DropGuard<T, S, A> {
+            #[inline]
             fn drop(&mut self) {
                 let ptr = self.tensor.as_mut_ptr();
                 let tail = self.tensor.len() - self.index;
@@ -510,6 +547,7 @@ impl<T, S: Shape, A: Allocator> Tensor<T, S, A> {
 #[cfg(not(feature = "nightly"))]
 impl<T, S: Shape> Tensor<T, S> {
     /// Creates an array from the given element.
+    #[inline]
     pub fn from_elem<I: IntoShape<IntoShape = S>>(shape: I, elem: T) -> Self
     where
         T: Clone,
@@ -518,6 +556,7 @@ impl<T, S: Shape> Tensor<T, S> {
     }
 
     /// Creates an array with the results from the given function.
+    #[inline]
     pub fn from_fn<I: IntoShape<IntoShape = S>, F>(shape: I, f: F) -> Self
     where
         F: FnMut(&[usize]) -> T,
@@ -530,11 +569,13 @@ impl<T, S: Shape> Tensor<T, S> {
     /// # Safety
     ///
     /// The pointer must be a valid allocation given the shape and capacity.
+    #[inline]
     pub unsafe fn from_raw_parts(ptr: *mut T, mapping: DenseMapping<S>, capacity: usize) -> Self {
         unsafe { Self::from_parts(Vec::from_raw_parts(ptr, mapping.len(), capacity), mapping) }
     }
 
     /// Decomposes an array into its raw components.
+    #[inline]
     pub fn into_raw_parts(self) -> (*mut T, DenseMapping<S>, usize) {
         let (vec, mapping) = self.tensor.into_parts();
         let mut vec = mem::ManuallyDrop::new(vec);
@@ -547,6 +588,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// # Panics
     ///
     /// Panics if the default array length for the layout mapping is not zero.
+    #[inline]
     pub fn new() -> Self {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
@@ -554,6 +596,7 @@ impl<T, S: Shape> Tensor<T, S> {
     }
 
     /// Creates an array with uninitialized elements.
+    #[inline]
     pub fn uninit<I: IntoShape<IntoShape = S>>(shape: I) -> Tensor<MaybeUninit<T>, S> {
         let shape = shape.into_shape();
         let len = shape.checked_len().expect("invalid length");
@@ -568,6 +611,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// # Panics
     ///
     /// Panics if the default array length for the layout mapping is not zero.
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         assert!(S::default().checked_len() == Some(0), "default length not zero");
 
@@ -577,6 +621,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// Creates an array with elements set to zero.
     ///
     /// Zero elements are created using `Default::default()`.
+    #[inline]
     pub fn zeros<I: IntoShape<IntoShape = S>>(shape: I) -> Self
     where
         T: Default,
@@ -594,6 +639,7 @@ impl<T, S: Shape> Tensor<T, S> {
 #[cfg(feature = "nightly")]
 impl<T, S: Shape> Tensor<T, S> {
     /// Creates an array from the given element.
+    #[inline]
     pub fn from_elem<I: IntoShape<IntoShape = S>>(shape: I, elem: T) -> Self
     where
         T: Clone,
@@ -602,6 +648,7 @@ impl<T, S: Shape> Tensor<T, S> {
     }
 
     /// Creates an array with the results from the given function.
+    #[inline]
     pub fn from_fn<I: IntoShape<IntoShape = S>, F>(shape: I, f: F) -> Self
     where
         F: FnMut(&[usize]) -> T,
@@ -614,11 +661,13 @@ impl<T, S: Shape> Tensor<T, S> {
     /// # Safety
     ///
     /// The pointer must be a valid allocation given the shape and capacity.
+    #[inline]
     pub unsafe fn from_raw_parts(ptr: *mut T, mapping: DenseMapping<S>, capacity: usize) -> Self {
         unsafe { Self::from_raw_parts_in(ptr, mapping, capacity, Global) }
     }
 
     /// Decomposes an array into its raw components.
+    #[inline]
     pub fn into_raw_parts(self) -> (*mut T, DenseMapping<S>, usize) {
         let (ptr, mapping, capacity, _) = self.into_raw_parts_with_alloc();
 
@@ -630,11 +679,13 @@ impl<T, S: Shape> Tensor<T, S> {
     /// # Panics
     ///
     /// Panics if the default array length for the layout mapping is not zero.
+    #[inline]
     pub fn new() -> Self {
         Self::new_in(Global)
     }
 
     /// Creates an array with uninitialized elements.
+    #[inline]
     pub fn uninit<I: IntoShape<IntoShape = S>>(shape: I) -> Tensor<MaybeUninit<T>, S> {
         Self::uninit_in(shape, Global)
     }
@@ -644,6 +695,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// # Panics
     ///
     /// Panics if the default array length for the layout mapping is not zero.
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_in(capacity, Global)
     }
@@ -651,6 +703,7 @@ impl<T, S: Shape> Tensor<T, S> {
     /// Creates an array with elements set to zero.
     ///
     /// Zero elements are created using `Default::default()`.
+    #[inline]
     pub fn zeros<I: IntoShape<IntoShape = S>>(shape: I) -> Self
     where
         T: Default,
@@ -666,6 +719,7 @@ impl<T, S: Shape, A: Allocator> Tensor<MaybeUninit<T>, S, A> {
     /// # Safety
     ///
     /// All elements in the array must be initialized, or the behavior is undefined.
+    #[inline]
     pub unsafe fn assume_init(self) -> Tensor<T, S, A> {
         let (vec, mapping) = self.tensor.into_parts();
 
@@ -683,6 +737,7 @@ impl<T, S: Shape, A: Allocator> Tensor<MaybeUninit<T>, S, A> {
     /// # Safety
     ///
     /// All elements in the array must be initialized, or the behavior is undefined.
+    #[inline]
     pub unsafe fn assume_init(self) -> Tensor<T, S, A> {
         let (ptr, mapping, capacity, alloc) = self.into_raw_parts_with_alloc();
 
@@ -695,10 +750,12 @@ impl<'a, T, U, S: Shape, A: Allocator> Apply<U> for &'a Tensor<T, S, A> {
     type ZippedWith<I: IntoExpression, F: FnMut((&'a T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
+    #[inline]
     fn apply<F: FnMut(&'a T) -> U>(self, f: F) -> Self::Output<F> {
         self.expr().map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((&'a T, I::Item)) -> U,
@@ -712,10 +769,12 @@ impl<'a, T, U, S: Shape, A: Allocator> Apply<U> for &'a mut Tensor<T, S, A> {
     type ZippedWith<I: IntoExpression, F: FnMut((&'a mut T, I::Item)) -> U> =
         Map<Zip<Self::IntoExpr, I::IntoExpr>, F>;
 
+    #[inline]
     fn apply<F: FnMut(&'a mut T) -> U>(self, f: F) -> Self::Output<F> {
         self.expr_mut().map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((&'a mut T, I::Item)) -> U,
@@ -728,10 +787,12 @@ impl<T, S: Shape, A: Allocator> Apply<T> for Tensor<T, S, A> {
     type Output<F: FnMut(T) -> T> = Self;
     type ZippedWith<I: IntoExpression, F: FnMut((T, I::Item)) -> T> = Self;
 
+    #[inline]
     fn apply<F: FnMut(T) -> T>(self, f: F) -> Self {
         self.map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self
     where
         F: FnMut((T, I::Item)) -> T,
@@ -744,6 +805,7 @@ impl<T, U: ?Sized, S: Shape, A: Allocator> AsMut<U> for Tensor<T, S, A>
 where
     Slice<T, S>: AsMut<U>,
 {
+    #[inline]
     fn as_mut(&mut self) -> &mut U {
         (**self).as_mut()
     }
@@ -753,28 +815,33 @@ impl<T, U: ?Sized, S: Shape, A: Allocator> AsRef<U> for Tensor<T, S, A>
 where
     Slice<T, S>: AsRef<U>,
 {
+    #[inline]
     fn as_ref(&self) -> &U {
         (**self).as_ref()
     }
 }
 
 impl<T, S: Shape, A: Allocator> Borrow<Slice<T, S>> for Tensor<T, S, A> {
+    #[inline]
     fn borrow(&self) -> &Slice<T, S> {
         self
     }
 }
 
 impl<T, S: Shape, A: Allocator> BorrowMut<Slice<T, S>> for Tensor<T, S, A> {
+    #[inline]
     fn borrow_mut(&mut self) -> &mut Slice<T, S> {
         self
     }
 }
 
 impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for Tensor<T, S, A> {
+    #[inline]
     fn clone(&self) -> Self {
         Self { tensor: self.tensor.clone() }
     }
 
+    #[inline]
     fn clone_from(&mut self, source: &Self) {
         self.tensor.clone_from(&source.tensor);
     }
@@ -787,6 +854,7 @@ impl<T: Debug, S: Shape, A: Allocator> Debug for Tensor<T, S, A> {
 }
 
 impl<T: Default, S: Shape> Default for Tensor<T, S> {
+    #[inline]
     fn default() -> Self {
         Self::zeros(S::default())
     }
@@ -795,24 +863,28 @@ impl<T: Default, S: Shape> Default for Tensor<T, S> {
 impl<T, S: Shape, A: Allocator> Deref for Tensor<T, S, A> {
     type Target = Slice<T, S>;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.tensor.as_slice()
     }
 }
 
 impl<T, S: Shape, A: Allocator> DerefMut for Tensor<T, S, A> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.tensor.as_mut_slice()
     }
 }
 
 impl<'a, T: Copy, A: Allocator> Extend<&'a T> for Tensor<T, (Dyn,), A> {
+    #[inline]
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().copied());
     }
 }
 
 impl<T, A: Allocator> Extend<T> for Tensor<T, (Dyn,), A> {
+    #[inline]
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
         unsafe {
             self.tensor.with_mut_parts(|vec, mapping| {
@@ -824,12 +896,14 @@ impl<T, A: Allocator> Extend<T> for Tensor<T, (Dyn,), A> {
 }
 
 impl<T: Clone> From<&[T]> for Tensor<T, (Dyn,)> {
+    #[inline]
     fn from(value: &[T]) -> Self {
         Self::from(value.to_vec())
     }
 }
 
 impl<T, S: ConstShape> From<Array<T, S>> for Tensor<T, S> {
+    #[inline]
     fn from(value: Array<T, S>) -> Self {
         Self::from_expr(value.into_expr())
     }
@@ -838,18 +912,21 @@ impl<T, S: ConstShape> From<Array<T, S>> for Tensor<T, S> {
 impl<'a, T: 'a + Clone, S: Shape, L: Layout, I: IntoExpression<IntoExpr = View<'a, T, S, L>>>
     From<I> for Tensor<T, S>
 {
+    #[inline]
     fn from(value: I) -> Self {
         Self::from_expr(value.into_expr().cloned())
     }
 }
 
 impl<T, D: Dim, A: Allocator> From<Tensor<T, (D,), A>> for vec_t!(T, A) {
+    #[inline]
     fn from(value: Tensor<T, (D,), A>) -> Self {
         value.into_vec()
     }
 }
 
 impl<T, A: Allocator> From<vec_t!(T, A)> for Tensor<T, (Dyn,), A> {
+    #[inline]
     fn from(value: vec_t!(T, A)) -> Self {
         let mapping = DenseMapping::new((value.len(),));
 
@@ -862,6 +939,7 @@ macro_rules! impl_from_array {
         impl<T: Clone $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<&$array>
             for Tensor<T, ($($xyz,)+)>
         {
+            #[inline]
             fn from(value: &$array) -> Self {
                 Self::from_expr(View::from(value).cloned())
             }
@@ -870,6 +948,7 @@ macro_rules! impl_from_array {
         impl<T $(,$xyz: Dim + From<Const<$abc>>)+ $(,const $abc: usize)+> From<$array>
             for Tensor<T, ($($xyz,)+)>
         {
+            #[inline]
             fn from(value: $array) -> Self {
                 let mapping = DenseMapping::new(($($xyz::from(Const::<$abc>),)+));
                 let capacity = mapping.shape().checked_len().expect("invalid length");
@@ -891,23 +970,27 @@ impl_from_array!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]
 
 impl<T, S: Shape> FromExpression<T, S> for Tensor<T, S> {
     #[cfg(not(feature = "nightly"))]
+    #[inline]
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
         Self::from_expr(expr.into_expr())
     }
 
     #[cfg(feature = "nightly")]
+    #[inline]
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
         Self::from_expr_in(expr.into_expr(), Global)
     }
 }
 
 impl<T> FromIterator<T> for Tensor<T, (Dyn,)> {
+    #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         Self::from(Vec::from_iter(iter))
     }
 }
 
 impl<T: Hash, S: Shape, A: Allocator> Hash for Tensor<T, S, A> {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         (**self).hash(state)
     }
@@ -916,12 +999,14 @@ impl<T: Hash, S: Shape, A: Allocator> Hash for Tensor<T, S, A> {
 impl<T, S: Shape, A: Allocator, I: SliceIndex<T, S, Dense>> Index<I> for Tensor<T, S, A> {
     type Output = I::Output;
 
+    #[inline]
     fn index(&self, index: I) -> &I::Output {
         index.index(self)
     }
 }
 
 impl<T, S: Shape, A: Allocator, I: SliceIndex<T, S, Dense>> IndexMut<I> for Tensor<T, S, A> {
+    #[inline]
     fn index_mut(&mut self, index: I) -> &mut I::Output {
         index.index_mut(self)
     }
@@ -931,6 +1016,7 @@ impl<'a, T, S: Shape, A: Allocator> IntoExpression for &'a Tensor<T, S, A> {
     type Shape = S;
     type IntoExpr = View<'a, T, S>;
 
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         self.expr()
     }
@@ -940,6 +1026,7 @@ impl<'a, T, S: Shape, A: Allocator> IntoExpression for &'a mut Tensor<T, S, A> {
     type Shape = S;
     type IntoExpr = ViewMut<'a, T, S>;
 
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         self.expr_mut()
     }
@@ -950,6 +1037,7 @@ impl<T, S: Shape, A: Allocator> IntoExpression for Tensor<T, S, A> {
     type IntoExpr = IntoExpr<Tensor<ManuallyDrop<T>, S, A>>;
 
     #[cfg(not(feature = "nightly"))]
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         let (vec, mapping) = self.tensor.into_parts();
 
@@ -963,6 +1051,7 @@ impl<T, S: Shape, A: Allocator> IntoExpression for Tensor<T, S, A> {
     }
 
     #[cfg(feature = "nightly")]
+    #[inline]
     fn into_expr(self) -> Self::IntoExpr {
         let (ptr, mapping, capacity, alloc) = self.into_raw_parts_with_alloc();
 
@@ -976,6 +1065,7 @@ impl<'a, T, S: Shape, A: Allocator> IntoIterator for &'a Tensor<T, S, A> {
     type Item = &'a T;
     type IntoIter = Iter<View<'a, T, S>>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -985,6 +1075,7 @@ impl<'a, T, S: Shape, A: Allocator> IntoIterator for &'a mut Tensor<T, S, A> {
     type Item = &'a mut T;
     type IntoIter = Iter<ViewMut<'a, T, S>>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
@@ -994,6 +1085,7 @@ impl<T, S: Shape, A: Allocator> IntoIterator for Tensor<T, S, A> {
     type Item = T;
     type IntoIter = Iter<IntoExpr<Tensor<ManuallyDrop<T>, S, A>>>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.into_expr().into_iter()
     }
@@ -1002,6 +1094,7 @@ impl<T, S: Shape, A: Allocator> IntoIterator for Tensor<T, S, A> {
 impl<T, S: Shape> Owned<T, S> for Tensor<T, S> {
     type WithConst<const N: usize> = Tensor<T, S::Prepend<Const<N>>>;
 
+    #[inline]
     fn clone_from_slice(&mut self, slice: &Slice<T, S>)
     where
         T: Clone,
@@ -1020,6 +1113,7 @@ macro_rules! impl_try_from_array {
         impl<T $(,$xyz: Dim)+ $(,const $abc: usize)+> TryFrom<Tensor<T, ($($xyz,)+)>> for $array {
             type Error = Tensor<T, ($($xyz,)+)>;
 
+            #[inline]
             fn try_from(value: Tensor<T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
                 if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
                     let mut vec = value.into_vec();

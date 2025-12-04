@@ -14,12 +14,14 @@ pub struct IntoExpr<B: Buffer> {
 }
 
 impl<B: Buffer> IntoExpr<B> {
+    #[inline]
     pub(crate) fn new(buffer: B) -> Self {
         Self { buffer, index: 0 }
     }
 }
 
 impl<B: Buffer> AsMut<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+    #[inline]
     fn as_mut(&mut self) -> &mut Slice<B::Item, B::Shape> {
         debug_assert!(self.index == 0, "expression in use");
 
@@ -31,6 +33,7 @@ impl<B: Buffer> AsMut<Slice<B::Item, B::Shape>> for IntoExpr<B> {
 }
 
 impl<B: Buffer> AsRef<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+    #[inline]
     fn as_ref(&self) -> &Slice<B::Item, B::Shape> {
         debug_assert!(self.index == 0, "expression in use");
 
@@ -42,12 +45,14 @@ impl<B: Buffer> AsRef<Slice<B::Item, B::Shape>> for IntoExpr<B> {
 }
 
 impl<B: Buffer + Clone> Clone for IntoExpr<B> {
+    #[inline]
     fn clone(&self) -> Self {
         assert!(self.index == 0, "expression in use");
 
         Self { buffer: self.buffer.clone(), index: 0 }
     }
 
+    #[inline]
     fn clone_from(&mut self, source: &Self) {
         assert!(self.index == 0 && source.index == 0, "expression in use");
 
@@ -62,12 +67,14 @@ impl<B: Buffer<Item: Debug>> Debug for IntoExpr<B> {
 }
 
 impl<B: Buffer + Default> Default for IntoExpr<B> {
+    #[inline]
     fn default() -> Self {
         Self { buffer: Default::default(), index: 0 }
     }
 }
 
 impl<B: Buffer> Drop for IntoExpr<B> {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             let ptr = self.buffer.as_mut_slice().as_mut_ptr().add(self.index) as *mut B::Item;
@@ -83,10 +90,12 @@ impl<B: Buffer> Expression for IntoExpr<B> {
 
     const IS_REPEATABLE: bool = false;
 
+    #[inline]
     fn shape(&self) -> &Self::Shape {
         self.buffer.as_slice().shape()
     }
 
+    #[inline]
     unsafe fn get_unchecked(&mut self, _: usize) -> B::Item {
         debug_assert!(self.index < self.buffer.as_slice().len(), "index out of bounds");
 
@@ -97,11 +106,15 @@ impl<B: Buffer> Expression for IntoExpr<B> {
         }
     }
 
+    #[inline]
     fn inner_rank(&self) -> usize {
         usize::MAX
     }
 
+    #[inline]
     unsafe fn reset_dim(&mut self, _: usize, _: usize) {}
+
+    #[inline]
     unsafe fn step_dim(&mut self, _: usize) {}
 }
 
@@ -109,6 +122,7 @@ impl<B: Buffer> IntoIterator for IntoExpr<B> {
     type Item = B::Item;
     type IntoIter = Iter<Self>;
 
+    #[inline]
     fn into_iter(self) -> Iter<Self> {
         Iter::new(self)
     }

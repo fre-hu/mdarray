@@ -15,20 +15,24 @@ pub trait IntoCloned<T> {
 }
 
 impl<T: Clone> IntoCloned<T> for &T {
+    #[inline]
     fn clone_to(self, target: &mut T) {
         target.clone_from(self);
     }
 
+    #[inline]
     fn into_cloned(self) -> T {
         self.clone()
     }
 }
 
 impl<T> IntoCloned<T> for T {
+    #[inline]
     fn clone_to(self, target: &mut T) {
         *target = self;
     }
 
+    #[inline]
     fn into_cloned(self) -> T {
         self
     }

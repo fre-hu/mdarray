@@ -42,6 +42,7 @@ pub struct StepRange<R, S> {
 /// assert_eq!(v.view(step(0..10, 2)).to_vec(), [0, 2, 4, 6, 8]);
 /// assert_eq!(v.view(step(0..10, -2)).to_vec(), [9, 7, 5, 3, 1]);
 /// ```
+#[inline]
 pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }
@@ -57,6 +58,7 @@ where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, L>>,
     T: PartialEq<U>,
 {
+    #[inline]
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
@@ -67,6 +69,7 @@ where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
     T: PartialEq<U>,
 {
+    #[inline]
     fn eq(&self, other: &I) -> bool {
         let other = other.into_expr();
 
@@ -76,6 +79,7 @@ where
             //
             // This is a workaround until const if is available, see #3582 and #122301.
 
+            #[inline]
             fn compare_dense<T, U, S: Shape, R: Shape, L: Layout, K: Layout>(
                 this: &Slice<T, S, L>,
                 other: &Slice<U, R, K>,
@@ -86,6 +90,7 @@ where
                 this.remap::<S, _>()[..].eq(&other.remap::<R, _>()[..])
             }
 
+            #[inline]
             fn compare_strided<T, U, S: Shape, R: Shape, L: Layout, K: Layout>(
                 this: &Slice<T, S, L>,
                 other: &Slice<U, R, K>,
@@ -115,6 +120,7 @@ where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, L>>,
     T: PartialEq<U>,
 {
+    #[inline]
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
@@ -125,6 +131,7 @@ where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
     T: PartialEq<U>,
 {
+    #[inline]
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
@@ -136,6 +143,7 @@ where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
     T: PartialEq<U>,
 {
+    #[inline]
     fn eq(&self, other: &I) -> bool {
         (**self).eq(other)
     }
@@ -153,6 +161,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -168,6 +177,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -183,6 +193,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -198,6 +209,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -213,6 +225,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -224,6 +237,7 @@ macro_rules! impl_binary_op {
         {
             type Output = Array<U, S>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 self.zip_with(rhs, |(x, y)| x.$fn(y))
             }
@@ -239,6 +253,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -254,6 +269,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -269,6 +285,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -284,6 +301,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -299,6 +317,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, B::Item)) -> T>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -314,6 +333,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -325,6 +345,7 @@ macro_rules! impl_binary_op {
         {
             type Output = Self;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self {
                 self.zip_with(rhs, |(x, y)| x.$fn(y))
             }
@@ -340,6 +361,7 @@ macro_rules! impl_binary_op {
             #[cfg(feature = "nightly")]
             type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
 
+            #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
             }
@@ -364,6 +386,7 @@ macro_rules! impl_op_assign {
         where
             T: $trt<I::Item>,
         {
+            #[inline]
             fn $fn(&mut self, rhs: I) {
                 self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
             }
@@ -373,6 +396,7 @@ macro_rules! impl_op_assign {
         where
             T: $trt<I::Item>,
         {
+            #[inline]
             fn $fn(&mut self, rhs: I) {
                 self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
             }
@@ -382,6 +406,7 @@ macro_rules! impl_op_assign {
         where
             T: $trt<I::Item>,
         {
+            #[inline]
             fn $fn(&mut self, rhs: I) {
                 self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
             }
@@ -391,6 +416,7 @@ macro_rules! impl_op_assign {
         where
             T: $trt<I::Item>,
         {
+            #[inline]
             fn $fn(&mut self, rhs: I) {
                 self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
             }
@@ -421,6 +447,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -436,6 +463,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -451,6 +479,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -466,6 +495,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -481,6 +511,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -492,6 +523,7 @@ macro_rules! impl_unary_op {
         {
             type Output = Array<U, S>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -507,6 +539,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -522,6 +555,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -537,6 +571,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -552,6 +587,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -567,6 +603,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<T>>::Output<impl FnMut(B::Item) -> T>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -582,6 +619,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }
@@ -593,6 +631,7 @@ macro_rules! impl_unary_op {
         {
             type Output = Self;
 
+            #[inline]
             fn $fn(self) -> Self {
                 self.apply(|x| x.$fn())
             }
@@ -608,6 +647,7 @@ macro_rules! impl_unary_op {
             #[cfg(feature = "nightly")]
             type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
 
+            #[inline]
             fn $fn(self) -> Self::Output {
                 self.apply(|x| x.$fn())
             }

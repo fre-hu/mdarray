@@ -27,6 +27,7 @@ pub use sources::{Fill, FillWith, FromElem, FromFn, fill, fill_with, from_elem, 
 ///
 /// assert_eq!(expr::fold(v, 0, |acc, x| acc + x), 3);
 /// ```
+#[inline]
 pub fn fold<T, I: IntoExpression, F: FnMut(T, I::Item) -> T>(expr: I, init: T, f: F) -> T {
     expr.into_expr().fold(init, f)
 }
@@ -44,6 +45,7 @@ pub fn fold<T, I: IntoExpression, F: FnMut(T, I::Item) -> T>(expr: I, init: T, f
 ///
 /// assert_eq!(t, view![0, 2, 4]);
 /// ```
+#[inline]
 pub fn for_each<I: IntoExpression, F: FnMut(I::Item)>(expr: I, f: F) {
     expr.into_expr().for_each(f);
 }

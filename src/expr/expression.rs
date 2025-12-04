@@ -42,6 +42,7 @@ pub trait Expression: IntoIterator {
     fn shape(&self) -> &Self::Shape;
 
     /// Creates an expression which clones all of its elements.
+    #[inline]
     fn cloned<'a, T: 'a + Clone>(self) -> Cloned<Self>
     where
         Self: Expression<Item = &'a T> + Sized,
@@ -50,6 +51,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Creates an expression which copies all of its elements.
+    #[inline]
     fn copied<'a, T: 'a + Copy>(self) -> Copied<Self>
     where
         Self: Expression<Item = &'a T> + Sized,
@@ -62,11 +64,13 @@ pub trait Expression: IntoIterator {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     fn dim(&self, index: usize) -> usize {
         self.shape().dim(index)
     }
 
     /// Creates an expression which gives tuples of the current count and the element.
+    #[inline]
     fn enumerate(self) -> Enumerate<Self>
     where
         Self: Sized,
@@ -75,6 +79,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Determines if the elements of the expression are equal to those of another.
+    #[inline]
     fn eq<I: IntoExpression>(self, other: I) -> bool
     where
         Self: Expression<Item: PartialEq<I::Item>> + Sized,
@@ -84,6 +89,7 @@ pub trait Expression: IntoIterator {
 
     /// Determines if the elements of the expression are equal to those of another
     /// with respect to the specified equality function.
+    #[inline]
     fn eq_by<I: IntoExpression, F>(self, other: I, mut eq: F) -> bool
     where
         Self: Sized,
@@ -100,6 +106,7 @@ pub trait Expression: IntoIterator {
     /// The resulting type is `Array` if the shape has constant-sized dimensions, or
     /// otherwise `Tensor`. If the shape type is generic, `FromExpression::from_expr`
     /// can be used to evaluate the expression into a specific array type.
+    #[inline]
     fn eval(self) -> <Self::Shape as Shape>::Owned<Self::Item>
     where
         Self: Sized,
@@ -116,6 +123,7 @@ pub trait Expression: IntoIterator {
     ///
     /// Panics if the inner dimensions do not match, if the rank is not the same and
     /// at least 1, or if the first dimension is not dynamically-sized.
+    #[inline]
     fn eval_into<S: Shape, A: Allocator>(
         self,
         tensor: &mut Tensor<Self::Item, S, A>,
@@ -128,6 +136,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Folds all elements into an accumulator by applying an operation, and returns the result.
+    #[inline]
     fn fold<T, F: FnMut(T, Self::Item) -> T>(self, init: T, f: F) -> T
     where
         Self: Sized,
@@ -136,6 +145,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Calls a closure on each element of the expression.
+    #[inline]
     fn for_each<F: FnMut(Self::Item)>(self, mut f: F)
     where
         Self: Sized,
@@ -144,16 +154,19 @@ pub trait Expression: IntoIterator {
     }
 
     /// Returns `true` if the array contains no elements.
+    #[inline]
     fn is_empty(&self) -> bool {
         self.shape().is_empty()
     }
 
     /// Returns the number of elements in the array.
+    #[inline]
     fn len(&self) -> usize {
         self.shape().len()
     }
 
     /// Creates an expression that calls a closure on each element.
+    #[inline]
     fn map<T, F: FnMut(Self::Item) -> T>(self, f: F) -> Map<Self, F>
     where
         Self: Sized,
@@ -162,6 +175,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Determines if the elements of the expression are not equal to those of another.
+    #[inline]
     fn ne<I: IntoExpression>(self, other: I) -> bool
     where
         Self: Expression<Item: PartialEq<I::Item>> + Sized,
@@ -170,6 +184,7 @@ pub trait Expression: IntoIterator {
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
+    #[inline]
     fn rank(&self) -> usize {
         self.shape().rank()
     }
@@ -179,6 +194,7 @@ pub trait Expression: IntoIterator {
     /// # Panics
     ///
     /// Panics if the expressions cannot be broadcast to a common shape.
+    #[inline]
     fn zip<I: IntoExpression>(self, other: I) -> Zip<Self, I::IntoExpr>
     where
         Self: Sized,
@@ -200,6 +216,7 @@ pub trait Expression: IntoIterator {
 
     #[cfg(not(feature = "nightly"))]
     #[doc(hidden)]
+    #[inline]
     fn clone_into_vec<T>(self, vec: &mut Vec<T>)
     where
         Self: Expression<Item: IntoCloned<T>> + Sized,
@@ -214,6 +231,7 @@ pub trait Expression: IntoIterator {
 
     #[cfg(feature = "nightly")]
     #[doc(hidden)]
+    #[inline]
     fn clone_into_vec<T, A: Allocator>(self, vec: &mut Vec<T, A>)
     where
         Self: Expression<Item: IntoCloned<T>> + Sized,
@@ -250,10 +268,12 @@ impl<T, E: Expression> Apply<T> for E {
     type ZippedWith<I: IntoExpression, F: FnMut((Self::Item, I::Item)) -> T> =
         Map<Zip<Self, I::IntoExpr>, F>;
 
+    #[inline]
     fn apply<F: FnMut(Self::Item) -> T>(self, f: F) -> Self::Output<F> {
         self.map(f)
     }
 
+    #[inline]
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((Self::Item, I::Item)) -> T,
@@ -266,6 +286,7 @@ impl<E: Expression> IntoExpression for E {
     type Shape = E::Shape;
     type IntoExpr = E;
 
+    #[inline]
     fn into_expr(self) -> Self {
         self
     }

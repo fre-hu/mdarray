@@ -27,6 +27,7 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     fn index(self, rank: usize) -> usize;
 
     #[doc(hidden)]
+    #[inline]
     fn get<M: Mapping>(
         self,
         mapping: &M,
@@ -37,6 +38,7 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     #[doc(hidden)]
+    #[inline]
     fn remove<M: Mapping>(
         self,
         mapping: &M,
@@ -45,6 +47,7 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     #[doc(hidden)]
+    #[inline]
     fn resize<M: Mapping>(
         self,
         mapping: &M,

@@ -57,6 +57,7 @@ impl DimIndex for usize {
     type Layout<L: Layout, I: ViewIndex> = I::Layout<L>;
     type Outer<L: Layout, I: ViewIndex> = Strided;
 
+    #[inline]
     fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
         tail: I,
@@ -80,6 +81,7 @@ impl DimIndex for RangeFull {
     type Layout<L: Layout, I: ViewIndex> = I::Outer<L>;
     type Outer<L: Layout, I: ViewIndex> = I::Outer<L>;
 
+    #[inline]
     fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
         tail: I,
@@ -101,6 +103,7 @@ macro_rules! impl_dim_index {
             type Layout<L: Layout, I: ViewIndex> = I::Outer<L>;
             type Outer<L: Layout, I: ViewIndex> = Strided;
 
+            #[inline]
             fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J>(
                 self,
                 tail: I,
@@ -138,6 +141,7 @@ impl<R: RangeBounds<usize>> DimIndex for StepRange<R, isize> {
     type Layout<L: Layout, I: ViewIndex> = Strided;
     type Outer<L: Layout, I: ViewIndex> = Strided;
 
+    #[inline]
     fn dim_index<S: Shape, M: Mapping, I: ViewIndex, J: ViewIndex<Shape<S> = Self::Shape<S, I>>>(
         self,
         tail: I,
@@ -167,6 +171,7 @@ impl ViewIndex for () {
 
     const RANK: usize = 0;
 
+    #[inline]
     fn view_index<S: Shape, M: Mapping>(
         self,
         _: &M,
@@ -184,6 +189,7 @@ macro_rules! impl_view_index {
 
             const RANK: usize = $n;
 
+            #[inline]
             fn view_index<S: Shape, M: Mapping>(
                 self,
                 mapping: &M,

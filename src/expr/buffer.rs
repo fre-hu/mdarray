@@ -39,6 +39,7 @@ pub struct Drain<'a, T, S: Shape, A: Allocator = Global> {
 }
 
 impl<'a, T, S: Shape, A: Allocator> Drain<'a, T, S, A> {
+    #[inline]
     pub(crate) fn new(tensor: &'a mut Tensor<T, S, A>, start: usize, end: usize) -> Self {
         assert!(start <= end && end <= tensor.dim(0), "invalid range");
 
@@ -63,16 +64,19 @@ impl<T, S: Shape, A: Allocator> Buffer for Drain<'_, T, S, A> {
     type Item = T;
     type Shape = S;
 
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut Slice<ManuallyDrop<T>, S> {
         &mut self.view
     }
 
+    #[inline]
     fn as_slice(&self) -> &Slice<ManuallyDrop<T>, S> {
         &self.view
     }
 }
 
 impl<T, S: Shape, A: Allocator> Drop for Drain<'_, T, S, A> {
+    #[inline]
     fn drop(&mut self) {
         let mapping = Mapping::resize_dim(self.tensor.mapping(), 0, self.new_size);
 
@@ -87,10 +91,12 @@ impl<T, S: ConstShape> Buffer for Array<ManuallyDrop<T>, S> {
     type Item = T;
     type Shape = S;
 
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut Slice<ManuallyDrop<T>, S> {
         self
     }
 
+    #[inline]
     fn as_slice(&self) -> &Slice<ManuallyDrop<T>, S> {
         self
     }
@@ -100,10 +106,12 @@ impl<T, S: Shape, A: Allocator> Buffer for Tensor<ManuallyDrop<T>, S, A> {
     type Item = T;
     type Shape = S;
 
+    #[inline]
     fn as_mut_slice(&mut self) -> &mut Slice<ManuallyDrop<T>, S> {
         self
     }
 
+    #[inline]
     fn as_slice(&self) -> &Slice<ManuallyDrop<T>, S> {
         self
     }

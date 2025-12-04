@@ -52,6 +52,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     /// # Panics
     ///
     /// Panics if the dimension is out of bounds.
+    #[inline]
     fn dim(&self, index: usize) -> usize {
         assert!(index < self.rank(), "invalid dimension");
 
@@ -63,6 +64,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     /// # Panics
     ///
     /// Panics if the dimensions are not matching static rank or constant-sized dimensions.
+    #[inline]
     fn from_dims(dims: &[usize]) -> Self {
         let mut shape = Self::new(dims.len());
 
@@ -71,16 +73,19 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     /// Returns `true` if the array contains no elements.
+    #[inline]
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns the number of elements in the array.
+    #[inline]
     fn len(&self) -> usize {
         self.with_dims(|dims| dims.iter().product())
     }
 
     /// Returns the array rank, i.e. the number of dimensions.
+    #[inline]
     fn rank(&self) -> usize {
         self.with_dims(|dims| dims.len())
     }
@@ -95,11 +100,13 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T;
 
     #[doc(hidden)]
+    #[inline]
     fn checked_len(&self) -> Option<usize> {
         self.with_dims(|dims| dims.iter().try_fold(1usize, |acc, &x| acc.checked_mul(x)))
     }
 
     #[doc(hidden)]
+    #[inline]
     fn prepend_dim<S: Shape>(&self, size: usize) -> S {
         let mut shape = S::new(self.rank() + 1);
 
@@ -112,6 +119,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     #[doc(hidden)]
+    #[inline]
     fn remove_dim<S: Shape>(&self, index: usize) -> S {
         assert!(index < self.rank(), "invalid dimension");
 
@@ -128,6 +136,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     #[doc(hidden)]
+    #[inline]
     fn reshape<S: Shape>(&self, mut new_shape: S) -> S {
         let mut inferred = None;
 
@@ -157,6 +166,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     #[doc(hidden)]
+    #[inline]
     fn resize_dim<S: Shape>(&self, index: usize, new_size: usize) -> S {
         assert!(index < self.rank(), "invalid dimension");
 
@@ -171,6 +181,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     }
 
     #[doc(hidden)]
+    #[inline]
     fn reverse(&self) -> Self::Reverse {
         let mut shape = Self::Reverse::new(self.rank());
 
@@ -261,7 +272,6 @@ impl Clone for DynRank {
 }
 
 impl Debug for DynRank {
-    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.with_dims(|dims| f.debug_tuple("DynRank").field(&dims).finish())
     }
@@ -277,6 +287,7 @@ impl Default for DynRank {
 impl Eq for DynRank {}
 
 impl Hash for DynRank {
+    #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.with_dims(|dims| dims.hash(state))
     }
@@ -325,6 +336,7 @@ impl Shape for DynRank {
         if rank == 1 { Self::One(0) } else { Self::Dyn(Dims::new(rank)) }
     }
 
+    #[inline]
     fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         let dims = match self {
             Self::Dyn(dims) => dims,
@@ -334,6 +346,7 @@ impl Shape for DynRank {
         f(dims)
     }
 
+    #[inline]
     fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         let dims = match self {
             Self::Dyn(dims) => dims,
@@ -366,10 +379,12 @@ impl Shape for () {
         assert!(rank == 0, "invalid rank");
     }
 
+    #[inline]
     fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         f(&[])
     }
 
+    #[inline]
     fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         f(&mut [])
     }
@@ -392,16 +407,19 @@ impl<X: Dim> Shape for (X,) {
 
     const RANK: Option<usize> = Some(1);
 
+    #[inline]
     fn new(rank: usize) -> Self {
         assert!(rank == 1, "invalid rank");
 
         Self::default()
     }
 
+    #[inline]
     fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
         f(&[self.0.size()])
     }
 
+    #[inline]
     fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
         let mut dims = [self.0.size()];
         let value = f(&mut dims);
@@ -446,16 +464,19 @@ macro_rules! impl_shape {
 
             const RANK: Option<usize> = Some($n);
 
+            #[inline]
             fn new(rank: usize) -> Self {
                 assert!(rank == $n, "invalid rank");
 
                 Self::default()
             }
 
+            #[inline]
             fn with_dims<T, F: FnOnce(&[usize]) -> T>(&self, f: F) -> T {
                 f(&[self.0.size() $(,self.$jk.size())+])
             }
 
+            #[inline]
             fn with_mut_dims<T, F: FnOnce(&mut [usize]) -> T>(&mut self, f: F) -> T {
                 let mut dims = [self.0.size() $(,self.$jk.size())+];
                 let value = f(&mut dims);
@@ -495,10 +516,12 @@ impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X], Tensor);
 impl<S: Shape> IntoShape for S {
     type IntoShape = S;
 
+    #[inline]
     fn into_shape(self) -> S {
         self
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         self.with_dims(f)
     }
@@ -507,10 +530,12 @@ impl<S: Shape> IntoShape for S {
 impl<const N: usize> IntoShape for &[usize; N] {
     type IntoShape = DynRank;
 
+    #[inline]
     fn into_shape(self) -> DynRank {
         Shape::from_dims(self)
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(self)
     }
@@ -524,6 +549,7 @@ impl IntoShape for &[usize] {
         Shape::from_dims(self)
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(self)
     }
@@ -537,6 +563,7 @@ impl IntoShape for Box<[usize]> {
         DynRank::Dyn(self)
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&self)
     }
@@ -545,10 +572,12 @@ impl IntoShape for Box<[usize]> {
 impl<const N: usize> IntoShape for Const<N> {
     type IntoShape = (Self,);
 
+    #[inline]
     fn into_shape(self) -> Self::IntoShape {
         (self,)
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&[N])
     }
@@ -562,6 +591,7 @@ impl IntoShape for Dyn {
         (self,)
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&[self])
     }
@@ -575,6 +605,7 @@ impl IntoShape for Vec<usize> {
         DynRank::Dyn(self.into())
     }
 
+    #[inline]
     fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
         f(&self)
     }
@@ -590,6 +621,7 @@ macro_rules! impl_into_shape {
                 Shape::from_dims(&self)
             }
 
+            #[inline]
             fn into_dims<T, F: FnOnce(&[usize]) -> T>(self, f: F) -> T {
                 f(&self)
             }

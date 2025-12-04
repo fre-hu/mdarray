@@ -14,6 +14,7 @@ pub use view::{DimIndex, ViewIndex};
 pub use axis::{Keep, Resize, Split};
 
 #[cfg(not(feature = "nightly"))]
+#[inline]
 pub(crate) fn range<R>(range: R, bounds: core::ops::RangeTo<usize>) -> core::ops::Range<usize>
 where
     R: core::ops::RangeBounds<usize>,

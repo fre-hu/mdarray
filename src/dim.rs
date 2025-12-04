@@ -67,12 +67,14 @@ impl<const N: usize> Dim for Const<N> {
 
     const SIZE: Option<usize> = Some(N);
 
+    #[inline]
     fn from_size(size: usize) -> Self {
         assert!(size == N, "invalid size");
 
         Self
     }
 
+    #[inline]
     fn size(self) -> usize {
         N
     }
@@ -99,6 +101,7 @@ macro_rules! impl_dims {
     ($($n:tt),+) => {
         $(
             impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for [T; $n] {
+                #[inline]
                 fn new(len: usize) -> Self {
                     assert!(len == $n, "invalid length");
 
@@ -112,12 +115,14 @@ macro_rules! impl_dims {
 impl_dims!(0, 1, 2, 3, 4, 5, 6);
 
 impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for Box<[T]> {
+    #[inline]
     fn new(len: usize) -> Self {
         vec![T::default(); len].into()
     }
 }
 
 impl<const N: usize> From<Const<N>> for Dyn {
+    #[inline]
     fn from(_: Const<N>) -> Self {
         N
     }
@@ -126,6 +131,7 @@ impl<const N: usize> From<Const<N>> for Dyn {
 impl<const N: usize> TryFrom<Dyn> for Const<N> {
     type Error = Dyn;
 
+    #[inline]
     fn try_from(value: Dyn) -> Result<Self, Self::Error> {
         if value.size() == N { Ok(Self) } else { Err(value) }
     }

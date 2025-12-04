@@ -16,6 +16,7 @@ pub struct Iter<E: Expression> {
 }
 
 impl<E: Expression> Iter<E> {
+    #[inline]
     pub(crate) fn new(expr: E) -> Self {
         let outer_rank = expr.rank().saturating_sub(expr.inner_rank());
 
@@ -34,6 +35,7 @@ impl<E: Expression> Iter<E> {
         Self { expr, inner_index, inner_limit, outer_index, outer_limit }
     }
 
+    #[inline]
     unsafe fn step_outer(&mut self) -> bool {
         let outer_rank = self.expr.rank().saturating_sub(self.expr.inner_rank());
 
@@ -77,6 +79,7 @@ impl<E: Expression> FusedIterator for Iter<E> {}
 impl<E: Expression> Iterator for Iter<E> {
     type Item = E::Item;
 
+    #[inline]
     fn fold<T, F: FnMut(T, Self::Item) -> T>(mut self, init: T, mut f: F) -> T {
         let mut accum = init;
 
@@ -93,6 +96,7 @@ impl<E: Expression> Iterator for Iter<E> {
         }
     }
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.inner_index == self.inner_limit {
             if unsafe { !self.step_outer() } {
@@ -107,6 +111,7 @@ impl<E: Expression> Iterator for Iter<E> {
         unsafe { Some(self.expr.get_unchecked(self.inner_index - 1)) }
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let outer_rank = self.expr.rank().saturating_sub(self.expr.inner_rank());
         let mut len = 1;
