@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2025-12-09
+
+- Mark most functions with inline, and remove codegen units in documentation (#17).
+- Deny warnings in test script and document codegen units.
+- Add Miri tests.
+- Add test script and fix test name.
+- Remove unnecessary inline attributes.
+- Fix building with --no-default-features.
+- Add inline attributes for non-generic functions and document benchmarking (#17).
+- Fix FromFn index initialization for dynamic-rank shapes (#16).
+
 ## [0.7.1] - 2025-10-16
 
 - Add swap and swap_axis methods, see #14.
