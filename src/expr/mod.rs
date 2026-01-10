@@ -1,15 +1,13 @@
 //! Expression module, for multidimensional iteration.
 
 mod adapters;
-mod buffer;
 mod expression;
 mod into_expr;
 mod iter;
 mod sources;
 
 pub use adapters::{Cloned, Copied, Enumerate, Map, Zip, cloned, copied, enumerate, map, zip};
-pub use buffer::{Buffer, Drain};
-pub use expression::{Apply, Expression, FromExpression, IntoExpression};
+pub use expression::{Apply, Expand, Expression, FromExpression, IntoExpression};
 pub use into_expr::IntoExpr;
 pub use iter::Iter;
 pub use sources::{AxisExpr, AxisExprMut, Lanes, LanesMut};
@@ -37,13 +35,13 @@ pub fn fold<T, I: IntoExpression, F: FnMut(T, I::Item) -> T>(expr: I, init: T, f
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, tensor, view};
+/// use mdarray::{array, expr, view};
 ///
-/// let mut t = tensor![0, 1, 2];
+/// let mut a = array![0, 1, 2];
 ///
-/// expr::for_each(&mut t, |x| *x *= 2);
+/// expr::for_each(&mut a, |x| *x *= 2);
 ///
-/// assert_eq!(t, view![0, 2, 4]);
+/// assert_eq!(a, view![0, 2, 4]);
 /// ```
 #[inline]
 pub fn for_each<I: IntoExpression, F: FnMut(I::Item)>(expr: I, f: F) {

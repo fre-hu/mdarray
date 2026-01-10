@@ -74,13 +74,13 @@ pub struct LanesMut<'a, T, S: Shape, L: Layout, A: Axis> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, tensor, view};
+/// use mdarray::{array, expr, view};
 ///
-/// let mut t = tensor![0; 3];
+/// let mut a = array![0; 3];
 ///
-/// t.assign(expr::fill(1));
+/// a.assign(expr::fill(1));
 ///
-/// assert_eq!(t, view![1; 3]);
+/// assert_eq!(a, view![1; 3]);
 /// ```
 #[inline]
 pub fn fill<T: Clone>(value: T) -> Fill<T> {
@@ -92,13 +92,13 @@ pub fn fill<T: Clone>(value: T) -> Fill<T> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, tensor, view};
+/// use mdarray::{array, expr, view};
 ///
-/// let mut t = tensor![0; 3];
+/// let mut a = array![0; 3];
 ///
-/// t.assign(expr::fill_with(|| 1));
+/// a.assign(expr::fill_with(|| 1));
 ///
-/// assert_eq!(t, view![1; 3]);
+/// assert_eq!(a, view![1; 3]);
 /// ```
 #[inline]
 pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
@@ -110,7 +110,7 @@ pub fn fill_with<T, F: FnMut() -> T>(f: F) -> FillWith<F> {
 /// # Examples
 ///
 /// ```
-/// use mdarray::{view, expr, expr::Expression};
+/// use mdarray::{expr, expr::Expression, view};
 ///
 /// assert_eq!(expr::from_elem([2, 3], 1).eval(), view![[1; 3]; 2]);
 /// ```

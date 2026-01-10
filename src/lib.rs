@@ -9,8 +9,8 @@
 //!
 //! Here are the main features of mdarray:
 //!
-//! - Dense array type, where the rank is known at compile time.
-//! - Static or dynamic array dimensions, with optional inline storage.
+//! - Dense array type, with dynamic or inline allocation.
+//! - Static or dynamic array dimensions, or fully dynamic including rank.
 //! - Standard Rust mechanisms are used for e.g. indexing and iteration.
 //! - Generic expressions for multidimensional iteration.
 //!
@@ -20,12 +20,11 @@
 //!
 //! ## Array types
 //!
-//! The basic array type is `Tensor` for a dense array that owns the storage,
+//! The basic array type is `Array` for a dense array that owns the storage,
 //! similar to the Rust `Vec` type. It is parameterized by the element type,
 //! the shape (i.e. the size of each dimension) and optionally an allocator.
-//!
-//! `Array` is a dense array which stores elements inline, similar to the Rust
-//! `array` type. The shape must consist of dimensions with constant size.
+//! Array elements are stored inline if the shape consists of constant-sized
+//! dimensions only, or using dynamic allocation otherwise.
 //!
 //! `View` and `ViewMut` are array types that refer to a parent array. They are
 //! used for example when creating array views without duplicating elements.
@@ -36,7 +35,7 @@
 //!
 //! The following type aliases are provided:
 //!
-//! - `DTensor<T, const N: usize, ...>` for a dense array with a given rank.
+//! - `DArray<T, const N: usize, ...>` for a dense array with a given rank.
 //! - `DSlice<T, const N: usize, ...>` for an array slice with a given rank.
 //!
 //! The rank can be dynamic using the `DynRank` shape type. This is the default
@@ -111,8 +110,8 @@
 //! by reference. For compound assignment operators, the first parameter is always
 //! a mutable reference to an array where the result is stored.
 //!
-//! Scalar parameters must passed using the `fill` function that wraps a value in
-//! an `Fill<T>` expression. If a type does not implement the `Copy` trait, the
+//! Scalar parameters must be passed using the `fill` function that wraps a value
+//! in an `Fill<T>` expression. If a type does not implement the `Copy` trait, the
 //! parameter must be passed by reference.
 //!
 //! ## Example
@@ -126,7 +125,7 @@
 //! `RUSTFLAGS='-C target-cpu=native'` to utilize CPU features such as FMA.
 //!
 //! ```
-//! use mdarray::{expr::Expression, tensor, view, DSlice};
+//! use mdarray::{DSlice, darray, dview, expr::Expression};
 //!
 //! fn matmul(a: &DSlice<f64, 2>, b: &DSlice<f64, 2>, c: &mut DSlice<f64, 2>) {
 //!     for (mut ci, ai) in c.rows_mut().zip(a.rows()) {
@@ -138,14 +137,14 @@
 //!     }
 //! }
 //!
-//! let a = view![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]];
-//! let b = view![[0.0, 1.0], [1.0, 1.0]];
+//! let a = dview![[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]];
+//! let b = dview![[0.0, 1.0], [1.0, 1.0]];
 //!
-//! let mut c = tensor![[0.0; 2]; 3];
+//! let mut c = darray![[0.0; 2]; 3];
 //!
 //! matmul(&a, &b, &mut c);
 //!
-//! assert_eq!(c, view![[4.0, 5.0], [5.0, 7.0], [6.0, 9.0]]);
+//! assert_eq!(c, dview![[4.0, 5.0], [5.0, 7.0], [6.0, 9.0]]);
 //! ```
 
 #![allow(clippy::comparison_chain)]
@@ -163,20 +162,19 @@
 
 extern crate alloc;
 
+pub mod buffer;
 pub mod expr;
 pub mod index;
+pub mod mapping;
 
 mod array;
 mod dim;
 mod layout;
 mod macros;
-mod mapping;
 mod ops;
 mod raw_slice;
-mod raw_tensor;
 mod shape;
 mod slice;
-mod tensor;
 mod traits;
 mod view;
 
@@ -193,13 +191,14 @@ mod allocator {
     impl Allocator for Global {}
 }
 
-pub use array::Array;
+pub use array::{Array, DArray, DTensor, Tensor};
 pub use dim::{Const, Dim, Dyn};
 pub use layout::{Dense, Layout, Strided};
-pub use mapping::{DenseMapping, Mapping, StridedMapping};
 pub use ops::{StepRange, step};
 pub use shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 pub use slice::{DSlice, Slice};
-pub use tensor::{DTensor, Tensor};
-pub use traits::{IntoCloned, Owned};
+pub use traits::IntoCloned;
 pub use view::{DView, DViewMut, View, ViewMut};
+
+// These re-exports are for backward compatibility, use the `mapping` module instead.
+pub use mapping::{DenseMapping, Mapping, StridedMapping};

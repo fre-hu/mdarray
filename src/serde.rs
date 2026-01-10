@@ -14,21 +14,20 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(not(feature = "nightly"))]
 use crate::allocator::Allocator;
+use crate::array;
 use crate::array::Array;
 use crate::dim::Dim;
 use crate::layout::Layout;
-use crate::shape::{ConstShape, Shape};
+use crate::shape::Shape;
 use crate::slice::Slice;
-use crate::tensor::Tensor;
 use crate::view::{View, ViewMut};
-use crate::{array, tensor};
 
-struct TensorVisitor<T, S: Shape> {
+struct ArrayVisitor<T, S: Shape> {
     phantom: PhantomData<(T, S)>,
 }
 
-impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
-    type Value = Tensor<T, S>;
+impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for ArrayVisitor<T, S> {
+    type Value = Array<T, S>;
 
     fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
         write!(formatter, "an array of rank {}", S::RANK.expect("invalid rank"))
@@ -51,7 +50,7 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
                 size += 1;
             }
         } else {
-            while let Some(value) = seq.next_element::<Tensor<T, S::Tail>>()? {
+            while let Some(value) = seq.next_element::<Array<T, S::Tail>>()? {
                 if size == 0 {
                     vec.reserve(value.len() * size_hint);
                     shape.with_mut_dims(|dims| {
@@ -86,39 +85,27 @@ impl<'a, T: Deserialize<'a>, S: Shape> Visitor<'a> for TensorVisitor<T, S> {
             return Err(A::Error::custom(msg));
         }
 
-        Ok(Tensor::from(vec).into_shape(shape))
+        Ok(Array::from(vec).into_shape(shape))
     }
 }
 
-impl<'a, T: Deserialize<'a>, S: ConstShape> Deserialize<'a> for Array<T, S> {
-    fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
-        if S::RANK != Some(0) {
-            Ok(<Tensor<T, S> as Deserialize>::deserialize(deserializer)?.into())
-        } else {
-            let value = <T as Deserialize>::deserialize(deserializer)?;
-
-            Ok(array![value].into_shape())
-        }
-    }
-}
-
-impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Tensor<T, S> {
+impl<'a, T: Deserialize<'a>, S: Shape> Deserialize<'a> for Array<T, S> {
     fn deserialize<R: Deserializer<'a>>(deserializer: R) -> Result<Self, R::Error> {
         let rank = S::RANK.expect("dynamic rank not supported");
 
         if rank > 0 {
-            let visitor = TensorVisitor { phantom: PhantomData };
+            let visitor = ArrayVisitor { phantom: PhantomData };
 
             deserializer.deserialize_seq(visitor)
         } else {
             let value = <T as Deserialize>::deserialize(deserializer)?;
 
-            Ok(tensor![value].into_shape(S::default()))
+            Ok(array![value].into_shape(S::default()))
         }
     }
 }
 
-impl<T: Serialize, S: ConstShape> Serialize for Array<T, S> {
+impl<T: Serialize, S: Shape, A: Allocator> Serialize for Array<T, S, A> {
     fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
         (**self).serialize(serializer)
     }
@@ -139,12 +126,6 @@ impl<T: Serialize, S: Shape, L: Layout> Serialize for Slice<T, S, L> {
 
             seq.end()
         }
-    }
-}
-
-impl<T: Serialize, S: Shape, A: Allocator> Serialize for Tensor<T, S, A> {
-    fn serialize<R: Serializer>(&self, serializer: R) -> Result<R::Ok, R::Error> {
-        (**self).serialize(serializer)
     }
 }
 

@@ -14,16 +14,15 @@ use core::ptr::{self, NonNull};
 
 use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
-use crate::expr::{Apply, Expression, FromExpression, IntoExpression};
-use crate::expr::{AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
+use crate::expr::{Apply, AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
+use crate::expr::{Expression, IntoExpression};
 use crate::index::{self, Axis, Cols, Resize, Rows, Split};
 use crate::index::{DimIndex, Permutation, SliceIndex, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
-use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
-use crate::tensor::Tensor;
-use crate::traits::{IntoCloned, Owned};
+use crate::shape::{DynRank, IntoShape, Rank, Shape};
+use crate::traits::IntoCloned;
 use crate::view::{View, ViewMut};
 
 /// Multidimensional array slice.
@@ -723,28 +722,41 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn to_array(&self) -> Array<T, S>
     where
         T: Clone,
-        S: ConstShape,
     {
-        Array::from(self)
-    }
-
-    /// Copies the array slice into a new array.
-    #[inline]
-    pub fn to_tensor(&self) -> Tensor<T, S>
-    where
-        T: Clone,
-    {
-        Tensor::from(self)
+        self.into()
     }
 
     /// Copies the array slice into a new array with the specified allocator.
     #[cfg(feature = "nightly")]
     #[inline]
-    pub fn to_tensor_in<A: Allocator>(&self, alloc: A) -> Tensor<T, S, A>
+    pub fn to_array_in<A: Allocator>(&self, alloc: A) -> Array<T, S, A>
     where
         T: Clone,
     {
-        Tensor::from_expr_in(self.expr().cloned(), alloc)
+        self.expr().cloned().eval_in(alloc)
+    }
+
+    /// Copies the array slice into a new array.
+    ///
+    /// This method is for backward compatibility, use `to_array` instead.
+    #[inline]
+    pub fn to_tensor(&self) -> Array<T, S>
+    where
+        T: Clone,
+    {
+        self.to_array()
+    }
+
+    /// Copies the array slice into a new array with the specified allocator.
+    ///
+    /// This method is for backward compatibility, use `to_array_in` instead.
+    #[cfg(feature = "nightly")]
+    #[inline]
+    pub fn to_tensor_in<A: Allocator>(&self, alloc: A) -> Array<T, S, A>
+    where
+        T: Clone,
+    {
+        self.to_array_in(alloc)
     }
 
     /// Copies the array slice into a new vector.
@@ -753,7 +765,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     where
         T: Clone,
     {
-        self.to_tensor().into_vec()
+        self.flatten().to_array().into_vec()
     }
 
     /// Copies the array slice into a new vector with the specified allocator.
@@ -763,7 +775,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     where
         T: Clone,
     {
-        self.to_tensor_in(alloc).into_vec()
+        self.flatten().to_array_in(alloc).into_vec()
     }
 
     /// Returns a transposed array view of the array slice, where the dimensions
@@ -816,25 +828,22 @@ macro_rules! impl_view {
             ) -> Array<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
             where
                 T: Clone,
-                ($($abc,)+): ViewIndex<Shape<($($xyz,)+)>: ConstShape>,
             {
                 self.view($($idx),+).to_array()
             }
 
             /// Copies the specified subarray into a new array.
             ///
-            /// # Panics
-            ///
-            /// Panics if the subarray is out of bounds.
+            /// This method is for backward compatibility, use `array` instead.
             #[inline]
             pub fn tensor<$($abc: DimIndex),+>(
                 &self,
                 $($idx: $abc),+
-            ) -> Tensor<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
+            ) -> Array<T, <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>>
             where
                 T: Clone,
             {
-                self.view($($idx),+).to_tensor()
+                self.array($($idx),+)
             }
 
             /// Returns an array view for the specified subarray.
@@ -951,10 +960,24 @@ impl<T, D: Dim> AsRef<[T]> for Slice<T, (D,)> {
 
 macro_rules! impl_as_mut_ref {
     (($($xyz:tt),+), $array:tt) => {
+        impl<T, $(const $xyz: usize),+> AsMut<Slice<T, ($(Const<$xyz>,)+)>> for $array {
+            #[inline]
+            fn as_mut(&mut self) -> &mut Slice<T, ($(Const<$xyz>,)+)> {
+                unsafe { &mut *(self as *mut Self as *mut Slice<T, ($(Const<$xyz>,)+)>) }
+            }
+        }
+
         impl<T, $(const $xyz: usize),+> AsMut<$array> for Slice<T, ($(Const<$xyz>,)+)> {
             #[inline]
             fn as_mut(&mut self) -> &mut $array {
                 unsafe { &mut *(self as *mut Self as *mut $array) }
+            }
+        }
+
+        impl<T, $(const $xyz: usize),+> AsRef<Slice<T, ($(Const<$xyz>,)+)>> for $array {
+            #[inline]
+            fn as_ref(&self) -> &Slice<T, ($(Const<$xyz>,)+)> {
+                unsafe { &*(self as *const Self as *const Slice<T, ($(Const<$xyz>,)+)>) }
             }
         }
 
@@ -1055,11 +1078,11 @@ impl<'a, T, S: Shape, L: Layout> IntoIterator for &'a mut Slice<T, S, L> {
 }
 
 impl<T: Clone, S: Shape> ToOwned for Slice<T, S> {
-    type Owned = S::Owned<T>;
+    type Owned = Array<T, S>;
 
     #[inline]
     fn to_owned(&self) -> Self::Owned {
-        FromExpression::from_expr(self.into_expr().cloned())
+        self.to_array()
     }
 
     #[inline]

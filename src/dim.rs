@@ -1,3 +1,5 @@
+#[cfg(feature = "nightly")]
+use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 #[cfg(not(feature = "std"))]
@@ -6,9 +8,10 @@ use alloc::vec;
 use core::fmt::{self, Debug, Formatter};
 use core::hash::Hash;
 
+#[cfg(not(feature = "nightly"))]
+use crate::allocator::Allocator;
+use crate::buffer::{DynBuffer, Owned};
 use crate::shape::Shape;
-use crate::tensor::Tensor;
-use crate::traits::Owned;
 
 /// Array dimension trait.
 pub trait Dim: Copy + Debug + Default + Hash + Ord + Send + Sync {
@@ -16,7 +19,7 @@ pub trait Dim: Copy + Debug + Default + Hash + Ord + Send + Sync {
     type Merge<D: Dim>: Dim;
 
     #[doc(hidden)]
-    type Owned<T, S: Shape>: Owned<T, S::Prepend<Self>>;
+    type Buffer<T, S: Shape, A: Allocator>: Owned<Item = T, Shape = S::Prepend<Self>, Alloc = A>;
 
     /// Dimension size if known statically, or `None` if dynamic.
     const SIZE: Option<usize>;
@@ -33,14 +36,14 @@ pub trait Dim: Copy + Debug + Default + Hash + Ord + Send + Sync {
 }
 
 #[allow(unreachable_pub)]
-pub trait Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync>:
+pub trait Dims<T: Copy + Debug + Default + Hash + Ord + Send + Sync>:
     AsMut<[T]>
     + AsRef<[T]>
     + Clone
     + Debug
     + Default
-    + Eq
     + Hash
+    + Ord
     + Send
     + Sync
     + for<'a> TryFrom<&'a [T], Error: Debug>
@@ -63,7 +66,7 @@ impl<const N: usize> Debug for Const<N> {
 
 impl<const N: usize> Dim for Const<N> {
     type Merge<D: Dim> = Self;
-    type Owned<T, S: Shape> = <S::Owned<T> as Owned<T, S>>::WithConst<N>;
+    type Buffer<T, S: Shape, A: Allocator> = <S::Buffer<T, A> as Owned>::WithConst<N>;
 
     const SIZE: Option<usize> = Some(N);
 
@@ -82,7 +85,7 @@ impl<const N: usize> Dim for Const<N> {
 
 impl Dim for Dyn {
     type Merge<D: Dim> = D;
-    type Owned<T, S: Shape> = Tensor<T, S::Prepend<Self>>;
+    type Buffer<T, S: Shape, A: Allocator> = DynBuffer<T, S::Prepend<Self>, A>;
 
     const SIZE: Option<usize> = None;
 
@@ -100,7 +103,7 @@ impl Dim for Dyn {
 macro_rules! impl_dims {
     ($($n:tt),+) => {
         $(
-            impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for [T; $n] {
+            impl<T: Copy + Debug + Default + Hash + Ord + Send + Sync> Dims<T> for [T; $n] {
                 #[inline]
                 fn new(len: usize) -> Self {
                     assert!(len == $n, "invalid length");
@@ -114,7 +117,7 @@ macro_rules! impl_dims {
 
 impl_dims!(0, 1, 2, 3, 4, 5, 6);
 
-impl<T: Copy + Debug + Default + Eq + Hash + Send + Sync> Dims<T> for Box<[T]> {
+impl<T: Copy + Debug + Default + Hash + Ord + Send + Sync> Dims<T> for Box<[T]> {
     #[inline]
     fn new(len: usize) -> Self {
         vec![T::default(); len].into()
