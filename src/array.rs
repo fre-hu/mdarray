@@ -797,13 +797,6 @@ impl<T, U, S: Shape, A: Allocator> Apply<U> for Array<T, S, A> {
     }
 }
 
-impl<T, S: Shape, A: Allocator> AsMut<Self> for Array<T, S, A> {
-    #[inline]
-    fn as_mut(&mut self) -> &mut Self {
-        self
-    }
-}
-
 impl<T, U: ?Sized, S: Shape, A: Allocator> AsMut<U> for Array<T, S, A>
 where
     Slice<T, S>: AsMut<U>,
@@ -811,13 +804,6 @@ where
     #[inline]
     fn as_mut(&mut self) -> &mut U {
         (**self).as_mut()
-    }
-}
-
-impl<T, S: Shape, A: Allocator> AsRef<Self> for Array<T, S, A> {
-    #[inline]
-    fn as_ref(&self) -> &Self {
-        self
     }
 }
 
