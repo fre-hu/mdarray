@@ -9,8 +9,8 @@ with interworking to other crates for e.g. BLAS/LAPACK functionality.
 
 Here are the main features of mdarray:
 
-- Dense array type, where the rank is known at compile time.
-- Static or dynamic array dimensions, with optional stack allocation.
+- Dense array type, with dynamic or inline allocation.
+- Static or dynamic array dimensions, or fully dynamic including rank.
 - Standard Rust mechanisms are used for e.g. indexing and iteration.
 - Generic expressions for multidimensional iteration.
 

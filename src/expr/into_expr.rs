@@ -2,49 +2,50 @@ use core::fmt::{Debug, Formatter, Result};
 use core::mem::ManuallyDrop;
 use core::ptr;
 
-use crate::expr::buffer::Buffer;
+use crate::buffer::Buffer;
 use crate::expr::expression::Expression;
 use crate::expr::iter::Iter;
 use crate::slice::Slice;
 
 /// Expression that moves elements out of an array.
-pub struct IntoExpr<B: Buffer> {
+pub struct IntoExpr<T, B: Buffer<Item = ManuallyDrop<T>>> {
     buffer: B,
     index: usize,
 }
 
-impl<B: Buffer> IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>>> IntoExpr<T, B> {
+    /// Creates an expression from an array buffer.
     #[inline]
-    pub(crate) fn new(buffer: B) -> Self {
+    pub fn new(buffer: B) -> Self {
         Self { buffer, index: 0 }
     }
 }
 
-impl<B: Buffer> AsMut<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>>> AsMut<Slice<T, B::Shape>> for IntoExpr<T, B> {
     #[inline]
-    fn as_mut(&mut self) -> &mut Slice<B::Item, B::Shape> {
+    fn as_mut(&mut self) -> &mut Slice<T, B::Shape> {
         debug_assert!(self.index == 0, "expression in use");
 
         unsafe {
-            &mut *(self.buffer.as_mut_slice() as *mut Slice<ManuallyDrop<B::Item>, B::Shape>
-                as *mut Slice<B::Item, B::Shape>)
+            &mut *(self.buffer.as_mut_slice() as *mut Slice<ManuallyDrop<T>, B::Shape>
+                as *mut Slice<T, B::Shape>)
         }
     }
 }
 
-impl<B: Buffer> AsRef<Slice<B::Item, B::Shape>> for IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>>> AsRef<Slice<T, B::Shape>> for IntoExpr<T, B> {
     #[inline]
-    fn as_ref(&self) -> &Slice<B::Item, B::Shape> {
+    fn as_ref(&self) -> &Slice<T, B::Shape> {
         debug_assert!(self.index == 0, "expression in use");
 
         unsafe {
-            &*(self.buffer.as_slice() as *const Slice<ManuallyDrop<B::Item>, B::Shape>
-                as *const Slice<B::Item, B::Shape>)
+            &*(self.buffer.as_slice() as *const Slice<ManuallyDrop<T>, B::Shape>
+                as *const Slice<T, B::Shape>)
         }
     }
 }
 
-impl<B: Buffer + Clone> Clone for IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>> + Clone> Clone for IntoExpr<T, B> {
     #[inline]
     fn clone(&self) -> Self {
         assert!(self.index == 0, "expression in use");
@@ -60,24 +61,24 @@ impl<B: Buffer + Clone> Clone for IntoExpr<B> {
     }
 }
 
-impl<B: Buffer<Item: Debug>> Debug for IntoExpr<B> {
+impl<T: Debug, B: Buffer<Item = ManuallyDrop<T>>> Debug for IntoExpr<T, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         f.debug_tuple("IntoExpr").field(&self.as_ref()).finish()
     }
 }
 
-impl<B: Buffer + Default> Default for IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>> + Default> Default for IntoExpr<T, B> {
     #[inline]
     fn default() -> Self {
         Self { buffer: Default::default(), index: 0 }
     }
 }
 
-impl<B: Buffer> Drop for IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>>> Drop for IntoExpr<T, B> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            let ptr = self.buffer.as_mut_slice().as_mut_ptr().add(self.index) as *mut B::Item;
+            let ptr = self.buffer.as_mut_slice().as_mut_ptr().add(self.index) as *mut T;
             let len = self.buffer.as_slice().len() - self.index;
 
             ptr::slice_from_raw_parts_mut(ptr, len).drop_in_place();
@@ -85,18 +86,18 @@ impl<B: Buffer> Drop for IntoExpr<B> {
     }
 }
 
-impl<B: Buffer> Expression for IntoExpr<B> {
+impl<T, B: Buffer<Item = ManuallyDrop<T>>> Expression for IntoExpr<T, B> {
     type Shape = B::Shape;
 
     const IS_REPEATABLE: bool = false;
 
     #[inline]
-    fn shape(&self) -> &Self::Shape {
+    fn shape(&self) -> &B::Shape {
         self.buffer.as_slice().shape()
     }
 
     #[inline]
-    unsafe fn get_unchecked(&mut self, _: usize) -> B::Item {
+    unsafe fn get_unchecked(&mut self, _: usize) -> T {
         debug_assert!(self.index < self.buffer.as_slice().len(), "index out of bounds");
 
         self.index += 1; // Keep track of that the element is moved out.
@@ -118,8 +119,8 @@ impl<B: Buffer> Expression for IntoExpr<B> {
     unsafe fn step_dim(&mut self, _: usize) {}
 }
 
-impl<B: Buffer> IntoIterator for IntoExpr<B> {
-    type Item = B::Item;
+impl<T, B: Buffer<Item = ManuallyDrop<T>>> IntoIterator for IntoExpr<T, B> {
+    type Item = T;
     type IntoIter = Iter<Self>;
 
     #[inline]

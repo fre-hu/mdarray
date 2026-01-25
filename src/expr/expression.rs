@@ -3,12 +3,10 @@ use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::Allocator;
+use crate::array::Array;
 use crate::expr::adapters::{Cloned, Copied, Enumerate, Map, Zip};
 use crate::expr::iter::Iter;
 use crate::shape::Shape;
-use crate::tensor::Tensor;
 use crate::traits::IntoCloned;
 
 /// Trait for applying a closure and returning an existing array or an expression.
@@ -28,6 +26,12 @@ pub trait Apply<T>: IntoExpression {
     fn zip_with<I: IntoExpression, F>(self, expr: I, f: F) -> Self::ZippedWith<I, F>
     where
         F: FnMut((Self::Item, I::Item)) -> T;
+}
+
+/// Trait for appending an expression to an array along the first dimension.
+pub trait Expand<T> {
+    /// Expands an array with the contents of an expression along the first dimension.
+    fn expand<I: IntoExpression<Item = T>>(&mut self, expr: I);
 }
 
 /// Expression trait, for multidimensional iteration.
@@ -102,16 +106,22 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression into a new array.
-    ///
-    /// The resulting type is `Array` if the shape has constant-sized dimensions, or
-    /// otherwise `Tensor`. If the shape type is generic, `FromExpression::from_expr`
-    /// can be used to evaluate the expression into a specific array type.
     #[inline]
-    fn eval(self) -> <Self::Shape as Shape>::Owned<Self::Item>
+    fn eval(self) -> Array<Self::Item, Self::Shape>
     where
         Self: Sized,
     {
-        FromExpression::from_expr(self)
+        Array::from_expr(self)
+    }
+
+    /// Evaluates the expression into a new array with the specified allocator.
+    #[cfg(feature = "nightly")]
+    #[inline]
+    fn eval_in<A: Allocator>(self, alloc: A) -> Array<Self::Item, Self::Shape, A>
+    where
+        Self: Sized,
+    {
+        Array::from_expr_in(self, alloc)
     }
 
     /// Evaluates the expression with broadcasting and appends to the given array
@@ -124,15 +134,12 @@ pub trait Expression: IntoIterator {
     /// Panics if the inner dimensions do not match, if the rank is not the same and
     /// at least 1, or if the first dimension is not dynamically-sized.
     #[inline]
-    fn eval_into<S: Shape, A: Allocator>(
-        self,
-        tensor: &mut Tensor<Self::Item, S, A>,
-    ) -> &mut Tensor<Self::Item, S, A>
+    fn eval_into<A: Expand<Self::Item>>(self, array: &mut A) -> &mut A
     where
         Self: Sized,
     {
-        tensor.expand(self);
-        tensor
+        array.expand(self);
+        array
     }
 
     /// Folds all elements into an accumulator by applying an operation, and returns the result.

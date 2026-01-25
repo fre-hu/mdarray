@@ -1,3 +1,5 @@
+#[cfg(feature = "nightly")]
+use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 #[cfg(not(feature = "std"))]
@@ -8,11 +10,11 @@ use core::fmt::Debug;
 use core::hash::{Hash, Hasher};
 use core::slice;
 
-use crate::array::Array;
+#[cfg(not(feature = "nightly"))]
+use crate::allocator::Allocator;
+use crate::buffer::{DynBuffer, Owned, StaticBuffer};
 use crate::dim::{Const, Dim, Dims, Dyn};
 use crate::layout::{Layout, Strided};
-use crate::tensor::Tensor;
-use crate::traits::Owned;
 
 /// Array shape trait.
 pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
@@ -35,14 +37,14 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     /// The result has dynamic rank if at least one of the inputs has dynamic rank.
     type Merge<S: Shape>: Shape;
 
+    /// Array buffer type.
+    type Buffer<T, A: Allocator>: Owned<Item = T, Shape = Self, Alloc = A>;
+
     /// Select layout `L` for rank 0, or `Strided` for rank >0 or dynamic.
     type Layout<L: Layout>: Layout;
 
-    /// Corresponding array type owning its contents.
-    type Owned<T>: Owned<T, Self>;
-
     #[doc(hidden)]
-    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync>: Dims<T>;
+    type Dims<T: Copy + Debug + Default + Hash + Ord + Send + Sync>: Dims<T>;
 
     /// Array rank if known statically, or `None` if dynamic.
     const RANK: Option<usize>;
@@ -155,7 +157,7 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
         let new_len = new_shape.checked_len().expect("invalid length");
 
         if let Some(i) = inferred {
-            assert!(old_len % new_len == 0, "length not divisible by the new dimensions");
+            assert!(old_len.is_multiple_of(new_len), "length not divisible by the new dimensions");
 
             new_shape.with_mut_dims(|dims| dims[i] = old_len / new_len);
         } else {
@@ -194,13 +196,13 @@ pub trait Shape: Clone + Debug + Default + Hash + Ord + Send + Sync {
     }
 }
 
-/// Trait for array shape where all dimensions are constant-sized.
+/// Trait for array shapes where all dimensions are constant-sized.
 pub trait ConstShape: Copy + Shape {
     #[doc(hidden)]
     type Inner<T>;
 
     #[doc(hidden)]
-    type WithConst<T, const N: usize, A: Owned<T, Self>>: Owned<T, Self::Prepend<Const<N>>>;
+    type WithConst<T, const N: usize, A: Allocator>: Owned<Item = T, Shape = Self::Prepend<Const<N>>, Alloc = A>;
 }
 
 /// Conversion trait into an array shape.
@@ -244,7 +246,6 @@ impl Clone for DynRank {
     #[inline]
     fn clone(&self) -> Self {
         match self {
-            Self::One(dim) => Self::One(*dim),
             Self::Dyn(dims) => {
                 if dims.len() == 1 {
                     Self::One(dims[0])
@@ -252,19 +253,19 @@ impl Clone for DynRank {
                     Self::Dyn(dims.clone())
                 }
             }
+            Self::One(dim) => Self::One(*dim),
         }
     }
 
     #[inline]
     fn clone_from(&mut self, source: &Self) {
-        if let Self::Dyn(dims) = self {
-            if let Self::Dyn(src) = source {
-                if dims.len() == src.len() {
-                    dims.clone_from_slice(src);
+        if let Self::Dyn(dims) = self
+            && let Self::Dyn(src) = source
+            && dims.len() == src.len()
+        {
+            dims.clone_from_slice(src);
 
-                    return;
-                }
-            }
+            return;
         }
 
         *self = source.clone();
@@ -324,10 +325,10 @@ impl Shape for DynRank {
     type Dyn = Self;
     type Merge<S: Shape> = Self;
 
+    type Buffer<T, A: Allocator> = DynBuffer<T, Self, A>;
     type Layout<L: Layout> = Strided;
-    type Owned<T> = Tensor<T>;
 
-    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = Box<[T]>;
+    type Dims<T: Copy + Debug + Default + Hash + Ord + Send + Sync> = Box<[T]>;
 
     const RANK: Option<usize> = None;
 
@@ -367,10 +368,10 @@ impl Shape for () {
     type Dyn = Self;
     type Merge<S: Shape> = S;
 
+    type Buffer<T, A: Allocator> = StaticBuffer<T, Self, A>;
     type Layout<L: Layout> = L;
-    type Owned<T> = Array<T, ()>;
 
-    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 0];
+    type Dims<T: Copy + Debug + Default + Hash + Ord + Send + Sync> = [T; 0];
 
     const RANK: Option<usize> = Some(0);
 
@@ -400,10 +401,10 @@ impl<X: Dim> Shape for (X,) {
     type Dyn = (Dyn,);
     type Merge<S: Shape> = <S::Tail as Shape>::Prepend<X::Merge<S::Head>>;
 
+    type Buffer<T, A: Allocator> = X::Buffer<T, (), A>;
     type Layout<L: Layout> = Strided;
-    type Owned<T> = X::Owned<T, ()>;
 
-    type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; 1];
+    type Dims<T: Copy + Debug + Default + Hash + Ord + Send + Sync> = [T; 1];
 
     const RANK: Option<usize> = Some(1);
 
@@ -457,10 +458,10 @@ macro_rules! impl_shape {
             type Merge<S: Shape> =
                 <<Self::Tail as Shape>::Merge<S::Tail> as Shape>::Prepend<X::Merge<S::Head>>;
 
+            type Buffer<T, A: Allocator> = X::Buffer<T, Self::Tail, A>;
             type Layout<L: Layout> = Strided;
-            type Owned<T> = X::Owned<T, Self::Tail>;
 
-            type Dims<T: Copy + Debug + Default + Eq + Hash + Send + Sync> = [T; $n];
+            type Dims<T: Copy + Debug + Default + Hash + Ord + Send + Sync> = [T; $n];
 
             const RANK: Option<usize> = Some($n);
 
@@ -499,19 +500,19 @@ macro_rules! impl_const_shape {
     (($($xyz:tt),*), $inner:ty, $with_const:tt) => {
         impl<$(const $xyz: usize),*> ConstShape for ($(Const<$xyz>,)*) {
             type Inner<T> = $inner;
-            type WithConst<T, const N: usize, A: Owned<T, Self>> =
-                $with_const<T, Self::Prepend<Const<N>>>;
+            type WithConst<T, const N: usize, A: Allocator> =
+                $with_const<T, Self::Prepend<Const<N>>, A>;
         }
     };
 }
 
-impl_const_shape!((), T, Array);
-impl_const_shape!((X), [T; X], Array);
-impl_const_shape!((X, Y), [[T; Y]; X], Array);
-impl_const_shape!((X, Y, Z), [[[T; Z]; Y]; X], Array);
-impl_const_shape!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X], Array);
-impl_const_shape!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X], Array);
-impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X], Tensor);
+impl_const_shape!((), T, StaticBuffer);
+impl_const_shape!((X), [T; X], StaticBuffer);
+impl_const_shape!((X, Y), [[T; Y]; X], StaticBuffer);
+impl_const_shape!((X, Y, Z), [[[T; Z]; Y]; X], StaticBuffer);
+impl_const_shape!((X, Y, Z, W), [[[[T; W]; Z]; Y]; X], StaticBuffer);
+impl_const_shape!((X, Y, Z, W, U), [[[[[T; U]; W]; Z]; Y]; X], StaticBuffer);
+impl_const_shape!((X, Y, Z, W, U, V), [[[[[[T; V]; U]; W]; Z]; Y]; X], DynBuffer);
 
 impl<S: Shape> IntoShape for S {
     type IntoShape = S;

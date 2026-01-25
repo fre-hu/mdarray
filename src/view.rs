@@ -649,6 +649,22 @@ macro_rules! impl_from_array_ref {
                 unsafe { Self::new_unchecked(value.as_mut_ptr().cast(), mapping) }
             }
         }
+
+        impl<'a, T $(,const $abc: usize)+> From<View<'a, T, ($(Const<$abc>,)+)>> for &'a $array {
+            #[inline]
+            fn from(value: View<'a, T, ($(Const<$abc>,)+)>) -> Self {
+                unsafe { &*value.as_ptr().cast() }
+            }
+        }
+
+        impl<'a, T $(,const $abc: usize)+> From<ViewMut<'a, T, ($(Const<$abc>,)+)>>
+            for &'a mut $array
+        {
+            #[inline]
+            fn from(mut value: ViewMut<'a, T, ($(Const<$abc>,)+)>) -> Self {
+                unsafe { &mut *value.as_mut_ptr().cast() }
+            }
+        }
     };
 }
 
@@ -691,44 +707,3 @@ unsafe impl<T: Sync, S: Shape, L: Layout> Sync for View<'_, T, S, L> {}
 
 unsafe impl<T: Send, S: Shape, L: Layout> Send for ViewMut<'_, T, S, L> {}
 unsafe impl<T: Sync, S: Shape, L: Layout> Sync for ViewMut<'_, T, S, L> {}
-
-macro_rules! impl_try_from_array_ref {
-    (($($xyz:tt),+), ($($abc:tt),+), $array:tt) => {
-        impl<'a, T $(,$xyz: Dim)+ $(,const $abc: usize)+> TryFrom<View<'a, T, ($($xyz,)+)>>
-            for &'a $array
-        {
-            type Error = View<'a, T, ($($xyz,)+)>;
-
-            #[inline]
-            fn try_from(value: View<'a, T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
-                if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
-                    Ok(unsafe { &*value.as_ptr().cast() })
-                } else {
-                    Err(value)
-                }
-            }
-        }
-
-        impl<'a, T $(,$xyz: Dim)+ $(,const $abc: usize)+> TryFrom<ViewMut<'a, T, ($($xyz,)+)>>
-            for &'a mut $array
-        {
-            type Error = ViewMut<'a, T, ($($xyz,)+)>;
-
-            #[inline]
-            fn try_from(mut value: ViewMut<'a, T, ($($xyz,)+)>) -> Result<Self, Self::Error> {
-                if value.shape().with_dims(|dims| dims == &[$($abc),+]) {
-                    Ok(unsafe { &mut *value.as_mut_ptr().cast() })
-                } else {
-                    Err(value)
-                }
-            }
-        }
-    };
-}
-
-impl_try_from_array_ref!((X), (A), [T; A]);
-impl_try_from_array_ref!((X, Y), (A, B), [[T; B]; A]);
-impl_try_from_array_ref!((X, Y, Z), (A, B, C), [[[T; C]; B]; A]);
-impl_try_from_array_ref!((X, Y, Z, W), (A, B, C, D), [[[[T; D]; C]; B]; A]);
-impl_try_from_array_ref!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A]);
-impl_try_from_array_ref!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);

@@ -1,6 +1,8 @@
 #[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 
+use core::mem::ManuallyDrop;
+
 use core::ops::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div, DivAssign,
     Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
@@ -9,12 +11,12 @@ use core::ops::{
 #[cfg(not(feature = "nightly"))]
 use crate::allocator::Allocator;
 use crate::array::Array;
-use crate::expr::{Apply, Buffer, Expression, IntoExpression};
+use crate::buffer::Buffer;
+use crate::expr::{Apply, Expression, IntoExpression};
 use crate::expr::{Fill, FillWith, FromElem, FromFn, IntoExpr, Map};
 use crate::layout::Layout;
-use crate::shape::{ConstShape, Shape};
+use crate::shape::Shape;
 use crate::slice::Slice;
-use crate::tensor::Tensor;
 use crate::view::{View, ViewMut};
 
 /// Range constructed from a unit spaced range with the given step size.
@@ -47,13 +49,12 @@ pub fn step<R, S>(range: R, step: S) -> StepRange<R, S> {
     StepRange { range, step }
 }
 
-impl<T: Eq, S: ConstShape> Eq for Array<T, S> {}
+impl<T: Eq, S: Shape, A: Allocator> Eq for Array<T, S, A> {}
 impl<T: Eq, S: Shape, L: Layout> Eq for Slice<T, S, L> {}
-impl<T: Eq, S: Shape, A: Allocator> Eq for Tensor<T, S, A> {}
 impl<T: Eq, S: Shape, L: Layout> Eq for View<'_, T, S, L> {}
 impl<T: Eq, S: Shape, L: Layout> Eq for ViewMut<'_, T, S, L> {}
 
-impl<T, U, S: ConstShape, R: Shape, L: Layout, I: ?Sized> PartialEq<I> for Array<T, S>
+impl<T, U, S: Shape, R: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Array<T, S, A>
 where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, L>>,
     T: PartialEq<U>,
@@ -115,17 +116,6 @@ where
     }
 }
 
-impl<T, U, S: Shape, R: Shape, L: Layout, A: Allocator, I: ?Sized> PartialEq<I> for Tensor<T, S, A>
-where
-    for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, L>>,
-    T: PartialEq<U>,
-{
-    #[inline]
-    fn eq(&self, other: &I) -> bool {
-        (**self).eq(other)
-    }
-}
-
 impl<T, U, S: Shape, R: Shape, L: Layout, K: Layout, I: ?Sized> PartialEq<I> for View<'_, T, S, L>
 where
     for<'a> &'a I: IntoExpression<IntoExpr = View<'a, U, R, K>>,
@@ -151,7 +141,7 @@ where
 
 macro_rules! impl_binary_op {
     ($trt:tt, $fn:tt) => {
-        impl<'a, T, U, S: ConstShape, I: Apply<U>> $trt<I> for &'a Array<T, S>
+        impl<'a, T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for &'a Array<T, S, A>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -168,22 +158,6 @@ macro_rules! impl_binary_op {
         }
 
         impl<'a, T, U, S: Shape, L: Layout, I: Apply<U>> $trt<I> for &'a Slice<T, S, L>
-        where
-            &'a T: $trt<I::Item, Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = I::ZippedWith<Self, fn((I::Item, &'a T)) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = I::ZippedWith<Self, impl FnMut((I::Item, &'a T)) -> U>;
-
-            #[inline]
-            fn $fn(self, rhs: I) -> Self::Output {
-                rhs.zip_with(self, |(x, y)| y.$fn(x))
-            }
-        }
-
-        impl<'a, T, U, S: Shape, A: Allocator, I: Apply<U>> $trt<I> for &'a Tensor<T, S, A>
         where
             &'a T: $trt<I::Item, Output = U>,
         {
@@ -231,11 +205,11 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T, U, S: ConstShape, I: IntoExpression> $trt<I> for Array<T, S>
+        impl<T, U, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Array<T, S, A>
         where
             T: $trt<I::Item, Output = U>,
         {
-            type Output = Array<U, S>;
+            type Output = Array<U, S, A>;
 
             #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
@@ -307,15 +281,15 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T, B: Buffer, I: Apply<T>> $trt<I> for IntoExpr<B>
+        impl<T, U, B: Buffer<Item = ManuallyDrop<T>>, I: Apply<U>> $trt<I> for IntoExpr<T, B>
         where
-            B::Item: $trt<I::Item, Output = T>,
+            T: $trt<I::Item, Output = U>,
         {
             #[cfg(not(feature = "nightly"))]
-            type Output = I::ZippedWith<Self, fn((I::Item, B::Item)) -> T>;
+            type Output = I::ZippedWith<Self, fn((I::Item, T)) -> U>;
 
             #[cfg(feature = "nightly")]
-            type Output = I::ZippedWith<Self, impl FnMut((I::Item, B::Item)) -> T>;
+            type Output = I::ZippedWith<Self, impl FnMut((I::Item, T)) -> U>;
 
             #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
@@ -336,18 +310,6 @@ macro_rules! impl_binary_op {
             #[inline]
             fn $fn(self, rhs: I) -> Self::Output {
                 rhs.zip_with(self, |(x, y)| y.$fn(x))
-            }
-        }
-
-        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Tensor<T, S, A>
-        where
-            T: $trt<I::Item, Output = T>,
-        {
-            type Output = Self;
-
-            #[inline]
-            fn $fn(self, rhs: I) -> Self {
-                self.zip_with(rhs, |(x, y)| x.$fn(y))
             }
         }
 
@@ -382,7 +344,7 @@ impl_binary_op!(Shr, shr);
 
 macro_rules! impl_op_assign {
     ($trt:tt, $fn:tt) => {
-        impl<T, S: ConstShape, I: IntoExpression> $trt<I> for Array<T, S>
+        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Array<T, S, A>
         where
             T: $trt<I::Item>,
         {
@@ -393,16 +355,6 @@ macro_rules! impl_op_assign {
         }
 
         impl<T, S: Shape, L: Layout, I: IntoExpression> $trt<I> for Slice<T, S, L>
-        where
-            T: $trt<I::Item>,
-        {
-            #[inline]
-            fn $fn(&mut self, rhs: I) {
-                self.expr_mut().zip(rhs).for_each(|(x, y)| x.$fn(y));
-            }
-        }
-
-        impl<T, S: Shape, A: Allocator, I: IntoExpression> $trt<I> for Tensor<T, S, A>
         where
             T: $trt<I::Item>,
         {
@@ -437,7 +389,7 @@ impl_op_assign!(ShrAssign, shr_assign);
 
 macro_rules! impl_unary_op {
     ($trt:tt, $fn:tt) => {
-        impl<'a, T, U, S: ConstShape> $trt for &'a Array<T, S>
+        impl<'a, T, U, S: Shape, A: Allocator> $trt for &'a Array<T, S, A>
         where
             &'a T: $trt<Output = U>,
         {
@@ -454,22 +406,6 @@ macro_rules! impl_unary_op {
         }
 
         impl<'a, T, U, S: Shape, L: Layout> $trt for &'a Slice<T, S, L>
-        where
-            &'a T: $trt<Output = U>,
-        {
-            #[cfg(not(feature = "nightly"))]
-            type Output = <Self as Apply<U>>::Output<fn(&'a T) -> U>;
-
-            #[cfg(feature = "nightly")]
-            type Output = <Self as Apply<U>>::Output<impl FnMut(&'a T) -> U>;
-
-            #[inline]
-            fn $fn(self) -> Self::Output {
-                self.apply(|x| x.$fn())
-            }
-        }
-
-        impl<'a, T, U, S: Shape, A: Allocator> $trt for &'a Tensor<T, S, A>
         where
             &'a T: $trt<Output = U>,
         {
@@ -517,11 +453,11 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T, U, S: ConstShape> $trt for Array<T, S>
+        impl<T, U, S: Shape, A: Allocator> $trt for Array<T, S, A>
         where
             T: $trt<Output = U>,
         {
-            type Output = Array<U, S>;
+            type Output = Array<U, S, A>;
 
             #[inline]
             fn $fn(self) -> Self::Output {
@@ -593,15 +529,15 @@ macro_rules! impl_unary_op {
             }
         }
 
-        impl<T, B: Buffer> $trt for IntoExpr<B>
+        impl<T, U, B: Buffer<Item = ManuallyDrop<T>>> $trt for IntoExpr<T, B>
         where
-            B::Item: $trt<Output = T>,
+            T: $trt<Output = U>,
         {
             #[cfg(not(feature = "nightly"))]
-            type Output = <Self as Apply<T>>::Output<fn(B::Item) -> T>;
+            type Output = <Self as Apply<U>>::Output<fn(T) -> U>;
 
             #[cfg(feature = "nightly")]
-            type Output = <Self as Apply<T>>::Output<impl FnMut(B::Item) -> T>;
+            type Output = <Self as Apply<U>>::Output<impl FnMut(T) -> U>;
 
             #[inline]
             fn $fn(self) -> Self::Output {
@@ -621,18 +557,6 @@ macro_rules! impl_unary_op {
 
             #[inline]
             fn $fn(self) -> Self::Output {
-                self.apply(|x| x.$fn())
-            }
-        }
-
-        impl<T, S: Shape, A: Allocator> $trt for Tensor<T, S, A>
-        where
-            T: $trt<Output = T>,
-        {
-            type Output = Self;
-
-            #[inline]
-            fn $fn(self) -> Self {
                 self.apply(|x| x.$fn())
             }
         }

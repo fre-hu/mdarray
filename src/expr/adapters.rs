@@ -75,11 +75,11 @@ pub fn copied<'a, T: 'a + Copy, I: IntoExpression<Item = &'a T>>(expr: I) -> Cop
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::Expression, tensor, view};
+/// use mdarray::{array, expr, expr::Expression, view};
 ///
-/// let t = tensor![3, 4, 5];
+/// let a = array![3, 4, 5];
 ///
-/// assert_eq!(expr::enumerate(t).eval(), view![(0, 3), (1, 4), (2, 5)]);
+/// assert_eq!(expr::enumerate(a).eval(), view![(0, 3), (1, 4), (2, 5)]);
 /// ```
 #[inline]
 pub fn enumerate<I: IntoExpression>(expr: I) -> Enumerate<I::IntoExpr> {
@@ -111,10 +111,10 @@ pub fn map<T, I: IntoExpression, F: FnMut(I::Item) -> T>(expr: I, f: F) -> Map<I
 /// # Examples
 ///
 /// ```
-/// use mdarray::{expr, expr::Expression, tensor, view};
+/// use mdarray::{array, expr, expr::Expression, view};
 ///
-/// let a = tensor![0, 1, 2];
-/// let b = tensor![3, 4, 5];
+/// let a = array![0, 1, 2];
+/// let b = array![3, 4, 5];
 ///
 /// assert_eq!(expr::zip(a, b).eval(), view![(0, 3), (1, 4), (2, 5)]);
 /// ```

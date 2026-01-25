@@ -1,3 +1,5 @@
+//! Module for array layout mapping.
+
 use core::fmt::Debug;
 use core::hash::Hash;
 
