@@ -44,33 +44,118 @@ macro_rules! to_slice {
     };
 }
 
-fn check_mapping<S: Shape, L: Layout, M: Mapping>(_: &M) {
+fn assert_mapping<S: Shape, L: Layout, M: Mapping>(_: &M) {
     assert_eq!(any::type_name::<L::Mapping<S>>(), any::type_name::<M>());
+}
+
+fn check_axis<L: Layout>() {
+    let a1 = DArray::<i32, 1>::from([0]);
+    let a1 = a1.remap::<Rank<1>, L>();
+
+    let a2 = DArray::<i32, 2>::from([[0]]);
+    let a2 = a2.remap::<Rank<2>, L>();
+
+    let a3 = DArray::<i32, 3>::from([[[0]]]);
+    let a3 = a3.remap::<Rank<3>, L>();
+
+    let ad = DArray::<i32, 4>::from([[[[0]]]]);
+    let ad = ad.remap::<DynRank, L>();
+
+    assert_mapping::<Rank<1>, L, _>(&Axis::get(U0, a1.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(0, a1.mapping()));
+
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(U0, a2.mapping()));
+    assert_mapping::<Rank<1>, L, _>(&Axis::get(U1, a2.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(0, a2.mapping()));
+
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(U0, a3.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(U1, a3.mapping()));
+    assert_mapping::<Rank<1>, L, _>(&Axis::get(U2, a3.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(0, a3.mapping()));
+
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(U0, ad.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(U1, ad.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(U2, ad.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::get(0, ad.mapping()));
+
+    assert_mapping::<Rank<0>, L, _>(&Axis::remove(U0, a1.mapping()));
+    assert_mapping::<Rank<0>, Strided, _>(&Axis::remove(0, a1.mapping()));
+
+    assert_mapping::<Rank<1>, L, _>(&Axis::remove(U0, a2.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::remove(U1, a2.mapping()));
+    assert_mapping::<Rank<1>, Strided, _>(&Axis::remove(0, a2.mapping()));
+
+    assert_mapping::<Rank<2>, L, _>(&Axis::remove(U0, a3.mapping()));
+    assert_mapping::<Rank<2>, Strided, _>(&Axis::remove(U1, a3.mapping()));
+    assert_mapping::<Rank<2>, Strided, _>(&Axis::remove(U2, a3.mapping()));
+    assert_mapping::<Rank<2>, Strided, _>(&Axis::remove(0, a3.mapping()));
+
+    assert_mapping::<DynRank, L, _>(&Axis::remove(U0, ad.mapping()));
+    assert_mapping::<DynRank, Strided, _>(&Axis::remove(U1, ad.mapping()));
+    assert_mapping::<DynRank, Strided, _>(&Axis::remove(U2, ad.mapping()));
+    assert_mapping::<DynRank, Strided, _>(&Axis::remove(U3, ad.mapping()));
+    assert_mapping::<DynRank, Strided, _>(&Axis::remove(0, ad.mapping()));
+}
+
+fn check_permutation<L: Layout>() {
+    let a1 = DArray::<i32, 1>::from([0]);
+    let a1 = a1.remap::<Rank<1>, L>();
+
+    let a2 = DArray::<i32, 2>::from([[0]]);
+    let a2 = a2.remap::<Rank<2>, L>();
+
+    let a3 = DArray::<i32, 3>::from([[[0]]]);
+    let a3 = a3.remap::<Rank<3>, L>();
+
+    let ad = DArray::<i32, 4>::from([[[[0]]]]);
+    let ad = ad.remap::<DynRank, L>();
+
+    assert_mapping::<Rank<1>, L, _>(a1.permute(U0).mapping());
+    assert_mapping::<Rank<1>, L, _>(a1.permute(0).mapping());
+    assert_mapping::<Rank<1>, Strided, _>(a1.permute(&[0]).mapping());
+
+    assert_mapping::<Rank<2>, L, _>(a2.permute((U0, U1)).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a2.permute((U1, U0)).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a2.permute((0, 1)).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a2.permute(&[0, 1]).mapping());
+
+    assert_mapping::<Rank<3>, L, _>(a3.permute((U0, U1, U2)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute((U0, U2, U1)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute((U1, U0, U2)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute((U1, U2, U0)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute((U2, U0, U1)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute((U2, U1, U0)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute((0, 1, 2)).mapping());
+    assert_mapping::<Rank<3>, Strided, _>(a3.permute(&[0, 1, 2]).mapping());
+
+    assert_mapping::<Rank<4>, L, _>(ad.permute((U0, U1, U2, U3)).mapping());
+    assert_mapping::<Rank<4>, Strided, _>(ad.permute((0, 1, 2, 3)).mapping());
+    assert_mapping::<DynRank, Strided, _>(ad.permute(&[0, 1, 2, 3]).mapping());
 }
 
 fn check_view<L: Layout>() {
     let a = DArray::<i32, 2>::from([[0]]);
-    let a = a.remap::<(Dyn, Dyn), L>();
+    let a = a.remap::<Rank<2>, L>();
 
-    check_mapping::<Rank<0>, L, _>(a.view(0, 0).mapping());
-    check_mapping::<Rank<1>, Strided, _>(a.view(.., 0).mapping());
-    check_mapping::<Rank<1>, Strided, _>(a.view(1.., 0).mapping());
-    check_mapping::<Rank<1>, Strided, _>(a.view(sr(), 0).mapping());
+    assert_mapping::<Rank<0>, L, _>(a.view(0, 0).mapping());
+    assert_mapping::<Rank<1>, Strided, _>(a.view(.., 0).mapping());
+    assert_mapping::<Rank<1>, Strided, _>(a.view(1.., 0).mapping());
+    assert_mapping::<Rank<1>, Strided, _>(a.view(sr(), 0).mapping());
 
-    check_mapping::<Rank<1>, L, _>(a.view(0, ..).mapping());
-    check_mapping::<Rank<2>, L, _>(a.view(.., ..).mapping());
-    check_mapping::<Rank<2>, L, _>(a.view(1.., ..).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), ..).mapping());
+    assert_mapping::<Rank<1>, L, _>(a.view(0, ..).mapping());
+    assert_mapping::<Rank<2>, L, _>(a.view(.., ..).mapping());
+    assert_mapping::<Rank<2>, L, _>(a.view(1.., ..).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(sr(), ..).mapping());
 
-    check_mapping::<Rank<1>, L, _>(a.view(0, 1..).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(.., 1..).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(1.., 1..).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), 1..).mapping());
+    assert_mapping::<Rank<1>, L, _>(a.view(0, 1..).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(.., 1..).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(1.., 1..).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(sr(), 1..).mapping());
 
-    check_mapping::<Rank<1>, Strided, _>(a.view(0, sr()).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(.., sr()).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(1.., sr()).mapping());
-    check_mapping::<Rank<2>, Strided, _>(a.view(sr(), sr()).mapping());
+    assert_mapping::<Rank<1>, Strided, _>(a.view(0, sr()).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(.., sr()).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(1.., sr()).mapping());
+    assert_mapping::<Rank<2>, Strided, _>(a.view(sr(), sr()).mapping());
 }
 
 fn sr() -> StepRange<RangeFull, isize> {
@@ -483,6 +568,12 @@ fn test_hash() {
 
 #[test]
 fn test_index() {
+    check_axis::<Dense>();
+    check_axis::<Strided>();
+
+    check_permutation::<Dense>();
+    check_permutation::<Strided>();
+
     check_view::<Dense>();
     check_view::<Strided>();
 }
