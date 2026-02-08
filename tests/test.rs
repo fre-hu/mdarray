@@ -594,6 +594,14 @@ fn test_mapping() {
 
     assert_eq!(x, "DenseMapping { shape: (Const(1), 2, Const(3)) }");
     assert_eq!(y, "StridedMapping { shape: DynRank([1, 2, 3]), strides: [4, 5, 6] }");
+
+    let d = DenseMapping::<(Dyn, Dyn)>::default();
+    let t = StridedMapping::<(Dyn, Dyn)>::default();
+
+    assert_eq!(d.stride(0), t.stride(0));
+    assert_eq!(d.stride(1), t.stride(1));
+
+    assert!(d.is_contiguous() && t.is_contiguous());
 }
 
 #[test]

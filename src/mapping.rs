@@ -277,13 +277,6 @@ impl<S: Shape> StridedMapping<S> {
     }
 }
 
-impl<S: Shape> Default for StridedMapping<S> {
-    #[inline]
-    fn default() -> Self {
-        Self { shape: S::default(), strides: S::Dims::new(S::default().rank()) }
-    }
-}
-
 impl<S: Shape> Clone for StridedMapping<S> {
     #[inline]
     fn clone(&self) -> Self {
@@ -298,6 +291,20 @@ impl<S: Shape> Clone for StridedMapping<S> {
 }
 
 impl<S: Shape<Dims<isize>: Copy> + Copy> Copy for StridedMapping<S> {}
+
+impl<S: Shape> Default for StridedMapping<S> {
+    #[inline]
+    fn default() -> Self {
+        let shape = S::default();
+        let mut strides = S::Dims::new(shape.rank());
+
+        if shape.rank() > 0 {
+            strides.as_mut()[shape.rank() - 1] = 1;
+        }
+
+        Self { shape, strides }
+    }
+}
 
 impl<S: Shape> Mapping for StridedMapping<S> {
     type Shape = S;
