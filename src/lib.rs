@@ -45,8 +45,8 @@
 //! is parameterized by the shape and the layout. It contains the dynamic size
 //! and stride per dimension when needed.
 //!
-//! The layout is `Dense` if elements are stored contiguously without gaps, and
-//! it is `Strided` if all dimensions can have arbitrary strides.
+//! The layout is `Dense` if elements are stored contiguously without gaps.
+//! It is `Strided` if all dimensions can have arbitrary strides.
 //!
 //! The array elements are stored in row-major or C order, where the first
 //! dimension is the outermost one.
@@ -55,7 +55,7 @@
 //!
 //! Scalar indexing is done using the normal square-bracket index operator and
 //! an array of `usize` per dimension as index. A scalar `usize` can be used for
-//! linear indexing. If the layout is `Dense`, a range can also be used to select
+//! linear indexing. If the layout is `Dense`, a range can be used to select
 //! a slice.
 //!
 //! An array view can be created with the `view` and `view_mut` methods, which
@@ -150,7 +150,6 @@
 #![allow(clippy::comparison_chain)]
 #![allow(clippy::needless_range_loop)]
 #![cfg_attr(feature = "nightly", feature(allocator_api))]
-#![cfg_attr(feature = "nightly", feature(extern_types))]
 #![cfg_attr(feature = "nightly", feature(hasher_prefixfree_extras))]
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 #![cfg_attr(feature = "nightly", feature(macro_metavar_expr))]
