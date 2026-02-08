@@ -86,7 +86,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns an array view after indexing the specified dimension.
     ///
-    /// If the dimension to be indexed is know at compile time, the resulting array shape
+    /// If the dimension to be indexed is known at compile time, the resulting array shape
     /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
     /// the resulting array view has the same layout as the input.
     ///
@@ -104,7 +104,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a mutable array view after indexing the specified dimension.
     ///
-    /// If the dimension to be indexed is know at compile time, the resulting array shape
+    /// If the dimension to be indexed is known at compile time, the resulting array shape
     /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
     /// the resulting array view has the same layout as the input.
     ///
@@ -122,7 +122,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns an expression that gives array views iterating over the specified dimension.
     ///
-    /// If the dimension to be iterated over is know at compile time, the resulting array
+    /// If the dimension to be iterated over is known at compile time, the resulting array
     /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
     /// dimension the resulting array views have the same layout as the input.
     ///
@@ -136,7 +136,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Returns a mutable expression that gives array views iterating over the specified dimension.
     ///
-    /// If the dimension to be iterated over is know at compile time, the resulting array
+    /// If the dimension to be iterated over is known at compile time, the resulting array
     /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
     /// dimension the resulting array views have the same layout as the input.
     ///
@@ -333,7 +333,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns an expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the dimension to give array views over is know at compile time, the resulting
+    /// If the dimension to give array views over is known at compile time, the resulting
     /// shape will maintain a constant-sized dimension. Furthermore, if it is the last
     /// dimension the resulting array views have the same layout as the input.
     ///
@@ -348,7 +348,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Returns a mutable expression that gives array views over the specified dimension,
     /// iterating over the other dimensions.
     ///
-    /// If the dimension to give array views over is know at compile time, the resulting
+    /// If the dimension to give array views over is known at compile time, the resulting
     /// shape will maintain a constant-sized dimension. Furthermore, if it is the last
     /// dimension the resulting array views have the same layout as the input.
     ///
@@ -632,7 +632,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Divides an array slice into two at an index along the specified dimension.
     ///
-    /// If the dimension to be divided is know at compile time, the resulting array
+    /// If the dimension to be divided is known at compile time, the resulting array
     /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
     /// dimension the resulting array views have the same layout as the input.
     ///
@@ -654,7 +654,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
     /// Divides a mutable array slice into two at an index along the specified dimension.
     ///
-    /// If the dimension to be divided is know at compile time, the resulting array
+    /// If the dimension to be divided is known at compile time, the resulting array
     /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
     /// dimension the resulting array views have the same layout as the input.
     ///

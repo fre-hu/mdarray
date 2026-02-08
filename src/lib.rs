@@ -30,8 +30,10 @@
 //! used for example when creating array views without duplicating elements.
 //!
 //! `Slice` is a generic array reference, similar to the Rust `slice` type.
-//! It consists of a pointer to an internal structure that holds the storage
-//! and the layout mapping. All arrays can be dereferenced to an array slice.
+//! It consists of a pointer to an internal structure that holds a pointer to
+//! the storage and the layout mapping. All arrays can be dereferenced to an
+//! array slice. An exception is when there is no metadata for constant-sized
+//! arrays, where the reference points directly to the array elements.
 //!
 //! The following type aliases are provided:
 //!
@@ -68,7 +70,8 @@
 //! with `diag` and `diag_mut`.
 //!
 //! If the array layout is not known, `remap`, `remap_mut` and `into_mapping` can
-//! be used to change layout.
+//! be used to change layout for array views. For owned arrays, `into_buffer`
+//! can be used to change the buffer type including the shape.
 //!
 //! ## Iteration
 //!
@@ -80,7 +83,7 @@
 //! `expr`, `expr_mut` and `into_expr` methods. Note that the array types `View`
 //! and `ViewMut` are also expressions.
 //!
-//! There are methods for for evaluating expressions or converting into other
+//! There are methods for evaluating expressions or converting into other
 //! expressions, such as `eval`, `for_each` and `map`. Two expressions can be
 //! merged to an expression of tuples with the `zip` method or free function.
 //!
@@ -111,7 +114,7 @@
 //! a mutable reference to an array where the result is stored.
 //!
 //! Scalar parameters must be passed using the `fill` function that wraps a value
-//! in an `Fill<T>` expression. If a type does not implement the `Copy` trait, the
+//! in a `Fill<T>` expression. If a type does not implement the `Copy` trait, the
 //! parameter must be passed by reference.
 //!
 //! ## Example

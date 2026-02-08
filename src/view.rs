@@ -50,7 +50,7 @@ macro_rules! impl_view {
 
             /// Converts the array view into a new array view indexing the specified dimension.
             ///
-            /// If the dimension to be indexed is know at compile time, the resulting array shape
+            /// If the dimension to be indexed is known at compile time, the resulting array shape
             /// will maintain constant-sized dimensions. Furthermore, if it is the first dimension
             /// the resulting array view has the same layout as the input.
             ///
@@ -233,7 +233,7 @@ macro_rules! impl_view {
 
             /// Divides the array view into two at an index along the specified dimension.
             ///
-            /// If the dimension to be divided is know at compile time, the resulting array
+            /// If the dimension to be divided is known at compile time, the resulting array
             /// shape will maintain constant-sized dimensions. Furthermore, if it is the first
             /// dimension the resulting array views have the same layout as the input.
             ///

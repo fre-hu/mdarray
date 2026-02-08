@@ -19,7 +19,7 @@ unfortunately this seems to be far away in the future.
 
 It is solved by having separate view types that can contain metadata, and that
 a reference is simply a pointer to the internal metadata structure `RawSlice`.
-The owned array type `Tensor` has the same metadata structure, which makes it
+The owned array type `Array` has the same metadata structure, which makes it
 possible to dereference from both the owned array and view types to a single
 reference type.
 
@@ -39,6 +39,11 @@ to the `Slice` type also for fixed sized arrays that are allocated on the stack.
 When there is no metadata, a reference to `Slice` points to the array elements
 and not to the metadata structure. This is handled automatically depending on
 the size of the metadata.
+
+The owned `Array` type contains a buffer where the type is selected based on
+the shape type. If all dimensions are constant-sized, `StaticBuffer` is used
+that stores elements inline. If at least one dimension is dynamically-sized,
+`DynBuffer` is used with heap allocation.
 
 ## Array view and expression types
 
@@ -66,10 +71,10 @@ When iterating over an expression, the value is consumed so that one cannot
 have a partially evaluated expression. It is needed to be able to merge the
 expression and view types as above, and simplifies expression building.
 
-The `Expression` trait is not implemented for the `Array` and `Tensor` types.
-The reason is that it would give the wrong behavior, so that e.g. the result
-from the `map` method is an expression and not an array. One would then also
-expect the input array to be consumed, but it is not useful as default.
+The `Expression` trait is not implemented for the `Array` type. The reason is
+that it would give the wrong behavior, so that e.g. the result from the `map`
+method is an expression and not an array. One would then also expect the input
+array to be consumed, but it is not useful as default.
 
 The `Expression` trait is also not implemented for `&Slice` and `&mut Slice`.
 While it could make sense and be convenient, it unfortunately deviates from
@@ -107,11 +112,6 @@ Below are the larger differences to C++ mdarray/mdspan:
 - The owned array type is parameterized by an allocator instead of a container.
   The main reason is to be able to define the `RawSlice` structure internally
   and support dereferencing to `Slice`.
-
-- The fixed size array type is different from the generic array type with heap
-  allocation. This is to align with Rust array types, and that the interface
-  for the fixed size array type is quite different. With separate types the
-  documentation becomes more clear.
 
 - Indexing is done with `usize` and is not parameterized. This follows how
   indexing is done in Rust, and could be extended if there is a need.
