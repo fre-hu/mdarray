@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-08
+
+- Change Insert to Resize in Axis to simplify and match what is used.
+- Change default strides for StridedMapping to be consistent with DenseMapping.
+- Remove unused feature extern_types.
+- Merge branch 'merge-array':
+  - Remove reflexive AsMut/AsRef implementations for Array.
+  - Merge Array and Tensor types, and reorganize to add internal buffer types.
+
 ## [0.7.2] - 2025-12-09
 
 - Mark most functions with inline, and remove codegen units in documentation (#17).
@@ -27,7 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.0] - 2025-02-23
 
-- Update dependencies.
 - Add Apply and BorrowMut for Owned, and remove T: Default bound for Apply.
 - Add Ord for Shape and Copy for ConstShape.
 - Add Owned trait for deriving type in conversions from slices and expressions.
