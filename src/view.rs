@@ -7,7 +7,7 @@ use core::slice;
 
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
-use crate::index::{self, Axis, DimIndex, Permutation, Resize, SliceIndex, Split, ViewIndex};
+use crate::index::{self, Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
@@ -224,7 +224,10 @@ macro_rules! impl_view {
             pub fn into_split_at(
                 self,
                 mid: usize,
-            ) -> ($name<'a, T, Resize<Const<0>, S>, L>, $name<'a, T, Resize<Const<0>, S>, L>) {
+            ) -> (
+                $name<'a, T, <S::Tail as Shape>::Prepend<Dyn>, L>,
+                $name<'a, T, <S::Tail as Shape>::Prepend<Dyn>, L>,
+            ) {
                 self.into_split_axis_at(Const::<0>, mid)
             }
 
@@ -244,8 +247,8 @@ macro_rules! impl_view {
                 axis: A,
                 mid: usize,
             ) -> (
-                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
-                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
+                $name<'a, T, A::Resize<Dyn, S>, Split<A, S, L>>,
+                $name<'a, T, A::Resize<Dyn, S>, Split<A, S, L>>,
             ) {
                 unsafe { Self::split_axis_at(self.$as_ptr(), self.mapping(), axis, mid) }
             }
@@ -302,8 +305,8 @@ macro_rules! impl_view {
                 axis: A,
                 mid: usize,
             ) -> (
-                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
-                $name<'a, T, Resize<A, S>, Split<A, S, L>>,
+                $name<'a, T, A::Resize<Dyn, S>, Split<A, S, L>>,
+                $name<'a, T, A::Resize<Dyn, S>, Split<A, S, L>>,
             ) {
                 let index = axis.index(mapping.rank());
                 let size = mapping.dim(index);

@@ -11,7 +11,7 @@ pub use slice::SliceIndex;
 pub use view::{DimIndex, ViewIndex};
 
 #[doc(hidden)]
-pub use axis::{Keep, Resize, Split};
+pub use axis::{Keep, Split};
 
 #[cfg(not(feature = "nightly"))]
 #[inline]

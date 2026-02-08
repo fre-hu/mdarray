@@ -20,8 +20,8 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
     /// Remove the dimension from the shape.
     type Remove<S: Shape>: Shape;
 
-    /// Insert the dimension into the shape.
-    type Insert<D: Dim, S: Shape>: Shape;
+    /// Resize the dimension in the shape.
+    type Resize<D: Dim, S: Shape>: Shape;
 
     /// Returns the dimension index.
     fn index(self, rank: usize) -> usize;
@@ -52,7 +52,7 @@ pub trait Axis: Copy + Debug + Default + Hash + Ord + Send + Sync {
         self,
         mapping: &M,
         new_size: usize,
-    ) -> <Split<Self, M::Shape, M::Layout> as Layout>::Mapping<Resize<Self, M::Shape>> {
+    ) -> <Split<Self, M::Shape, M::Layout> as Layout>::Mapping<Self::Resize<Dyn, M::Shape>> {
         Mapping::resize_dim::<M>(mapping, self.index(mapping.rank()), new_size)
     }
 }
@@ -69,9 +69,6 @@ pub struct Rows;
 // These types are public to improve documentation, but hidden since
 // they are not considered part of the API.
 //
-
-#[doc(hidden)]
-pub type Resize<A, S> = <A as Axis>::Insert<Dyn, <A as Axis>::Remove<S>>;
 
 #[doc(hidden)]
 pub type Keep<A, S, L> = <<A as Axis>::Rest<S> as Shape>::Layout<L>;
@@ -110,7 +107,7 @@ impl Axis for Const<0> {
     type Rest<S: Shape> = S::Tail;
 
     type Remove<S: Shape> = S::Tail;
-    type Insert<D: Dim, S: Shape> = S::Prepend<D>;
+    type Resize<D: Dim, S: Shape> = <S::Tail as Shape>::Prepend<D>;
 
     #[inline]
     fn index(self, rank: usize) -> usize {
@@ -132,8 +129,8 @@ macro_rules! impl_axis {
 
                 type Remove<S: Shape> =
                     <<Const<$k> as Axis>::Remove<S::Tail> as Shape>::Prepend<S::Head>;
-                type Insert<D: Dim, S: Shape> =
-                    <<Const<$k> as Axis>::Insert<D, S::Tail> as Shape>::Prepend<S::Head>;
+                type Resize<D: Dim, S: Shape> =
+                    <<Const<$k> as Axis>::Resize<D, S::Tail> as Shape>::Prepend<S::Head>;
 
                 #[inline]
                 fn index(self, rank: usize) -> usize {
@@ -157,8 +154,8 @@ macro_rules! impl_cols_rows {
             type Rest<S: Shape> = <<Const<$n> as Axis>::Init<S::Reverse> as Shape>::Reverse;
 
             type Remove<S: Shape> = <<Const<$n> as Axis>::Remove<S::Reverse> as Shape>::Reverse;
-            type Insert<D: Dim, S: Shape> =
-                <<Const<$n> as Axis>::Insert<D, S::Reverse> as Shape>::Reverse;
+            type Resize<D: Dim, S: Shape> =
+                <<Const<$n> as Axis>::Resize<D, S::Reverse> as Shape>::Reverse;
 
             #[inline]
             fn index(self, rank: usize) -> usize {
@@ -180,7 +177,7 @@ impl Axis for Dyn {
     type Rest<S: Shape> = DynRank;
 
     type Remove<S: Shape> = <S::Tail as Shape>::Dyn;
-    type Insert<D: Dim, S: Shape> = <S::Dyn as Shape>::Prepend<Dyn>;
+    type Resize<D: Dim, S: Shape> = S::Dyn;
 
     #[inline]
     fn index(self, rank: usize) -> usize {

@@ -16,7 +16,7 @@ use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
 use crate::expr::{Expression, IntoExpression};
-use crate::index::{self, Axis, Cols, Resize, Rows, Split};
+use crate::index::{self, Axis, Cols, Rows, Split};
 use crate::index::{DimIndex, Permutation, SliceIndex, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
@@ -606,7 +606,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at(
         &self,
         mid: usize,
-    ) -> (View<'_, T, Resize<Const<0>, S>, L>, View<'_, T, Resize<Const<0>, S>, L>) {
+    ) -> (
+        View<'_, T, <S::Tail as Shape>::Prepend<Dyn>, L>,
+        View<'_, T, <S::Tail as Shape>::Prepend<Dyn>, L>,
+    ) {
         self.split_axis_at(Const::<0>, mid)
     }
 
@@ -620,7 +623,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     pub fn split_at_mut(
         &mut self,
         mid: usize,
-    ) -> (ViewMut<'_, T, Resize<Const<0>, S>, L>, ViewMut<'_, T, Resize<Const<0>, S>, L>) {
+    ) -> (
+        ViewMut<'_, T, <S::Tail as Shape>::Prepend<Dyn>, L>,
+        ViewMut<'_, T, <S::Tail as Shape>::Prepend<Dyn>, L>,
+    ) {
         self.split_axis_at_mut(Const::<0>, mid)
     }
 
@@ -639,8 +645,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &self,
         axis: A,
         mid: usize,
-    ) -> (View<'_, T, Resize<A, S>, Split<A, S, L>>, View<'_, T, Resize<A, S>, Split<A, S, L>>)
-    {
+    ) -> (
+        View<'_, T, A::Resize<Dyn, S>, Split<A, S, L>>,
+        View<'_, T, A::Resize<Dyn, S>, Split<A, S, L>>,
+    ) {
         unsafe { View::split_axis_at(self.as_ptr(), self.mapping(), axis, mid) }
     }
 
@@ -659,8 +667,10 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         &mut self,
         axis: A,
         mid: usize,
-    ) -> (ViewMut<'_, T, Resize<A, S>, Split<A, S, L>>, ViewMut<'_, T, Resize<A, S>, Split<A, S, L>>)
-    {
+    ) -> (
+        ViewMut<'_, T, A::Resize<Dyn, S>, Split<A, S, L>>,
+        ViewMut<'_, T, A::Resize<Dyn, S>, Split<A, S, L>>,
+    ) {
         unsafe { ViewMut::split_axis_at(self.as_mut_ptr(), self.mapping(), axis, mid) }
     }
 
