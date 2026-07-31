@@ -7,7 +7,10 @@ use core::slice;
 
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, Expression, IntoExpression, Iter, Map, Zip};
+#[cfg(not(feature = "nightly"))]
 use crate::index::{self, Axis, DimIndex, Permutation, SliceIndex, Split, ViewIndex};
+#[cfg(feature = "nightly")]
+use crate::index::{self, Axis, Permutation, SliceIndex, Split, ViewIndex};
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::{DenseMapping, Mapping, StridedMapping};
 use crate::raw_slice::RawSlice;
@@ -264,6 +267,20 @@ macro_rules! impl_view {
                 unsafe { $name::new_unchecked(self.$as_ptr(), mapping) }
             }
 
+            /// Converts the array view into a new array view for the specified subarray.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the subarray is out of bounds.
+            #[cfg(feature = "nightly")]
+            #[inline]
+            pub fn into_view<I: ViewIndex>(
+                $($mut)? self,
+                #[rustc_splat] index: I,
+            ) -> $name<'a, T, I::Shape<S>, I::Layout<L>> {
+                unsafe { $name::view(self.$as_ptr(), self.mapping(), index) }
+            }
+
             /// Creates an array view from a raw pointer and layout.
             ///
             /// # Safety
@@ -328,6 +345,21 @@ macro_rules! impl_view {
 
                     (first, second)
                 }
+            }
+
+            #[allow(clippy::self_named_constructors)]
+            #[inline]
+            pub(crate) unsafe fn view<I: ViewIndex>(
+                ptr: *$raw_mut T,
+                mapping: &L::Mapping<S>,
+                index: I,
+            ) -> $name<'a, T, I::Shape<S>, I::Layout<L>> {
+                let (offset, mapping) = index.view_index(mapping);
+
+                // If the view is empty, we must not offset the pointer.
+                let count = if mapping.is_empty() { 0 } else { offset };
+
+                unsafe { $name::new_unchecked(ptr.offset(count), mapping) }
             }
         }
 
@@ -509,6 +541,7 @@ impl_view!(ViewMut, as_mut_ptr, from_raw_parts_mut, mut, {mut}, false);
 
 macro_rules! impl_into_view {
     ($n:tt, ($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
+        #[cfg(not(feature = "nightly"))]
         impl<'a, T, $($xyz: Dim,)+ L: Layout> View<'a, T, ($($xyz,)+), L> {
             /// Converts the array view into a new array view for the specified subarray.
             ///
@@ -525,15 +558,11 @@ macro_rules! impl_into_view {
                 <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
                 <($($abc,)+) as ViewIndex>::Layout<L>,
             > {
-                let (offset, mapping) = ($($idx,)+).view_index(self.mapping());
-
-                // If the view is empty, we must not offset the pointer.
-                let count = if mapping.is_empty() { 0 } else { offset };
-
-                unsafe { View::new_unchecked(self.as_ptr().offset(count), mapping) }
+                unsafe { View::view(self.as_ptr(), self.mapping(), ($($idx,)+)) }
             }
         }
 
+        #[cfg(not(feature = "nightly"))]
         impl<'a, T, $($xyz: Dim,)+ L: Layout> ViewMut<'a, T, ($($xyz,)+), L> {
             /// Converts the array view into a new array view for the specified subarray.
             ///
@@ -550,12 +579,7 @@ macro_rules! impl_into_view {
                 <($($abc,)+) as ViewIndex>::Shape<($($xyz,)+)>,
                 <($($abc,)+) as ViewIndex>::Layout<L>,
             > {
-                let (offset, mapping) = ($($idx,)+).view_index(self.mapping());
-
-                // If the view is empty, we must not offset the pointer.
-                let count = if mapping.is_empty() { 0 } else { offset };
-
-                unsafe { ViewMut::new_unchecked(self.as_mut_ptr().offset(count), mapping) }
+                unsafe { ViewMut::view(self.as_mut_ptr(), self.mapping(), ($($idx,)+)) }
             }
         }
     };

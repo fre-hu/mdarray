@@ -16,8 +16,11 @@ use crate::array::Array;
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{Apply, AxisExpr, AxisExprMut, Iter, Lanes, LanesMut, Map, Zip};
 use crate::expr::{Expression, IntoExpression};
-use crate::index::{self, Axis, Cols, Rows, Split};
-use crate::index::{DimIndex, Permutation, SliceIndex, ViewIndex};
+#[cfg(not(feature = "nightly"))]
+use crate::index::{self, Axis, Cols, DimIndex, Permutation, Rows, SliceIndex, Split, ViewIndex};
+#[cfg(feature = "nightly")]
+use crate::index::{self, Axis, Cols, Permutation, Rows, SliceIndex, Split, ViewIndex};
+
 use crate::layout::{Dense, Layout, Strided};
 use crate::mapping::Mapping;
 use crate::raw_slice::RawSlice;
@@ -34,6 +37,20 @@ pub struct Slice<T, S: Shape = DynRank, L: Layout = Dense> {
 pub type DSlice<T, const N: usize, L = Dense> = Slice<T, Rank<N>, L>;
 
 impl<T, S: Shape, L: Layout> Slice<T, S, L> {
+    /// Copies the specified subarray into a new array.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the subarray is out of bounds.
+    #[cfg(feature = "nightly")]
+    #[inline]
+    pub fn array<I: ViewIndex>(&self, #[rustc_splat] index: I) -> Array<T, I::Shape<S>>
+    where
+        T: Clone,
+    {
+        unsafe { <View<T, S, L>>::view(self.as_ptr(), self.mapping(), index).into() }
+    }
+
     /// Returns a mutable pointer to the array buffer.
     #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut T {
@@ -727,6 +744,18 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
         }
     }
 
+    /// Copies the specified subarray into a new array.
+    ///
+    /// This method is for backward compatibility, use `array` instead.
+    #[cfg(feature = "nightly")]
+    #[inline]
+    pub fn tensor<I: ViewIndex>(&self, #[rustc_splat] index: I) -> Array<T, I::Shape<S>>
+    where
+        T: Clone,
+    {
+        unsafe { <View<T, S, L>>::view(self.as_ptr(), self.mapping(), index).into() }
+    }
+
     /// Copies the array slice into a new array.
     #[inline]
     pub fn to_array(&self) -> Array<T, S>
@@ -805,6 +834,34 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
 
         unsafe { ViewMut::new_unchecked(self.as_mut_ptr(), mapping) }
     }
+
+    /// Returns an array view for the specified subarray.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the subarray is out of bounds.
+    #[cfg(feature = "nightly")]
+    #[inline]
+    pub fn view<I: ViewIndex>(
+        &self,
+        #[rustc_splat] index: I,
+    ) -> View<'_, T, I::Shape<S>, I::Layout<L>> {
+        unsafe { View::view(self.as_ptr(), self.mapping(), index) }
+    }
+
+    /// Returns a mutable array view for the specified subarray.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the subarray is out of bounds.
+    #[cfg(feature = "nightly")]
+    #[inline]
+    pub fn view_mut<I: ViewIndex>(
+        &mut self,
+        #[rustc_splat] index: I,
+    ) -> ViewMut<'_, T, I::Shape<S>, I::Layout<L>> {
+        unsafe { ViewMut::view(self.as_mut_ptr(), self.mapping(), index) }
+    }
 }
 
 impl<T, L: Layout> Slice<T, DynRank, L> {
@@ -825,6 +882,7 @@ impl<T, S: Shape> Slice<T, S, Strided> {
 
 macro_rules! impl_view {
     (($($xyz:tt),+), ($($abc:tt),+), ($($idx:tt),+)) => {
+        #[cfg(not(feature = "nightly"))]
         impl<T, $($xyz: Dim,)+ L: Layout> Slice<T, ($($xyz,)+), L> {
             /// Copies the specified subarray into a new array.
             ///
