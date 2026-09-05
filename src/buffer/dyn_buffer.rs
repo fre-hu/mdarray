@@ -78,7 +78,7 @@ impl<T, S: Shape, A: Allocator> DynBuffer<T, S, A> {
     pub(crate) unsafe fn from_parts(vec: Vec<T, A>, shape: S) -> Self {
         debug_assert!(Some(vec.len()) == shape.checked_len(), "length mismatch");
 
-        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
+        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
         Self {
             slice: unsafe { RawSlice::new_unchecked(ptr, DenseMapping::new(shape)) },
@@ -342,7 +342,7 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
         #[cfg(not(feature = "nightly"))]
         let (ptr, len, capacity) = (vec.as_mut_ptr(), vec.len(), vec.capacity());
         #[cfg(feature = "nightly")]
-        let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_alloc();
+        let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
         #[cfg(not(feature = "nightly"))]
         let vec = unsafe { Vec::from_raw_parts(ptr.cast(), len, capacity) };
@@ -520,7 +520,7 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
                 // Need to use references to the allocator to have two active arrays.
 
                 let (vec, shape) = self.into_parts();
-                let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_alloc();
+                let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
                 let vec = unsafe { Vec::from_raw_parts_in(ptr, len, capacity, &alloc) };
                 let array = unsafe { IntoExpr::new(DynBuffer::from_parts(vec, shape).cast()) };
@@ -528,7 +528,7 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
                 let result = <Array<U, S, &A>>::with_expr_in(array.zip(expr).map(f), &alloc);
 
                 let (vec, shape) = result.into_inner().into_dyn().into_parts();
-                let (ptr, len, capacity, _) = vec.into_raw_parts_with_alloc();
+                let (ptr, len, capacity, _) = vec.into_raw_parts_with_allocator();
 
                 let vec = unsafe { Vec::from_raw_parts_in(ptr, len, capacity, alloc) };
 

@@ -372,9 +372,9 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     /// Decomposes an array into its raw components including the allocator.
     #[cfg(feature = "nightly")]
     #[inline]
-    pub fn into_raw_parts_with_alloc(self) -> (*mut T, S, usize, A) {
+    pub fn into_raw_parts_with_allocator(self) -> (*mut T, S, usize, A) {
         let (vec, shape) = self.buffer.into_parts();
-        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
+        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
         (ptr, shape, capacity, alloc)
     }
@@ -694,7 +694,7 @@ impl<T, S: Shape<Buffer<T, Global> = DynBuffer<T, S>>> Array<T, S> {
     /// Decomposes an array into its raw components.
     #[inline]
     pub fn into_raw_parts(self) -> (*mut T, S, usize) {
-        let (ptr, shape, capacity, _) = self.into_raw_parts_with_alloc();
+        let (ptr, shape, capacity, _) = self.into_raw_parts_with_allocator();
 
         (ptr, shape, capacity)
     }

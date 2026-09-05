@@ -138,7 +138,7 @@ impl<T, S: ConstShape, A: Allocator> Owned for StaticBuffer<T, S, A> {
     #[inline]
     fn from_dyn(buffer: DynBuffer<T, S, A>) -> Self {
         let (vec, _) = buffer.into_parts();
-        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_alloc();
+        let (ptr, _, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
         let inner = unsafe { ptr::read(ptr as *const S::Inner<T>) };
 
