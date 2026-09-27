@@ -21,15 +21,21 @@ impl<E: Expression> Iter<E> {
         let outer_rank = expr.rank().saturating_sub(expr.inner_rank());
 
         let inner_index = 0;
-        let inner_limit = expr.shape().with_dims(|dims| dims[outer_rank..].iter().product());
+        let mut inner_limit = expr.shape().with_dims(|dims| dims[outer_rank..].iter().product());
 
-        let mut outer_index = Default::default();
-        let mut outer_limit = Default::default();
+        let mut outer_index = <<E::Shape as Shape>::Dims<usize>>::default();
+        let mut outer_limit = <<E::Shape as Shape>::Dims<usize>>::default();
 
         if outer_rank > 0 {
             outer_index = Dims::new(expr.rank());
             outer_limit =
                 expr.shape().with_dims(|dims| TryFrom::try_from(dims).expect("invalid rank"));
+
+            // If the expression is empty, we must clear both the inner and outer dimensions.
+            if expr.is_empty() {
+                inner_limit = 0;
+                outer_limit.as_mut().fill(0);
+            }
         }
 
         Self { expr, inner_index, inner_limit, outer_index, outer_limit }
@@ -59,7 +65,7 @@ impl<E: Expression> Iter<E> {
             }
         }
 
-        self.outer_index.as_mut().fill(0); // Ensure that following calls return false.
+        self.outer_limit.as_mut().fill(0); // Ensure that following calls return false.
 
         false
     }

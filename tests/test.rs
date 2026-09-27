@@ -575,6 +575,42 @@ fn test_index() {
 }
 
 #[test]
+fn test_iter() {
+    let a1 = Array::from_fn([0, 2, 3], |_| unreachable!());
+    let a2 = Array::from_fn([2, 0, 3], |_| unreachable!());
+    let a3 = Array::from_fn([2, 3, 0], |_| unreachable!());
+
+    assert_eq!(a1.len(), 0);
+    assert_eq!(a2.len(), 0);
+    assert_eq!(a3.len(), 0);
+
+    let mut i1 = expr::from_fn([0, 2, 3], |_| unreachable!()).into_iter();
+    let mut i2 = expr::from_fn([2, 0, 3], |_| unreachable!()).into_iter();
+    let mut i3 = expr::from_fn([2, 3, 0], |_| unreachable!()).into_iter();
+
+    assert_eq!(i1.next(), None);
+    assert_eq!(i1.next(), None);
+
+    assert_eq!(i2.next(), None);
+    assert_eq!(i2.next(), None);
+
+    assert_eq!(i3.next(), None);
+    assert_eq!(i3.next(), None);
+
+    let mut i4 = expr::from_fn([1, 2, 3], |i| 1000 + 100 * i[0] + 10 * i[1] + i[2]).into_iter();
+
+    assert_eq!(i4.next(), Some(1000));
+    assert_eq!(i4.next(), Some(1001));
+    assert_eq!(i4.next(), Some(1002));
+    assert_eq!(i4.next(), Some(1010));
+    assert_eq!(i4.next(), Some(1011));
+    assert_eq!(i4.next(), Some(1012));
+
+    assert_eq!(i4.next(), None);
+    assert_eq!(i4.next(), None);
+}
+
+#[test]
 fn test_macros() {
     let array1: Array<usize, _> = array![];
     let array2: Array<usize, _> = array![[]];
