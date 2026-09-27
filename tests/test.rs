@@ -1,6 +1,5 @@
 #![allow(clippy::comparison_chain)]
 #![allow(clippy::needless_range_loop)]
-#![cfg_attr(feature = "nightly", feature(allocator_api))]
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
