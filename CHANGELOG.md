@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-10-03
+
+- Fix iteration of empty expressions and missing fusing (#21).
+- Update nightly features for allocator.
+- Change into_raw_parts_with_alloc to ..._with_allocator.
+- Use argument splatting in view methods, depends on rust-lang/rust#153629.
+- Update documentation.
+- Add tests for axis and permutation types.
+
 ## [0.8.0] - 2026-02-08
 
 - Change Insert to Resize in Axis to simplify and match what is used.
