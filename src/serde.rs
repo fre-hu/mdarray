@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::format;
@@ -12,8 +11,6 @@ use serde::de::{Error, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::Allocator;
 use crate::array;
 use crate::array::Array;
 use crate::dim::Dim;

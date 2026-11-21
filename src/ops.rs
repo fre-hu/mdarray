@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 
 use core::mem::ManuallyDrop;
@@ -8,8 +7,6 @@ use core::ops::{
     Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign,
 };
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::Allocator;
 use crate::array::Array;
 use crate::buffer::Buffer;
 use crate::expr::{Apply, Expression, IntoExpression};

@@ -1,12 +1,9 @@
 //! Module for array buffer handling.
 
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 
 use core::mem::MaybeUninit;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::Allocator;
 use crate::dim::Const;
 use crate::expr::Expression;
 use crate::shape::{ConstShape, Shape};

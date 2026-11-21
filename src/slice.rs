@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::borrow::ToOwned;
@@ -766,7 +765,6 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Copies the array slice into a new array with the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn to_array_in<A: Allocator>(&self, alloc: A) -> Array<T, S, A>
     where
@@ -789,7 +787,6 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Copies the array slice into a new array with the specified allocator.
     ///
     /// This method is for backward compatibility, use `to_array_in` instead.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn to_tensor_in<A: Allocator>(&self, alloc: A) -> Array<T, S, A>
     where
@@ -808,7 +805,6 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     }
 
     /// Copies the array slice into a new vector with the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn to_vec_in<A: Allocator>(&self, alloc: A) -> Vec<T, A>
     where

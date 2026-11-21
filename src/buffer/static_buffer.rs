@@ -1,16 +1,11 @@
-#[cfg(all(feature = "nightly", not(feature = "std")))]
+#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-#[cfg(not(feature = "nightly"))]
-use alloc::alloc::Layout;
-#[cfg(feature = "nightly")]
 use alloc::alloc::{Allocator, Global, Layout};
 
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ptr;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::{Allocator, Global};
 use crate::array::Array;
 use crate::buffer::dyn_buffer::DynBuffer;
 use crate::buffer::{Buffer, Owned};
@@ -80,19 +75,6 @@ impl<T, S: ConstShape, A: Allocator> Owned for StaticBuffer<T, S, A> {
         buffer.into_buffer()
     }
 
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    fn clone(&self) -> Self
-    where
-        T: Clone,
-        A: Clone,
-    {
-        let buffer = self.as_slice().expr().cloned().eval().into_inner();
-
-        Self { inner: buffer.into_buffer::<StaticBuffer<T, S>>().inner, alloc: self.alloc.clone() }
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     fn clone(&self) -> Self
     where
@@ -119,22 +101,6 @@ impl<T, S: ConstShape, A: Allocator> Owned for StaticBuffer<T, S, A> {
         self.as_mut_slice()[..].clone_from_slice(&slice[..]);
     }
 
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    fn from_dyn(buffer: DynBuffer<T, S, A>) -> Self {
-        let (mut vec, _) = buffer.into_parts();
-
-        let inner = unsafe { ptr::read(vec.as_ptr() as *const S::Inner<T>) };
-        let alloc = unsafe { mem::transmute_copy(&Global) };
-
-        unsafe {
-            vec.set_len(0);
-        }
-
-        Self { inner, alloc }
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     fn from_dyn(buffer: DynBuffer<T, S, A>) -> Self {
         let (vec, _) = buffer.into_parts();

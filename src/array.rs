@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::{Allocator, Global};
 use alloc::collections::TryReserveError;
 #[cfg(not(feature = "std"))]
@@ -11,8 +10,6 @@ use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
 use core::{ptr, slice};
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::{Allocator, Global};
 use crate::buffer::{Buffer, Drain, DynBuffer, Owned};
 use crate::dim::{Const, Dim, Dyn};
 use crate::expr::{self, IntoExpr, Iter, Map, Zip};
@@ -24,20 +21,6 @@ use crate::shape::{ConstShape, DynRank, IntoShape, Rank, Shape};
 use crate::slice::Slice;
 use crate::traits::IntoCloned;
 use crate::view::{View, ViewMut};
-
-#[cfg(not(feature = "nightly"))]
-macro_rules! vec_t {
-    ($type:ty, $alloc:ty) => {
-        Vec<$type>
-    };
-}
-
-#[cfg(feature = "nightly")]
-macro_rules! vec_t {
-    ($type:ty, $alloc:ty) => {
-        Vec<$type, $alloc>
-    };
-}
 
 /// Dense multidimensional array.
 #[repr(transparent)]
@@ -60,14 +43,12 @@ pub type DTensor<T, const N: usize, A = Global> = Array<T, Rank<N>, A>;
 
 impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     /// Returns a reference to the underlying allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn allocator(&self) -> &A {
         self.buffer.allocator()
     }
 
     /// Creates an array from the given element with the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn from_elem_in<I: IntoShape<IntoShape = S>>(shape: I, elem: T, alloc: A) -> Self
     where
@@ -77,14 +58,12 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     }
 
     /// Creates an array from an expression with the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn from_expr_in<I: IntoExpression<Item = T, Shape = S>>(expr: I, alloc: A) -> Self {
         Self::with_expr_in(expr.into_expr(), alloc)
     }
 
     /// Creates an array with the results from the given function and the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn from_fn_in<I: IntoShape<IntoShape = S>, F>(shape: I, f: F, alloc: A) -> Self
     where
@@ -110,17 +89,6 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     }
 
     /// Converts the array into a one-dimensional array.
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    pub fn into_flat(self) -> Array<T, (Dyn,), A> {
-        let vec = self.into_vec();
-        let shape = (vec.len(),);
-
-        Array { buffer: unsafe { DynBuffer::from_parts(vec, shape) } }
-    }
-
-    /// Converts the array into a one-dimensional array.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn into_flat(self) -> Array<T, (Dyn,), A> {
         self.into_vec().into()
@@ -172,7 +140,7 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
 
     /// Converts the array into a vector.
     #[inline]
-    pub fn into_vec(self) -> vec_t!(T, A) {
+    pub fn into_vec(self) -> Vec<T, A> {
         let len = self.len();
         let (vec, _) = self.into_shape(len).buffer.into_parts();
 
@@ -189,7 +157,6 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     }
 
     /// Creates an array with uninitialized elements and the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn uninit_in<I: IntoShape<IntoShape = S>>(
         shape: I,
@@ -201,7 +168,6 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     /// Creates an array with elements set to zero and the specified allocator.
     ///
     /// Zero elements are created using `Default::default()`.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn zeros_in<I: IntoShape<IntoShape = S>>(shape: I, alloc: A) -> Self
     where
@@ -235,9 +201,6 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
 
         let shape = expr.shape().with_dims(S::from_dims);
 
-        #[cfg(not(feature = "nightly"))]
-        let mut array = Array { buffer: <S::Buffer<T, A>>::uninit_in(shape, alloc) };
-        #[cfg(feature = "nightly")]
         let mut array = Array::uninit_in(shape, alloc);
         let mut guard = DropGuard { array: &mut array, index: 0 };
 
@@ -359,7 +322,6 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     /// # Safety
     ///
     /// The pointer must be a valid allocation given the shape, capacity and allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub unsafe fn from_raw_parts_in(ptr: *mut T, shape: S, capacity: usize, alloc: A) -> Self {
         unsafe {
@@ -370,7 +332,6 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     }
 
     /// Decomposes an array into its raw components including the allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn into_raw_parts_with_allocator(self) -> (*mut T, S, usize, A) {
         let (vec, shape) = self.buffer.into_parts();
@@ -380,7 +341,6 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     }
 
     /// Creates a new, empty array with the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn new_in(alloc: A) -> Self {
         assert!(S::default().checked_len().is_some(), "invalid length");
@@ -520,7 +480,6 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     }
 
     /// Creates a new, empty array with the specified capacity and allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     pub fn with_capacity_in(capacity: usize, alloc: A) -> Self {
         assert!(S::default().checked_len().is_some(), "invalid length");
@@ -531,103 +490,6 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     }
 }
 
-#[cfg(not(feature = "nightly"))]
-impl<T, S: Shape> Array<T, S> {
-    /// Creates an array from the given element.
-    #[inline]
-    pub fn from_elem<I: IntoShape<IntoShape = S>>(shape: I, elem: T) -> Self
-    where
-        T: Clone,
-    {
-        Self::from_expr(expr::from_elem(shape, elem))
-    }
-
-    /// Creates an array from an expression.
-    #[inline]
-    pub fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        Self::with_expr_in(expr.into_expr(), Global)
-    }
-
-    /// Creates an array with the results from the given function.
-    #[inline]
-    pub fn from_fn<I: IntoShape<IntoShape = S>, F>(shape: I, f: F) -> Self
-    where
-        F: FnMut(&[usize]) -> T,
-    {
-        Self::from_expr(expr::from_fn(shape, f))
-    }
-
-    /// Creates an array with uninitialized elements.
-    #[inline]
-    pub fn uninit<I: IntoShape<IntoShape = S>>(shape: I) -> Array<MaybeUninit<T>, S> {
-        Array { buffer: <S::Buffer<T, Global>>::uninit_in(shape.into_shape(), Global) }
-    }
-
-    /// Creates an array with elements set to zero.
-    ///
-    /// Zero elements are created using `Default::default()`.
-    #[inline]
-    pub fn zeros<I: IntoShape<IntoShape = S>>(shape: I) -> Self
-    where
-        T: Default,
-    {
-        Self::from_expr(expr::from_elem(shape, ()).map(|_| T::default()))
-    }
-
-    #[inline]
-    pub(crate) fn clone_from_slice(&mut self, slice: &Slice<T, S>)
-    where
-        T: Clone,
-    {
-        self.buffer.clone_from_slice(slice);
-    }
-}
-
-#[cfg(not(feature = "nightly"))]
-impl<T, S: Shape<Buffer<T, Global> = DynBuffer<T, S>>> Array<T, S> {
-    /// Creates an array from raw components of another array.
-    ///
-    /// # Safety
-    ///
-    /// The pointer must be a valid allocation given the shape and capacity.
-    #[inline]
-    pub unsafe fn from_raw_parts(ptr: *mut T, shape: S, capacity: usize) -> Self {
-        unsafe {
-            let vec = Vec::from_raw_parts(ptr, shape.len(), capacity);
-
-            Self { buffer: DynBuffer::from_parts(vec, shape) }
-        }
-    }
-
-    /// Decomposes an array into its raw components.
-    #[inline]
-    pub fn into_raw_parts(self) -> (*mut T, S, usize) {
-        let (vec, shape) = self.buffer.into_parts();
-        let mut vec = mem::ManuallyDrop::new(vec);
-
-        (vec.as_mut_ptr(), shape, vec.capacity())
-    }
-
-    /// Creates a new, empty array.
-    #[inline]
-    pub fn new() -> Self {
-        assert!(S::default().checked_len().is_some(), "invalid length");
-
-        Self { buffer: unsafe { DynBuffer::from_parts(Vec::new(), S::default()) } }
-    }
-
-    /// Creates a new, empty array with the specified capacity.
-    #[inline]
-    pub fn with_capacity(capacity: usize) -> Self {
-        assert!(S::default().checked_len().is_some(), "invalid length");
-
-        let vec = Vec::with_capacity(capacity);
-
-        Self { buffer: unsafe { DynBuffer::from_parts(vec, S::default()) } }
-    }
-}
-
-#[cfg(feature = "nightly")]
 impl<T, S: Shape> Array<T, S> {
     /// Creates an array from the given element.
     #[inline]
@@ -679,7 +541,6 @@ impl<T, S: Shape> Array<T, S> {
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<T, S: Shape<Buffer<T, Global> = DynBuffer<T, S>>> Array<T, S> {
     /// Creates an array from raw components of another array.
     ///
@@ -948,24 +809,13 @@ impl<'a, T: 'a + Clone, S: Shape, L: Layout, I: IntoExpression<IntoExpr = View<'
     }
 }
 
-impl<T, D: Dim, A: Allocator> From<Array<T, (D,), A>> for vec_t!(T, A) {
+impl<T, D: Dim, A: Allocator> From<Array<T, (D,), A>> for Vec<T, A> {
     #[inline]
     fn from(value: Array<T, (D,), A>) -> Self {
         value.into_vec()
     }
 }
 
-#[cfg(not(feature = "nightly"))]
-impl<T> From<Vec<T>> for Array<T, (Dyn,)> {
-    #[inline]
-    fn from(value: Vec<T>) -> Self {
-        let shape = (value.len(),);
-
-        Self { buffer: unsafe { DynBuffer::from_parts(value, shape) } }
-    }
-}
-
-#[cfg(feature = "nightly")]
 impl<T, A: Allocator> From<Vec<T, A>> for Array<T, (Dyn,), A> {
     #[inline]
     fn from(value: Vec<T, A>) -> Self {
@@ -1015,13 +865,6 @@ impl_from_array!((X, Y, Z, W, U), (A, B, C, D, E), [[[[[T; E]; D]; C]; B]; A]);
 impl_from_array!((X, Y, Z, W, U, V), (A, B, C, D, E, F), [[[[[[T; F]; E]; D]; C]; B]; A]);
 
 impl<T, S: Shape> FromExpression<T, S> for Array<T, S> {
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
-        Self::from_expr(expr.into_expr())
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     fn from_expr<I: IntoExpression<Item = T, Shape = S>>(expr: I) -> Self {
         Self::from_expr_in(expr.into_expr(), Global)

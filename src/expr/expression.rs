@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -115,7 +114,6 @@ pub trait Expression: IntoIterator {
     }
 
     /// Evaluates the expression into a new array with the specified allocator.
-    #[cfg(feature = "nightly")]
     #[inline]
     fn eval_in<A: Allocator>(self, alloc: A) -> Array<Self::Item, Self::Shape, A>
     where
@@ -221,22 +219,6 @@ pub trait Expression: IntoIterator {
     #[doc(hidden)]
     unsafe fn step_dim(&mut self, index: usize);
 
-    #[cfg(not(feature = "nightly"))]
-    #[doc(hidden)]
-    #[inline]
-    fn clone_into_vec<T>(self, vec: &mut Vec<T>)
-    where
-        Self: Expression<Item: IntoCloned<T>> + Sized,
-    {
-        assert!(self.len() <= vec.capacity() - vec.len(), "length exceeds capacity");
-
-        self.for_each(|x| unsafe {
-            vec.as_mut_ptr().add(vec.len()).write(x.into_cloned());
-            vec.set_len(vec.len() + 1);
-        });
-    }
-
-    #[cfg(feature = "nightly")]
     #[doc(hidden)]
     #[inline]
     fn clone_into_vec<T, A: Allocator>(self, vec: &mut Vec<T, A>)

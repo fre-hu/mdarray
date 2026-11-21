@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -8,8 +7,6 @@ use alloc::vec;
 use core::fmt::{self, Debug, Formatter};
 use core::hash::Hash;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::Allocator;
 use crate::buffer::{DynBuffer, Owned};
 use crate::shape::Shape;
 

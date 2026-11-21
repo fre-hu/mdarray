@@ -1,9 +1,4 @@
-#[cfg(not(feature = "nightly"))]
-use alloc::alloc::Layout;
-#[cfg(feature = "nightly")]
 use alloc::alloc::{Allocator, Global, Layout};
-#[cfg(not(feature = "std"))]
-use alloc::boxed::Box;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
@@ -11,8 +6,6 @@ use core::marker::PhantomData;
 use core::mem::{self, ManuallyDrop, MaybeUninit};
 use core::ptr;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::{Allocator, Global};
 use crate::array::Array;
 use crate::buffer::{Buffer, Owned, StaticBuffer};
 use crate::dim::Const;
@@ -22,20 +15,6 @@ use crate::mapping::{DenseMapping, Mapping};
 use crate::raw_slice::RawSlice;
 use crate::shape::{ConstShape, Shape};
 use crate::slice::Slice;
-
-#[cfg(not(feature = "nightly"))]
-macro_rules! vec_t {
-    ($type:ty, $alloc:ty) => {
-        Vec<$type>
-    };
-}
-
-#[cfg(feature = "nightly")]
-macro_rules! vec_t {
-    ($type:ty, $alloc:ty) => {
-        Vec<$type, $alloc>
-    };
-}
 
 /// Array buffer type with dynamic allocation.
 pub struct DynBuffer<T, S: Shape, A: Allocator = Global> {
@@ -47,9 +26,6 @@ pub struct DynBuffer<T, S: Shape, A: Allocator = Global> {
 struct DropGuard<'a, T, A: Allocator> {
     ptr: *mut T,
     len: usize,
-    #[cfg(not(feature = "nightly"))]
-    phantom: PhantomData<(&'a mut Vec<T>, &'a A)>,
-    #[cfg(feature = "nightly")]
     phantom: PhantomData<&'a mut Vec<T, A>>,
 }
 
@@ -59,21 +35,6 @@ impl<T, S: Shape, A: Allocator> DynBuffer<T, S, A> {
         if mem::size_of::<T>() > 0 { self.capacity } else { usize::MAX }
     }
 
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    pub(crate) unsafe fn from_parts(vec: Vec<T>, shape: S) -> Self {
-        debug_assert!(Some(vec.len()) == shape.checked_len(), "length mismatch");
-
-        let mut vec = ManuallyDrop::new(vec);
-
-        Self {
-            slice: unsafe { RawSlice::new_unchecked(vec.as_mut_ptr(), DenseMapping::new(shape)) },
-            capacity: vec.capacity(),
-            alloc: unsafe { mem::transmute_copy(&Global) },
-        }
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     pub(crate) unsafe fn from_parts(vec: Vec<T, A>, shape: S) -> Self {
         debug_assert!(Some(vec.len()) == shape.checked_len(), "length mismatch");
@@ -88,14 +49,9 @@ impl<T, S: Shape, A: Allocator> DynBuffer<T, S, A> {
     }
 
     #[inline]
-    pub(crate) fn into_parts(self) -> (vec_t!(T, A), S) {
+    pub(crate) fn into_parts(self) -> (Vec<T, A>, S) {
         let mut me = ManuallyDrop::new(self);
 
-        #[cfg(not(feature = "nightly"))]
-        let vec = unsafe {
-            Vec::from_raw_parts(me.slice.as_mut_ptr(), me.slice.mapping().len(), me.capacity)
-        };
-        #[cfg(feature = "nightly")]
         let vec = unsafe {
             Vec::from_raw_parts_in(
                 me.slice.as_mut_ptr(),
@@ -124,9 +80,6 @@ impl<T, S: Shape, A: Allocator> DynBuffer<T, S, A> {
                         } else if new_dims[1..] == old_dims[1..] {
                             vec.resize_with(new_len, &mut f);
                         } else {
-                            #[cfg(not(feature = "nightly"))]
-                            let mut new_vec = Vec::with_capacity(new_len);
-                            #[cfg(feature = "nightly")]
                             let mut new_vec = Vec::with_capacity_in(new_len, *vec.allocator());
 
                             copy_dim::<T, S, A>(
@@ -157,62 +110,6 @@ impl<T, S: Shape, A: Allocator> DynBuffer<T, S, A> {
         }
     }
 
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    pub(crate) unsafe fn with_mut_parts<U, F>(&mut self, f: F) -> U
-    where
-        F: FnOnce(&mut Vec<T>, &mut S) -> U,
-    {
-        struct DropGuard<'a, T, S: Shape> {
-            slice: &'a mut RawSlice<T, S, Dense>,
-            capacity: &'a mut usize,
-            vec: ManuallyDrop<Vec<T>>,
-        }
-
-        impl<T, S: Shape> Drop for DropGuard<'_, T, S> {
-            #[inline]
-            fn drop(&mut self) {
-                unsafe {
-                    self.slice.set_ptr(self.vec.as_mut_ptr());
-                    *self.capacity = self.vec.capacity();
-
-                    // Cleanup in case of length mismatch (e.g. due to allocation failure)
-                    if self.vec.len() != self.slice.mapping().len() {
-                        assert!(S::default().len() == 0, "default length not zero");
-
-                        *self.slice.mapping_mut() = DenseMapping::default();
-                        ptr::drop_in_place(self.vec.as_mut_slice());
-                    }
-                }
-            }
-        }
-
-        let vec = unsafe {
-            Vec::from_raw_parts(self.slice.as_mut_ptr(), self.slice.mapping().len(), self.capacity)
-        };
-
-        let mut guard = DropGuard {
-            slice: &mut self.slice,
-            capacity: &mut self.capacity,
-            vec: ManuallyDrop::new(vec),
-        };
-
-        let shape = unsafe { guard.slice.mapping_mut().shape_mut() };
-        let result = f(&mut guard.vec, shape);
-
-        debug_assert!(Some(guard.vec.len()) == shape.checked_len(), "length mismatch");
-
-        unsafe {
-            guard.slice.set_ptr(guard.vec.as_mut_ptr());
-            *guard.capacity = guard.vec.capacity();
-        }
-
-        mem::forget(guard);
-
-        result
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     pub(crate) unsafe fn with_mut_parts<U, F>(&mut self, f: F) -> U
     where
@@ -301,15 +198,6 @@ impl<T: Clone, S: Shape, A: Allocator + Clone> Clone for DynBuffer<T, S, A> {
 }
 
 impl<T, S: Shape, A: Allocator> Drop for DynBuffer<T, S, A> {
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    fn drop(&mut self) {
-        _ = unsafe {
-            Vec::from_raw_parts(self.slice.as_mut_ptr(), self.slice.mapping().len(), self.capacity)
-        };
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     fn drop(&mut self) {
         _ = unsafe {
@@ -337,34 +225,13 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
         assert!(Layout::new::<T>() == Layout::new::<U>(), "layout mismatch");
 
         let (vec, shape) = self.into_parts();
-        #[cfg(not(feature = "nightly"))]
-        let mut vec = mem::ManuallyDrop::new(vec);
-        #[cfg(not(feature = "nightly"))]
-        let (ptr, len, capacity) = (vec.as_mut_ptr(), vec.len(), vec.capacity());
-        #[cfg(feature = "nightly")]
         let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
-        #[cfg(not(feature = "nightly"))]
-        let vec = unsafe { Vec::from_raw_parts(ptr.cast(), len, capacity) };
-        #[cfg(feature = "nightly")]
         let vec = unsafe { Vec::from_raw_parts_in(ptr.cast(), len, capacity, alloc) };
 
         unsafe { Owned::from_dyn(DynBuffer::from_parts(vec, shape)) }
     }
 
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    fn clone(&self) -> Self
-    where
-        T: Clone,
-        A: Clone,
-    {
-        let expr = self.as_slice().expr().cloned();
-
-        <Array<T, S, A>>::with_expr_in(expr, self.alloc.clone()).into_inner().into_dyn()
-    }
-
-    #[cfg(feature = "nightly")]
     #[inline]
     fn clone(&self) -> Self
     where
@@ -416,11 +283,7 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
     fn from_static<R: ConstShape>(buffer: StaticBuffer<T, R, A>, new_shape: S) -> Self {
         assert!(new_shape.checked_len() == Some(R::default().len()), "length must not change");
 
-        #[allow(unused_variables)]
         let (inner, alloc) = buffer.into_parts();
-        #[cfg(not(feature = "nightly"))]
-        let mut vec = <Vec<T>>::with_capacity(R::default().len());
-        #[cfg(feature = "nightly")]
         let mut vec = <Vec<T, A>>::with_capacity_in(R::default().len(), alloc);
 
         unsafe {
@@ -450,16 +313,16 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
         unsafe { Owned::from_dyn(DynBuffer::from_parts(vec, shape.reshape(new_shape))) }
     }
 
-    #[allow(unused_variables)]
     #[inline]
     fn uninit_in(shape: S, alloc: A) -> S::Buffer<MaybeUninit<T>, A> {
         let len = shape.checked_len().expect("invalid length");
-        #[cfg(not(feature = "nightly"))]
-        let vec = Vec::from(Box::new_uninit_slice(len));
-        #[cfg(feature = "nightly")]
-        let vec = Vec::from(Box::new_uninit_slice_in(len, alloc));
+        let mut vec = Vec::with_capacity_in(len, alloc);
 
-        unsafe { Owned::from_dyn(DynBuffer::from_parts(vec, shape)) }
+        unsafe {
+            vec.set_len(len);
+
+            Owned::from_dyn(DynBuffer::from_parts(vec, shape))
+        }
     }
 
     #[inline]
@@ -507,33 +370,22 @@ impl<T, S: Shape, A: Allocator> Owned for DynBuffer<T, S, A> {
 
             unsafe { buffer.cast() }
         } else {
-            #[cfg(not(feature = "nightly"))]
-            {
-                let array = unsafe { IntoExpr::new(self.cast()) };
-                let alloc = unsafe { mem::transmute_copy(&Global) };
+            // Need to use references to the allocator to have two active arrays.
 
-                <Array<U, S, A>>::with_expr_in(array.zip(expr).map(f), alloc).into_inner()
-            }
+            let (vec, shape) = self.into_parts();
+            let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_allocator();
 
-            #[cfg(feature = "nightly")]
-            {
-                // Need to use references to the allocator to have two active arrays.
+            let vec = unsafe { Vec::from_raw_parts_in(ptr, len, capacity, &alloc) };
+            let array = unsafe { IntoExpr::new(DynBuffer::from_parts(vec, shape).cast()) };
 
-                let (vec, shape) = self.into_parts();
-                let (ptr, len, capacity, alloc) = vec.into_raw_parts_with_allocator();
+            let result = <Array<U, S, &A>>::with_expr_in(array.zip(expr).map(f), &alloc);
 
-                let vec = unsafe { Vec::from_raw_parts_in(ptr, len, capacity, &alloc) };
-                let array = unsafe { IntoExpr::new(DynBuffer::from_parts(vec, shape).cast()) };
+            let (vec, shape) = result.into_inner().into_dyn().into_parts();
+            let (ptr, len, capacity, _) = vec.into_raw_parts_with_allocator();
 
-                let result = <Array<U, S, &A>>::with_expr_in(array.zip(expr).map(f), &alloc);
+            let vec = unsafe { Vec::from_raw_parts_in(ptr, len, capacity, alloc) };
 
-                let (vec, shape) = result.into_inner().into_dyn().into_parts();
-                let (ptr, len, capacity, _) = vec.into_raw_parts_with_allocator();
-
-                let vec = unsafe { Vec::from_raw_parts_in(ptr, len, capacity, alloc) };
-
-                unsafe { Owned::from_dyn(DynBuffer::from_parts(vec, shape)) }
-            }
+            unsafe { Owned::from_dyn(DynBuffer::from_parts(vec, shape)) }
         }
     }
 }
@@ -543,7 +395,7 @@ unsafe impl<T: Sync, S: Shape, A: Allocator + Sync> Sync for DynBuffer<T, S, A> 
 
 impl<'a, T, A: Allocator> DropGuard<'a, T, A> {
     #[inline]
-    fn new(vec: &'a mut vec_t!(T, &A)) -> Self {
+    fn new(vec: &'a mut Vec<T, &A>) -> Self {
         let len = vec.len();
 
         unsafe {
@@ -566,7 +418,7 @@ impl<T, A: Allocator> Drop for DropGuard<'_, T, A> {
 #[inline]
 unsafe fn copy_dim<T, S: Shape, A: Allocator>(
     old_vec: &mut DropGuard<T, A>,
-    new_vec: &mut vec_t!(T, &A),
+    new_vec: &mut Vec<T, &A>,
     old_dims: &[usize],
     new_dims: &[usize],
     f: &mut impl FnMut() -> T,
@@ -590,7 +442,7 @@ unsafe fn copy_dim<T, S: Shape, A: Allocator>(
 
             unsafe fn dummy<T, A: Allocator>(
                 _: &mut DropGuard<T, A>,
-                _: &mut vec_t!(T, &A),
+                _: &mut Vec<T, &A>,
                 _: &[usize],
                 _: &[usize],
                 _: &mut impl FnMut() -> T,

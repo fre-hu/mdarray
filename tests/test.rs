@@ -3,10 +3,8 @@
 #![warn(unreachable_pub)]
 #![warn(unused_results)]
 
-#[cfg(feature = "nightly")]
 pub mod aligned_alloc;
 
-#[cfg(feature = "nightly")]
 use std::alloc::Global;
 use std::any;
 use std::collections::hash_map::DefaultHasher;
@@ -16,7 +14,6 @@ use std::ops::RangeFull;
 #[cfg(feature = "serde")]
 use serde_test::{Token, assert_tokens};
 
-#[cfg(feature = "nightly")]
 use aligned_alloc::AlignedAlloc;
 use mdarray::expr::{self, Apply, Expression, IntoExpression};
 use mdarray::index::{Axis, Cols, Rows};
@@ -161,9 +158,6 @@ fn sr() -> StepRange<RangeFull, isize> {
 #[test]
 fn test_base() {
     let mut a = DArray::<usize, 3>::default();
-    #[cfg(not(feature = "nightly"))]
-    let mut b = DArray::<usize, 3>::with_capacity(60);
-    #[cfg(feature = "nightly")]
     let mut b = DArray::<usize, 3>::with_capacity_in(60, a.allocator().clone());
 
     a.resize([3, 4, 5], 0);
@@ -449,10 +443,8 @@ fn test_base() {
 
     assert_eq!(x, view![[4, 2, 1], [6, 5, 3]]);
 
-    #[cfg(feature = "nightly")]
     let u = DArray::<u8, 1, AlignedAlloc<64>>::with_capacity_in(64, AlignedAlloc::new(Global));
 
-    #[cfg(feature = "nightly")]
     assert_eq!(u.as_ptr() as usize % 64, 0);
 }
 

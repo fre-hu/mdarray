@@ -1,11 +1,8 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::{Allocator, Global};
 
 use core::mem::ManuallyDrop;
 use core::ptr;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::{Allocator, Global};
 use crate::array::Array;
 use crate::buffer::{Buffer, DynBuffer};
 use crate::dim::Const;

@@ -1,4 +1,3 @@
-#[cfg(feature = "nightly")]
 use alloc::alloc::Allocator;
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -10,8 +9,6 @@ use core::fmt::Debug;
 use core::hash::{Hash, Hasher};
 use core::slice;
 
-#[cfg(not(feature = "nightly"))]
-use crate::allocator::Allocator;
 use crate::buffer::{DynBuffer, Owned, StaticBuffer};
 use crate::dim::{Const, Dim, Dims, Dyn};
 use crate::layout::{Layout, Strided};

@@ -3,7 +3,7 @@
 export MIRIFLAGS="-Zmiri-tree-borrows"
 export RUSTFLAGS="-D warnings"
 
-export RUSTUP_TOOLCHAIN="1.89"
+export RUSTUP_TOOLCHAIN="1.100"
 
 set -ex
 
