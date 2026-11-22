@@ -168,6 +168,7 @@ macro_rules! impl_view {
             ///
             /// This method is deprecated, use `into_transposed` instead.
             #[deprecated]
+            #[doc(hidden)]
             #[inline]
             pub fn into_reordered(
                 $($mut)? self

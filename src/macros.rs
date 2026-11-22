@@ -199,6 +199,7 @@ macro_rules! dview {
 /// Creates a dynamically-sized multidimensional array containing the arguments.
 ///
 /// This macro is for backward compatibility, use `darray` instead.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tensor {
     ($($x:tt)*) => {

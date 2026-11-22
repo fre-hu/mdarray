@@ -31,16 +31,6 @@ pub struct Array<T, S: Shape = DynRank, A: Allocator = Global> {
 /// Multidimensional array with dynamically-sized dimensions and dense layout.
 pub type DArray<T, const N: usize, A = Global> = Array<T, Rank<N>, A>;
 
-/// Dense multidimensional array.
-///
-/// This type alias is for backward compatibility, use `Array` instead.
-pub type Tensor<T, S = DynRank, A = Global> = Array<T, S, A>;
-
-/// Multidimensional array with dynamically-sized dimensions and dense layout.
-///
-/// This type alias is for backward compatibility, use `DArray` instead.
-pub type DTensor<T, const N: usize, A = Global> = Array<T, Rank<N>, A>;
-
 impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     /// Returns a reference to the underlying allocator.
     #[inline]
@@ -98,6 +88,7 @@ impl<T, S: Shape, A: Allocator> Array<T, S, A> {
     ///
     /// This method is deprecated, use `into_buffer` instead.
     #[deprecated]
+    #[doc(hidden)]
     #[inline]
     pub fn into_mapping<R: Shape>(self) -> Array<T, R, A> {
         self.into_buffer()
@@ -387,6 +378,7 @@ impl<T, S: Shape<Buffer<T, A> = DynBuffer<T, S, A>>, A: Allocator> Array<T, S, A
     /// This method is deprecated, use `set_shape` instead.
     #[allow(clippy::missing_safety_doc)]
     #[deprecated]
+    #[doc(hidden)]
     #[inline]
     pub unsafe fn set_mapping(&mut self, new_mapping: DenseMapping<S>) {
         unsafe {

@@ -165,6 +165,8 @@
 
 extern crate alloc;
 
+use alloc::alloc::Global;
+
 pub mod buffer;
 pub mod expr;
 pub mod index;
@@ -184,7 +186,7 @@ mod view;
 #[cfg(feature = "serde")]
 mod serde;
 
-pub use array::{Array, DArray, DTensor, Tensor};
+pub use array::{Array, DArray};
 pub use dim::{Const, Dim, Dyn};
 pub use layout::{Dense, Layout, Strided};
 pub use ops::{StepRange, step};
@@ -194,4 +196,17 @@ pub use traits::IntoCloned;
 pub use view::{DView, DViewMut, View, ViewMut};
 
 // These re-exports are for backward compatibility, use the `mapping` module instead.
+#[doc(hidden)]
 pub use mapping::{DenseMapping, Mapping, StridedMapping};
+
+/// Dense multidimensional array.
+///
+/// This type alias is for backward compatibility, use `Array` instead.
+#[doc(hidden)]
+pub type Tensor<T, S = DynRank, A = Global> = Array<T, S, A>;
+
+/// Multidimensional array with dynamically-sized dimensions and dense layout.
+///
+/// This type alias is for backward compatibility, use `DArray` instead.
+#[doc(hidden)]
+pub type DTensor<T, const N: usize, A = Global> = Array<T, Rank<N>, A>;

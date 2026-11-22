@@ -502,6 +502,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// This method is deprecated, use `transpose` instead.
     #[deprecated]
+    #[doc(hidden)]
     #[inline]
     pub fn reorder(&self) -> View<'_, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::transpose(self.mapping());
@@ -513,6 +514,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// This method is deprecated, use `transpose_mut` instead.
     #[deprecated]
+    #[doc(hidden)]
     #[inline]
     pub fn reorder_mut(&mut self) -> ViewMut<'_, T, S::Reverse, <S::Tail as Shape>::Layout<L>> {
         let mapping = Mapping::transpose(self.mapping());
@@ -747,6 +749,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     ///
     /// This method is for backward compatibility, use `array` instead.
     #[cfg(feature = "nightly")]
+    #[doc(hidden)]
     #[inline]
     pub fn tensor<I: ViewIndex>(&self, #[rustc_splat] index: I) -> Array<T, I::Shape<S>>
     where
@@ -776,6 +779,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Copies the array slice into a new array.
     ///
     /// This method is for backward compatibility, use `to_array` instead.
+    #[doc(hidden)]
     #[inline]
     pub fn to_tensor(&self) -> Array<T, S>
     where
@@ -787,6 +791,7 @@ impl<T, S: Shape, L: Layout> Slice<T, S, L> {
     /// Copies the array slice into a new array with the specified allocator.
     ///
     /// This method is for backward compatibility, use `to_array_in` instead.
+    #[doc(hidden)]
     #[inline]
     pub fn to_tensor_in<A: Allocator>(&self, alloc: A) -> Array<T, S, A>
     where
@@ -899,6 +904,7 @@ macro_rules! impl_view {
             /// Copies the specified subarray into a new array.
             ///
             /// This method is for backward compatibility, use `array` instead.
+            #[doc(hidden)]
             #[inline]
             pub fn tensor<$($abc: DimIndex),+>(
                 &self,
